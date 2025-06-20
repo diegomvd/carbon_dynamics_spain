@@ -1,0 +1,24 @@
+name: s2_processing
+channels:
+  - conda-forge
+dependencies:
+  - python=3.12
+  - rasterio=1.4.2
+  - odc-stac=0.3.10
+  - numpy=1.26.4
+  - rioxarray=0.17
+  - geopandas=1.0.1
+  - dask
+  - xarray
+  - pandas
+  - matplotlib
+  - seaborn
+  - scipy
+  - tqdm
+  - pyyaml
+  - asyncssh
+  - boto3
+  - pip
+  - pip:
+    - pystac-client
+    - odc-algo

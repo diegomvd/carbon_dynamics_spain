@@ -1,0 +1,19 @@
+name: dl.carbon
+channels:
+  - conda-forge
+dependencies:
+  - python=3.12
+  - torchgeo=0.5.2
+  - rasterio
+  - lightning
+  - pytorch
+  - numpy
+  - natsort
+  - geopandas
+  - shapely
+  - seaborn
+  - pip
+  - pip:
+    - kornia-rs
+    - kornia 
+    - "ray[default]" 

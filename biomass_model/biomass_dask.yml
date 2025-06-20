@@ -1,0 +1,26 @@
+name: biomass-estimation-dask
+channels:
+  - conda-forge
+  - defaults
+dependencies:
+  - python
+  - pandas
+  - geopandas
+  - rasterio
+  - numpy
+  - scipy
+  - scikit-learn>=1.0.0
+  - tqdm
+  - psutil
+  - matplotlib
+  - seaborn>=0.11.2
+  - fiona
+  - shapely
+  - pyproj
+  - xarray
+  - rioxarray
+  - dask
+  - distributed
+  - pip
+  - pip:
+    - rasterstats

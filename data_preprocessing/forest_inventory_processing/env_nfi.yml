@@ -1,0 +1,17 @@
+name: nfi
+channels:
+  - conda-forge
+dependencies:
+  - python=3.13
+  - pandas
+  - geopandas
+  - numpy
+  - xlrd
+  - rasterio
+  - rioxarray
+  
+  # Note: mdb-tools required for Access database export (.accdb files)
+  # Install system-wide: 
+  #   Ubuntu/Debian: sudo apt-get install mdb-tools
+  #   macOS: brew install mdb-tools
+  #   Windows: Use alternative or WSL
