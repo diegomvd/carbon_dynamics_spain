@@ -8,7 +8,7 @@ Scripts:
     run_training.py: Model training and evaluation
     run_prediction.py: Large-scale prediction
     run_postprocessing.py: Multi-step post-processing
-    run_full_pipeline.py: Complete workflow orchestration
+    run_evaluation.py: Model evaluation on test set with metric calculation and visualization (extends evaluation from training script)
 
 Author: Diego Bengochea
 """
@@ -20,5 +20,6 @@ from .run_postprocessing import main as run_postprocessing
 __all__ = [
     "run_training",
     "run_prediction", 
-    "run_postprocessing"
+    "run_postprocessing",
+    "run_evaluation"
 ]
