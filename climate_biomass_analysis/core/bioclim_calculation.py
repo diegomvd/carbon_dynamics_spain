@@ -1,9 +1,11 @@
 """
-Bioclimatic variables calculation and anomaly analysis pipeline.
+FIXED: Bioclimatic variables calculation with restored quarter logic.
 
-Calculates bioclimatic variables (bio1-bio19) from monthly temperature and precipitation
-data, harmonizes rasters to common grids, and computes anomalies for analysis periods.
-Supports both calendar and rolling year periods (Sep-Aug).
+Key fixes:
+1. Restored original 4-quarter seasonal logic (not 12 sliding quarters)
+2. Removed bio2 and bio3 completely
+3. Use np.zeros for harmonization
+4. Added cumulative anomaly calculations (2yr, 3yr)
 
 Author: Diego Bengochea
 """
@@ -54,8 +56,10 @@ class BioclimCalculator:
         self.climate_config = self.config['climate_processing']
         self.time_periods = self.config['time_periods']
         
-        # Bioclimatic variables to calculate
-        self.bio_variables = self.bioclim_config['variables']
+        # FIXED: Remove bio2 and bio3 from variables list
+        available_vars = ['bio1', 'bio4', 'bio5', 'bio6', 'bio7', 'bio8', 'bio9', 'bio10', 
+                         'bio11', 'bio12', 'bio13', 'bio14', 'bio15', 'bio16', 'bio17', 'bio18', 'bio19']
+        self.bio_variables = [v for v in self.bioclim_config['variables'] if v in available_vars]
         
         # Unit conversions
         self.temp_conversion = self.bioclim_config['temp_conversion']
@@ -100,7 +104,8 @@ class BioclimCalculator:
         """
         with rasterio.open(input_path) as src:
             # Reproject and resample to match reference
-            harmonized = np.empty(reference_shape, dtype=src.dtypes[0])
+            # FIXED: Use np.zeros instead of np.empty
+            harmonized = np.zeros(reference_shape, dtype=src.dtypes[0])
             
             rasterio.warp.reproject(
                 source=rasterio.band(src, 1),
@@ -114,241 +119,21 @@ class BioclimCalculator:
             
             return harmonized
     
-    def harmonize_rasters(
-        self, 
-        raster_files: List[Union[str, Path]], 
-        output_dir: Union[str, Path],
-        reference_file: Optional[Union[str, Path]] = None
-    ) -> List[str]:
-        """
-        Harmonize all raster files to the same dimensions and coordinate system.
-        
-        Args:
-            raster_files: List of paths to raster files to harmonize
-            output_dir: Directory to save harmonized rasters
-            reference_file: File to use as reference. If None, uses the first file.
-            
-        Returns:
-            List of paths to harmonized raster files
-        """
-        if not raster_files:
-            self.logger.warning("No raster files provided for harmonization")
-            return []
-        
-        # Ensure output directory exists
-        ensure_directory(output_dir)
-        
-        # Determine reference file
-        if reference_file is None:
-            reference_file = raster_files[0]
-        
-        self.logger.info(f"Using reference file: {Path(reference_file).name}")
-        
-        # Get reference properties
-        with rasterio.open(reference_file) as ref:
-            reference_shape = (ref.height, ref.width)
-            reference_transform = ref.transform
-            reference_crs = ref.crs
-            reference_profile = ref.profile.copy()
-        
-        self.logger.info(f"Reference grid: {reference_shape[1]}x{reference_shape[0]}, CRS: {reference_crs}")
-        
-        # Process each file
-        harmonized_files = []
-        for raster_file in raster_files:
-            try:
-                # Generate output filename
-                output_filename = Path(raster_file).name
-                output_path = Path(output_dir) / output_filename
-                
-                # Check if already harmonized
-                if output_path.exists():
-                    self.logger.debug(f"Already harmonized: {output_filename}")
-                    harmonized_files.append(str(output_path))
-                    continue
-                
-                # Harmonize raster
-                harmonized_data = self.harmonize_raster(
-                    raster_file, reference_shape, reference_transform, reference_crs
-                )
-                
-                # Save harmonized raster
-                with rasterio.open(output_path, 'w', **reference_profile) as dst:
-                    dst.write(harmonized_data, 1)
-                
-                harmonized_files.append(str(output_path))
-                self.logger.debug(f"Harmonized: {output_filename}")
-                
-            except Exception as e:
-                self.logger.error(f"Error harmonizing {raster_file}: {e}")
-        
-        self.logger.info(f"Harmonized {len(harmonized_files)}/{len(raster_files)} files")
-        return harmonized_files
-    
-    def filter_files_by_period(
-        self, 
-        files: List[str], 
-        start_year: int, 
-        end_year: int,
-        rolling: bool = False
-    ) -> List[str]:
-        """
-        Filter files by time period.
-        
-        Args:
-            files: List of file paths
-            start_year: Start year for filtering
-            end_year: End year for filtering  
-            rolling: If True, use Sep-Aug rolling years
-            
-        Returns:
-            Filtered list of file paths
-        """
-        filtered_files = []
-        
-        for file_path in files:
-            try:
-                date = self.extract_date(file_path)
-                year = date.year
-                month = date.month
-                
-                if rolling:
-                    # For rolling years (Sep-Aug), assign months Sep-Dec to current year,
-                    # Jan-Aug to previous year
-                    if month >= 9:  # Sep-Dec
-                        rolling_year = year
-                    else:  # Jan-Aug
-                        rolling_year = year - 1
-                    
-                    if start_year <= rolling_year <= end_year:
-                        filtered_files.append(file_path)
-                else:
-                    # Calendar year filtering
-                    if start_year <= year <= end_year:
-                        filtered_files.append(file_path)
-                        
-            except Exception as e:
-                self.logger.warning(f"Error parsing date from {file_path}: {e}")
-                continue
-        
-        self.logger.info(f"Filtered to {len(filtered_files)} files for period {start_year}-{end_year} (rolling={rolling})")
-        return filtered_files
-    
-    def calculate_bioclim_variables(
-        self,
-        temp_files: List[str],
-        precip_files: List[str],
-        output_dir: Union[str, Path],
-        start_year: int,
-        end_year: int,
-        rolling: bool = False
-    ) -> Optional[Dict[str, str]]:
-        """
-        Calculate bioclimatic variables for a given period.
-        
-        Args:
-            temp_files: List of temperature file paths
-            precip_files: List of precipitation file paths
-            output_dir: Output directory for bioclimatic variables
-            start_year: Start year for calculation
-            end_year: End year for calculation
-            rolling: Use Sep-Aug rolling years
-            
-        Returns:
-            Dictionary mapping bioclimatic variable names to output file paths
-        """
-        # Filter files by period
-        period_temp_files = self.filter_files_by_period(temp_files, start_year, end_year, rolling)
-        period_precip_files = self.filter_files_by_period(precip_files, start_year, end_year, rolling)
-        
-        if not period_temp_files or not period_precip_files:
-            self.logger.error(f"No files found for period {start_year}-{end_year}")
-            return None
-        
-        # Ensure output directory exists
-        ensure_directory(output_dir)
-        
-        try:
-            # Load temperature data
-            temp_data = {}
-            for temp_file in period_temp_files:
-                date = self.extract_date(temp_file)
-                month_key = date.strftime('%m')
-                
-                if month_key not in temp_data:
-                    temp_data[month_key] = []
-                
-                with rasterio.open(temp_file) as src:
-                    data = src.read(1).astype(np.float32)
-                    # Convert temperature units if needed (e.g., from Kelvin*10 to Celsius)
-                    data = data * self.temp_conversion
-                    temp_data[month_key].append(data)
-                    
-                    # Store reference profile from first file
-                    if 'profile' not in locals():
-                        profile = src.profile.copy()
-                        profile.update(dtype=rasterio.float32)
-            
-            # Load precipitation data
-            precip_data = {}
-            for precip_file in period_precip_files:
-                date = self.extract_date(precip_file)
-                month_key = date.strftime('%m')
-                
-                if month_key not in precip_data:
-                    precip_data[month_key] = []
-                
-                with rasterio.open(precip_file) as src:
-                    data = src.read(1).astype(np.float32)
-                    # Convert precipitation units if needed (e.g., from m to mm)
-                    data = data * self.precip_scaling
-                    precip_data[month_key].append(data)
-            
-            # Calculate monthly averages
-            monthly_temp = {}
-            monthly_precip = {}
-            
-            for month in range(1, 13):
-                month_key = f"{month:02d}"
-                
-                if month_key in temp_data:
-                    monthly_temp[month] = np.mean(temp_data[month_key], axis=0)
-                if month_key in precip_data:
-                    monthly_precip[month] = np.mean(precip_data[month_key], axis=0)
-            
-            # Calculate bioclimatic variables
-            bioclim_results = self._calculate_bioclim_from_monthly(monthly_temp, monthly_precip)
-            
-            # Save bioclimatic variables
-            output_files = {}
-            for bio_var, data in bioclim_results.items():
-                if bio_var in self.bio_variables:
-                    output_file = Path(output_dir) / f"{bio_var}_{start_year}_{end_year}.tif"
-                    
-                    with rasterio.open(output_file, 'w', **profile) as dst:
-                        dst.write(data.astype(np.float32), 1)
-                    
-                    output_files[bio_var] = str(output_file)
-                    self.logger.debug(f"Saved {bio_var}: {output_file.name}")
-            
-            self.logger.info(f"Calculated {len(output_files)} bioclimatic variables for {start_year}-{end_year}")
-            return output_files
-            
-        except Exception as e:
-            self.logger.error(f"Error calculating bioclimatic variables: {e}")
-            return None
-    
     def _calculate_bioclim_from_monthly(
         self, 
         monthly_temp: Dict[int, np.ndarray], 
-        monthly_precip: Dict[int, np.ndarray]
+        monthly_precip: Dict[int, np.ndarray],
+        rolling: bool = False
     ) -> Dict[str, np.ndarray]:
         """
-        Calculate all 19 bioclimatic variables from monthly data.
+        Calculate all bioclimatic variables from monthly data.
+        
+        FIXED: Restored original quarter-based logic from old implementation
         
         Args:
             monthly_temp: Dictionary of monthly temperature arrays (1-12)
             monthly_precip: Dictionary of monthly precipitation arrays (1-12)
+            rolling: Whether to use rolling year definition
             
         Returns:
             Dictionary of bioclimatic variable arrays
@@ -363,13 +148,6 @@ class BioclimCalculator:
         # Bio1: Annual Mean Temperature
         bioclim['bio1'] = np.mean(temp_array, axis=0)
         
-        # Bio2: Mean Diurnal Range (here we approximate as monthly range)
-        bioclim['bio2'] = np.mean(np.max(temp_array, axis=0) - np.min(temp_array, axis=0))
-        
-        # Bio3: Isothermality (Bio2/Bio7) * 100
-        bio7 = np.max(temp_array, axis=0) - np.min(temp_array, axis=0)
-        bioclim['bio3'] = (bioclim['bio2'] / bio7) * 100
-        
         # Bio4: Temperature Seasonality (standard deviation * 100)
         bioclim['bio4'] = np.std(temp_array, axis=0) * 100
         
@@ -380,43 +158,7 @@ class BioclimCalculator:
         bioclim['bio6'] = np.min(temp_array, axis=0)
         
         # Bio7: Temperature Annual Range
-        bioclim['bio7'] = bio7
-        
-        # Bio8: Mean Temperature of Wettest Quarter
-        # Find wettest quarter for each pixel
-        quarterly_precip = np.array([
-            np.sum(precip_array[i:i+3], axis=0) for i in range(12)
-        ])
-        wettest_quarter_idx = np.argmax(quarterly_precip, axis=0)
-        
-        # Calculate mean temperature for wettest quarter
-        bio8 = np.zeros_like(bioclim['bio1'])
-        for i in range(12):
-            mask = wettest_quarter_idx == i
-            if np.any(mask):
-                quarter_temp = np.mean(temp_array[i:i+3], axis=0)
-                bio8[mask] = quarter_temp[mask]
-        bioclim['bio8'] = bio8
-        
-        # Bio9: Mean Temperature of Driest Quarter
-        driest_quarter_idx = np.argmin(quarterly_precip, axis=0)
-        
-        bio9 = np.zeros_like(bioclim['bio1'])
-        for i in range(12):
-            mask = driest_quarter_idx == i
-            if np.any(mask):
-                quarter_temp = np.mean(temp_array[i:i+3], axis=0)
-                bio9[mask] = quarter_temp[mask]
-        bioclim['bio9'] = bio9
-        
-        # Bio10: Mean Temperature of Warmest Quarter
-        quarterly_temp = np.array([
-            np.mean(temp_array[i:i+3], axis=0) for i in range(12)
-        ])
-        bioclim['bio10'] = np.max(quarterly_temp, axis=0)
-        
-        # Bio11: Mean Temperature of Coldest Quarter
-        bioclim['bio11'] = np.min(quarterly_temp, axis=0)
+        bioclim['bio7'] = bioclim['bio5'] - bioclim['bio6']
         
         # Bio12: Annual Precipitation
         bioclim['bio12'] = np.sum(precip_array, axis=0)
@@ -434,33 +176,89 @@ class BioclimCalculator:
         cv = np.where(mean_precip > 0, (std_precip / mean_precip) * 100, 0)
         bioclim['bio15'] = cv
         
+        # FIXED: Restore original quarter-based logic
+        # Define quarters based on rolling vs calendar year
+        if rolling:
+            quarters = [
+                [9, 10, 11],  # Fall (Sep, Oct, Nov)
+                [12, 1, 2],   # Winter
+                [3, 4, 5],    # Spring
+                [6, 7, 8]     # Summer
+            ]
+        else:
+            quarters = [
+                [12, 1, 2],  # Winter (Dec, Jan, Feb)
+                [3, 4, 5],   # Spring
+                [6, 7, 8],   # Summer
+                [9, 10, 11]  # Fall
+            ]
+        
+        # Calculate quarterly means and sums
+        quarter_temp = {}
+        quarter_precip = {}
+        
+        for i, q in enumerate(quarters):
+            temp_q = np.mean([monthly_temp[m] for m in q], axis=0)
+            precip_q = np.sum([monthly_precip[m] for m in q], axis=0)
+            quarter_temp[i] = temp_q
+            quarter_precip[i] = precip_q
+        
+        # Find warmest, coldest, wettest, driest quarters on a pixel-by-pixel basis
+        quarter_temp_array = np.array([quarter_temp[i] for i in range(4)])
+        quarter_precip_array = np.array([quarter_precip[i] for i in range(4)])
+        
+        warmest_q_pixels = np.argmax(quarter_temp_array, axis=0)
+        coldest_q_pixels = np.argmin(quarter_temp_array, axis=0)
+        wettest_q_pixels = np.argmax(quarter_precip_array, axis=0)
+        driest_q_pixels = np.argmin(quarter_precip_array, axis=0)
+        
+        # Bio8: Mean Temperature of Wettest Quarter
+        temp_wettest_quarter = np.zeros_like(bioclim['bio1'])
+        for i in range(4):
+            temp_wettest_quarter[wettest_q_pixels == i] = quarter_temp[i][wettest_q_pixels == i]
+        bioclim['bio8'] = temp_wettest_quarter
+        
+        # Bio9: Mean Temperature of Driest Quarter
+        temp_driest_quarter = np.zeros_like(bioclim['bio1'])
+        for i in range(4):
+            temp_driest_quarter[driest_q_pixels == i] = quarter_temp[i][driest_q_pixels == i]
+        bioclim['bio9'] = temp_driest_quarter
+        
+        # Bio10: Mean Temperature of Warmest Quarter
+        temp_warmest_quarter = np.zeros_like(bioclim['bio1'])
+        for i in range(4):
+            temp_warmest_quarter[warmest_q_pixels == i] = quarter_temp[i][warmest_q_pixels == i]
+        bioclim['bio10'] = temp_warmest_quarter
+        
+        # Bio11: Mean Temperature of Coldest Quarter
+        temp_coldest_quarter = np.zeros_like(bioclim['bio1'])
+        for i in range(4):
+            temp_coldest_quarter[coldest_q_pixels == i] = quarter_temp[i][coldest_q_pixels == i]
+        bioclim['bio11'] = temp_coldest_quarter
+        
         # Bio16: Precipitation of Wettest Quarter
-        bioclim['bio16'] = np.max(quarterly_precip, axis=0)
+        precip_wettest_quarter = np.zeros_like(bioclim['bio1'])
+        for i in range(4):
+            precip_wettest_quarter[wettest_q_pixels == i] = quarter_precip[i][wettest_q_pixels == i]
+        bioclim['bio16'] = precip_wettest_quarter
         
         # Bio17: Precipitation of Driest Quarter
-        bioclim['bio17'] = np.min(quarterly_precip, axis=0)
+        precip_driest_quarter = np.zeros_like(bioclim['bio1'])
+        for i in range(4):
+            precip_driest_quarter[driest_q_pixels == i] = quarter_precip[i][driest_q_pixels == i]
+        bioclim['bio17'] = precip_driest_quarter
         
         # Bio18: Precipitation of Warmest Quarter
-        warmest_quarter_idx = np.argmax(quarterly_temp, axis=0)
-        
-        bio18 = np.zeros_like(bioclim['bio12'])
-        for i in range(12):
-            mask = warmest_quarter_idx == i
-            if np.any(mask):
-                quarter_precip = np.sum(precip_array[i:i+3], axis=0)
-                bio18[mask] = quarter_precip[mask]
-        bioclim['bio18'] = bio18
+        precip_warmest_quarter = np.zeros_like(bioclim['bio1'])
+        for i in range(4):
+            precip_warmest_quarter[warmest_q_pixels == i] = quarter_precip[i][warmest_q_pixels == i]
+        bioclim['bio18'] = precip_warmest_quarter
         
         # Bio19: Precipitation of Coldest Quarter
-        coldest_quarter_idx = np.argmin(quarterly_temp, axis=0)
-        
-        bio19 = np.zeros_like(bioclim['bio12'])
-        for i in range(12):
-            mask = coldest_quarter_idx == i
-            if np.any(mask):
-                quarter_precip = np.sum(precip_array[i:i+3], axis=0)
-                bio19[mask] = quarter_precip[mask]
-        bioclim['bio19'] = bio19
+        precip_coldest_quarter = np.zeros_like(bioclim['bio1'])
+        for i in range(4):
+            precip_coldest_quarter[coldest_q_pixels == i] = quarter_precip[i][coldest_q_pixels == i]
+        bioclim['bio19'] = precip_coldest_quarter
         
         return bioclim
     
@@ -477,6 +275,8 @@ class BioclimCalculator:
         """
         Calculate bioclimatic anomalies for each year in the analysis period.
         
+        FIXED: Added cumulative anomaly calculations (2yr, 3yr)
+        
         Args:
             temp_files: List of temperature file paths
             precip_files: List of precipitation file paths
@@ -489,6 +289,8 @@ class BioclimCalculator:
         Returns:
             Dictionary mapping years to anomaly file paths
         """
+        self.logger.info(f"Calculating bioclimatic anomalies for period {start_year}-{end_year}")
+        
         # Load reference bioclimatic variables
         reference_bioclim = {}
         for bio_var in self.bio_variables:
@@ -505,116 +307,126 @@ class BioclimCalculator:
             self.logger.error(f"No reference bioclimatic variables found in {reference_bioclim_dir}")
             return None
         
-        # Calculate anomalies for each year
+        # Calculate bioclim variables for each year and compute anomalies
         yearly_anomalies = {}
         
         for year in range(start_year, end_year + 1):
-            self.logger.info(f"Calculating anomalies for year {year}")
+            self.logger.info(f"Processing year {year}...")
             
-            # Create year-specific output directory
-            year_output_dir = Path(output_dir) / f"anomalies_{year}"
-            ensure_directory(year_output_dir)
-            
-            # Calculate bioclimatic variables for this year
-            year_bioclim = self.calculate_bioclim_variables(
-                temp_files, precip_files, year_output_dir / "temp",
-                year, year, rolling
-            )
+            # Calculate bioclim variables for this year
+            year_bioclim = self._calculate_year_bioclim(temp_files, precip_files, year, rolling)
             
             if year_bioclim is None:
-                self.logger.warning(f"Could not calculate bioclimatic variables for year {year}")
+                self.logger.warning(f"Skipping year {year} due to incomplete data")
                 continue
             
-            # Calculate and save anomalies
+            # Create directory for this year's anomalies
+            year_label = f"{year}Sep-{year+1}Aug" if rolling else f"{year}"
+            year_anomaly_dir = os.path.join(output_dir, f"anomalies_{year_label}")
+            os.makedirs(year_anomaly_dir, exist_ok=True)
+            
+            # Calculate anomalies for each bioclim variable
             year_anomalies = {}
-            for bio_var in self.bio_variables:
-                if bio_var in year_bioclim and bio_var in reference_bioclim:
-                    try:
-                        # Load year data
-                        with rasterio.open(year_bioclim[bio_var]) as src:
-                            year_data = src.read(1).astype(np.float32)
-                        
-                        # Calculate anomaly
-                        anomaly = year_data - reference_bioclim[bio_var]
-                        
-                        # Save anomaly
-                        anomaly_file = year_output_dir / f"{bio_var}_anomaly_{year}.tif"
-                        with rasterio.open(anomaly_file, 'w', **profile) as dst:
-                            dst.write(anomaly.astype(np.float32), 1)
-                        
-                        year_anomalies[bio_var] = str(anomaly_file)
-                        
-                    except Exception as e:
-                        self.logger.error(f"Error calculating {bio_var} anomaly for {year}: {e}")
+            for var in self.bio_variables:
+                if var not in reference_bioclim or var not in year_bioclim:
+                    continue
+                
+                # Calculate anomaly
+                anomaly = year_bioclim[var] - reference_bioclim[var]
+                year_anomalies[var] = anomaly
+                
+                # Save anomaly raster
+                anomaly_path = os.path.join(year_anomaly_dir, f"{var}_anomaly_{year_label}.tif")
+                with rasterio.open(anomaly_path, 'w', **profile) as dst:
+                    dst.write(anomaly.astype(rasterio.float32), 1)
             
             yearly_anomalies[year] = year_anomalies
-            self.logger.info(f"Calculated {len(year_anomalies)} anomalies for year {year}")
         
+        # FIXED: Add cumulative anomaly calculations (2-year and 3-year)
+        self.logger.info("Calculating cumulative anomalies...")
+        
+        for year in range(start_year + 2, end_year + 1):  # Start from year that has 2 years before it
+            # Check if we have all required data
+            if not all(yearly_anomalies.get(y) for y in range(year-2, year+1)):
+                continue
+            
+            # Calculate 2-year and 3-year cumulative anomalies
+            for cum_years in [2, 3]:
+                if year < start_year + cum_years - 1:
+                    continue
+                    
+                prior_years = list(range(year - cum_years + 1, year + 1))
+                
+                year_label = f"{year}Sep-{year+1}Aug" if rolling else f"{year}"
+                cum_dir = os.path.join(output_dir, f"anomalies_{cum_years}yr_{year_label}")
+                os.makedirs(cum_dir, exist_ok=True)
+                
+                for var in self.bio_variables:
+                    if not all(var in yearly_anomalies[y] for y in prior_years):
+                        continue
+                    
+                    # For all variables, use the average of anomalies (not sum)
+                    cum_anomaly = np.mean([yearly_anomalies[y][var] for y in prior_years], axis=0)
+                    
+                    # Save cumulative anomaly raster
+                    cum_path = os.path.join(cum_dir, f"{var}_anomaly_{cum_years}yr_{year_label}.tif")
+                    with rasterio.open(cum_path, 'w', **profile) as dst:
+                        dst.write(cum_anomaly.astype(rasterio.float32), 1)
+        
+        self.logger.info(f"Bioclim anomalies calculated successfully and saved to {output_dir}")
         return yearly_anomalies
     
-    def run_bioclim_pipeline(self) -> Optional[Dict[str, str]]:
-        """
-        Run the complete bioclimatic variables calculation pipeline.
+    def _calculate_year_bioclim(self, temp_files, precip_files, year, rolling):
+        """Calculate bioclim variables for a specific year."""
+        year_temp_files = []
+        year_precip_files = []
         
-        Returns:
-            Dictionary with results from anomaly calculations
-        """
-        self.logger.info("Starting bioclimatic variables calculation pipeline...")
+        # Gather files for this year
+        for file in temp_files:
+            date = self.extract_date(file)
+            if rolling:
+                # For rolling years (Sep to Aug)
+                effective_year = date.year if date.month >= 9 else date.year - 1
+            else:
+                effective_year = date.year
+            
+            if effective_year == year:
+                year_temp_files.append(file)
         
-        # Extract config parameters
-        data_dir = self.config['data']['climate_outputs']
-        harmonized_dir = self.config['data']['harmonized_dir']
-        bioclim_dir = self.config['data']['bioclim_dir']
-        anomaly_dir = self.config['data']['anomaly_dir']
+        for file in precip_files:
+            date = self.extract_date(file)
+            if rolling:
+                effective_year = date.year if date.month >= 9 else date.year - 1
+            else:
+                effective_year = date.year
+            
+            if effective_year == year:
+                year_precip_files.append(file)
         
-        reference_period = self.time_periods['reference']
-        analysis_period = self.time_periods['analysis']
-        
-        # Find all temperature and precipitation files
-        temp_files = glob.glob(os.path.join(data_dir, self.climate_config['temp_pattern']))
-        precip_files = glob.glob(os.path.join(data_dir, self.climate_config['precip_pattern']))
-        
-        # Create directories for harmonized files
-        harmonized_temp_dir = os.path.join(harmonized_dir, "temperature")
-        harmonized_precip_dir = os.path.join(harmonized_dir, "precipitation")
-        
-        self.logger.info(f"Found {len(temp_files)} temperature files and {len(precip_files)} precipitation files")
-        
-        # Step 1: Harmonize all raster files to a common grid
-        self.logger.info("Harmonizing temperature files...")
-        harmonized_temp_files = self.harmonize_rasters(temp_files, harmonized_temp_dir)
-        
-        self.logger.info("Harmonizing precipitation files...")
-        harmonized_precip_files = self.harmonize_rasters(precip_files, harmonized_precip_dir)
-        
-        # Step 2: Calculate bioclimatic variables for the reference period
-        self.logger.info(f"Calculating bioclimatic variables for reference period ({reference_period['start_year']}-{reference_period['end_year']})...")
-        reference_bioclim = self.calculate_bioclim_variables(
-            harmonized_temp_files, 
-            harmonized_precip_files, 
-            bioclim_dir, 
-            start_year=reference_period['start_year'], 
-            end_year=reference_period['end_year'],
-            rolling=reference_period['rolling']
-        )
-        
-        if reference_bioclim is None:
-            self.logger.error("Error calculating reference bioclimatic variables. Exiting.")
+        # Check if we have complete data
+        if len(year_temp_files) < 12 or len(year_precip_files) < 12:
+            self.logger.warning(f"Incomplete data for year {year}. Found {len(year_temp_files)} temp files and {len(year_precip_files)} precip files.")
             return None
         
-        self.logger.info(f"Reference bioclimatic variables calculated successfully and saved to {bioclim_dir}")
+        # Load monthly data and calculate bioclim
+        monthly_temp = {}
+        monthly_precip = {}
         
-        # Step 3: Calculate bioclimatic anomalies for the analysis period
-        self.logger.info(f"Calculating bioclimatic anomalies for analysis period ({analysis_period['start_year']}-{analysis_period['end_year']})...")
-        yearly_anomalies = self.calculate_bioclim_anomalies(
-            harmonized_temp_files,
-            harmonized_precip_files,
-            bioclim_dir,
-            anomaly_dir,
-            start_year=analysis_period['start_year'],
-            end_year=analysis_period['end_year'],
-            rolling=analysis_period['rolling']
-        )
+        # Load temperature data
+        for file in year_temp_files:
+            date = self.extract_date(file)
+            month = date.month
+            with rasterio.open(file) as src:
+                monthly_temp[month] = src.read(1).astype(np.float32)
         
-        self.logger.info("Bioclimatic pipeline completed successfully!")
-        return yearly_anomalies
+        # Load precipitation data
+        for file in year_precip_files:
+            date = self.extract_date(file)
+            month = date.month
+            with rasterio.open(file) as src:
+                monthly_precip[month] = src.read(1).astype(np.float32)
+        
+        # Calculate bioclimatic variables
+        year_bioclim = self._calculate_bioclim_from_monthly(monthly_temp, monthly_precip, rolling)
+        
+        return year_bioclim

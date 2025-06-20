@@ -1,9 +1,11 @@
 """
-Bayesian optimization pipeline for biomass-climate modeling.
+FIXED: Optimization pipeline with restored feature selection logic.
 
-Performs multiple independent spatial optimization runs using Bayesian optimization
-to select optimal climate predictors for biomass change prediction. Uses spatial
-cross-validation to prevent overfitting and includes comprehensive model evaluation.
+Key fixes:
+1. Restored original feature selection algorithm from old implementation
+2. Fixed standardization logic (always standardize, avoid zero division)
+3. Maintained spatial cross-validation approach
+4. Restored complex objective function with feature sampling
 
 Author: Diego Bengochea
 """
@@ -93,49 +95,73 @@ class OptimizationPipeline:
             log_file=self.config['logging'].get('log_file')
         )
         
-        # Extract configuration
+        # Extract configuration sections
         self.opt_config = self.config['optimization']
-        self.cv_config = self.opt_config['cv_strategy']
-        self.hyperparams = self.opt_config['hyperparameters']
         self.features_config = self.opt_config['features']
-        self.early_stopping_config = self.opt_config['early_stopping']
+        self.hyperparams = self.opt_config['hyperparameters']
+        self.cv_config = self.opt_config['cv_strategy']
+        self.early_stopping_config = self.opt_config.get('early_stopping', {'patience': 40, 'min_trials': 100})
+        
+        # FIXED: Add max_features for feature selection
+        self.max_features = self.opt_config.get('max_features', 15)  # Default to 15 like in old implementation
         
         self.logger.info("Initialized OptimizationPipeline")
     
-    def load_spatial_data(self) -> pd.DataFrame:
+    def prepare_data_for_modeling(self, df: pd.DataFrame) -> Tuple[pd.DataFrame, List[str], str]:
         """
-        Load the dataset with spatial cluster assignments.
+        Prepare data for modeling by standardizing and identifying columns.
         
+        FIXED: Restored original standardization logic (always standardize, but with zero-division protection)
+        
+        Args:
+            df: Input dataset
+            
         Returns:
-            Dataset with cluster_id column
+            Tuple of (standardized_df, predictor_columns, target_column)
         """
-        clustered_data_file = self.config['data']['clustered_dataset']
+        # Define columns to exclude from analysis
+        exclude_cols = ['year_start', 'year_end', 'cluster_id', 'x', 'y']
         
-        self.logger.info(f"Loading spatial data from {clustered_data_file}")
+        # Exclude bioclimatic variables as specified in config
+        bio_prefixes_to_exclude = self.features_config['exclude_bio_vars']
         
-        try:
-            # Load the data with cluster assignments
-            df = pd.read_csv(clustered_data_file)
-            
-            # Check if cluster_id column exists
-            if 'cluster_id' not in df.columns:
-                raise ValueError("cluster_id column not found in the spatial data file")
-            
-            # Get the number of unique clusters
-            num_clusters = df['cluster_id'].nunique()
-            self.logger.info(f"Found {num_clusters} spatial clusters in the data")
-            
-            # Verify we have enough clusters for the strategy
-            min_required = self.cv_config['test_blocks'] + self.cv_config['validation_blocks_range'][0]
-            if num_clusters < min_required:
-                raise ValueError(f"Not enough spatial clusters ({num_clusters}) for the partitioning strategy. "
-                                f"Need at least {min_required} clusters.")
-            
-            return df
-            
-        except Exception as e:
-            self.logger.error(f"Error loading spatial data: {e}")
-            raise
+        # Find all columns that match the bio prefixes to exclude
+        for col in df.columns:
+            for prefix in bio_prefixes_to_exclude:
+                if col.startswith(prefix):
+                    exclude_cols.append(col)
+                    break
+        
+        # Remove duplicates in exclude_cols if any
+        exclude_cols = list(set(exclude_cols))
+        
+        # Log the excluded bioclimatic variables
+        excluded_bio_vars = [col for col in exclude_cols if col.startswith('bio')]
+        if excluded_bio_vars:
+            self.logger.info(f"Excluding these bioclimatic variables: {', '.join(excluded_bio_vars)}")
+        
+        # Get analysis columns (all columns except excluded ones)
+        analysis_cols = [col for col in df.columns if col not in exclude_cols]
+        
+        # Identify target and predictor columns
+        target_col = 'biomass_rel_change'
+        predictor_cols = [col for col in analysis_cols if col != target_col]
+        
+        # FIXED: Always standardize all variables (like old implementation)
+        # But add zero-division protection
+        df_std = df.copy()
+        for col in analysis_cols:
+            col_mean = df[col].mean()
+            col_std = df[col].std()
+            if col_std > 0:  # Avoid division by zero
+                df_std[col] = (df[col] - col_mean) / col_std
+            else:
+                self.logger.warning(f"Column {col} has zero standard deviation, keeping original values")
+                df_std[col] = df[col] - col_mean  # Center but don't scale
+        
+        self.logger.info(f"Total number of features after exclusions: {len(predictor_cols)}")
+        
+        return df_std, predictor_cols, target_col
     
     def create_spatial_partition(
         self, 
@@ -178,109 +204,20 @@ class OptimizationPipeline:
         
         return train_indices, val_indices, test_indices
     
-    def prepare_features(self, df: pd.DataFrame) -> Tuple[pd.DataFrame, List[str], str]:
-        """
-        Prepare features for machine learning.
-        
-        Args:
-            df: Input dataset
-            
-        Returns:
-            Tuple of (standardized_df, predictor_columns, target_column)
-        """
-        # Define columns to exclude from analysis
-        exclude_cols = ['year_start', 'year_end', 'cluster_id', 'x', 'y']
-        
-        # Exclude bioclimatic variables as specified in config
-        bio_prefixes_to_exclude = self.features_config['exclude_bio_vars']
-        
-        # Find all columns that match the bio prefixes to exclude
-        for col in df.columns:
-            for prefix in bio_prefixes_to_exclude:
-                if col.startswith(prefix):
-                    exclude_cols.append(col)
-                    break
-        
-        # Remove duplicates in exclude_cols if any
-        exclude_cols = list(set(exclude_cols))
-        
-        # Log the excluded bioclimatic variables
-        excluded_bio_vars = [col for col in exclude_cols if col.startswith('bio')]
-        if excluded_bio_vars:
-            self.logger.info(f"Excluding these bioclimatic variables: {', '.join(excluded_bio_vars)}")
-        
-        # Get analysis columns (all columns except excluded ones)
-        analysis_cols = [col for col in df.columns if col not in exclude_cols]
-        
-        # Identify target and predictor columns
-        target_col = 'biomass_rel_change'
-        predictor_cols = [col for col in analysis_cols if col != target_col]
-        
-        # Standardize all variables if requested
-        df_processed = df.copy()
-        if self.features_config.get('standardize', True):
-            for col in analysis_cols:
-                col_mean = df[col].mean()
-                col_std = df[col].std()
-                if col_std > 0:  # Avoid division by zero
-                    df_processed[col] = (df[col] - col_mean) / col_std
-        
-        # Remove highly correlated features if requested
-        if self.features_config.get('remove_correlated', False):
-            predictor_cols = self._remove_correlated_features(df_processed, predictor_cols)
-        
-        self.logger.info(f"Total number of features after processing: {len(predictor_cols)}")
-        
-        return df_processed, predictor_cols, target_col
-    
-    def _remove_correlated_features(
-        self, 
-        df: pd.DataFrame, 
-        predictor_cols: List[str]
-    ) -> List[str]:
-        """
-        Remove highly correlated features.
-        
-        Args:
-            df: DataFrame with features
-            predictor_cols: List of predictor column names
-            
-        Returns:
-            Filtered list of predictor columns
-        """
-        threshold = self.features_config.get('correlation_threshold', 0.95)
-        
-        # Calculate correlation matrix
-        corr_matrix = df[predictor_cols].corr().abs()
-        
-        # Find pairs of highly correlated features
-        upper_triangle = corr_matrix.where(
-            np.triu(np.ones(corr_matrix.shape), k=1).astype(bool)
-        )
-        
-        # Find features to drop
-        to_drop = [column for column in upper_triangle.columns 
-                  if any(upper_triangle[column] > threshold)]
-        
-        # Remove highly correlated features
-        filtered_cols = [col for col in predictor_cols if col not in to_drop]
-        
-        if to_drop:
-            self.logger.info(f"Removed {len(to_drop)} highly correlated features "
-                           f"(correlation > {threshold})")
-        
-        return filtered_cols
-    
     def objective_function(
         self, 
-        trial: optuna.Trial,
-        X_train: np.ndarray,
-        y_train: np.ndarray,
-        X_val: np.ndarray,
-        y_val: np.ndarray
+        trial: optuna.Trial, 
+        X_train: np.ndarray, 
+        y_train: np.ndarray, 
+        X_val: np.ndarray, 
+        y_val: np.ndarray,
+        predictor_cols: List[str],
+        run_seed: int
     ) -> float:
         """
         Objective function for Optuna optimization.
+        
+        FIXED: Restored original feature selection logic from old implementation
         
         Args:
             trial: Optuna trial object
@@ -288,44 +225,76 @@ class OptimizationPipeline:
             y_train: Training targets
             X_val: Validation features
             y_val: Validation targets
+            predictor_cols: List of predictor column names
+            run_seed: Random seed for this run
             
         Returns:
             Validation R² score
         """
-        # Suggest hyperparameters
-        n_estimators = trial.suggest_int('n_estimators', *self.hyperparams['n_estimators'])
-        max_depth = trial.suggest_int('max_depth', *self.hyperparams['max_depth'])
-        learning_rate = trial.suggest_float('learning_rate', *self.hyperparams['learning_rate'])
-        subsample = trial.suggest_float('subsample', *self.hyperparams['subsample'])
-        colsample_bytree = trial.suggest_float('colsample_bytree', *self.hyperparams['colsample_bytree'])
-        min_child_weight = trial.suggest_int('min_child_weight', *self.hyperparams['min_child_weight'])
-        reg_alpha = trial.suggest_float('reg_alpha', *self.hyperparams['reg_alpha'])
-        reg_lambda = trial.suggest_float('reg_lambda', *self.hyperparams['reg_lambda'])
+        # FIXED: Restore feature selection logic
+        # Let the model decide how many features to use (1 to max_features)
+        n_features = trial.suggest_int('n_features', 1, self.max_features)
         
-        # Create and train model
-        model = xgb.XGBRegressor(
-            n_estimators=n_estimators,
-            max_depth=max_depth,
-            learning_rate=learning_rate,
-            subsample=subsample,
-            colsample_bytree=colsample_bytree,
-            min_child_weight=min_child_weight,
-            reg_alpha=reg_alpha,
-            reg_lambda=reg_lambda,
-            random_state=42,
-            n_jobs=1  # Use single thread to avoid conflicts
-        )
+        # Get total number of available predictors
+        n_features_total = len(predictor_cols)
+        
+        # Use a combination-based method to ensure uniqueness
+        available_indices = list(range(n_features_total))
+        feature_indices = []
+        
+        # Randomly select n_features from available indices without replacement
+        for i in range(n_features):
+            if not available_indices:
+                break  # Safety check
+                
+            # Select an index from the remaining available indices
+            idx_position = trial.suggest_int(f'feature_pos_{i}', 0, len(available_indices) - 1)
+            selected_idx = available_indices.pop(idx_position)
+            feature_indices.append(selected_idx)
+        
+        # Sort indices for consistency
+        feature_indices.sort()
+        
+        # Get the selected features
+        X_train_selected = X_train[:, feature_indices]
+        X_val_selected = X_val[:, feature_indices]
+        
+        # Configure XGBoost parameters
+        xgb_params = {
+            'objective': 'reg:squarederror',
+            'eval_metric': 'rmse',
+            'learning_rate': trial.suggest_float('learning_rate', *self.hyperparams['learning_rate']),
+            'max_depth': trial.suggest_int('max_depth', *self.hyperparams['max_depth']),
+            'min_child_weight': trial.suggest_int('min_child_weight', *self.hyperparams['min_child_weight']),
+            'subsample': trial.suggest_float('subsample', *self.hyperparams['subsample']),
+            'colsample_bytree': trial.suggest_float('colsample_bytree', *self.hyperparams['colsample_bytree']),
+            'n_estimators': trial.suggest_int('n_estimators', *self.hyperparams['n_estimators']),
+            'reg_alpha': trial.suggest_float('reg_alpha', *self.hyperparams['reg_alpha']),
+            'reg_lambda': trial.suggest_float('reg_lambda', *self.hyperparams['reg_lambda']),
+            'random_state': run_seed,
+            'n_jobs': 1  # Use single thread to avoid conflicts
+        }
         
         try:
-            model.fit(X_train, y_train)
-            y_pred = model.predict(X_val)
-            r2 = r2_score(y_val, y_pred)
+            # Train the model
+            model = xgb.XGBRegressor(**xgb_params)
+            model.fit(X_train_selected, y_train)
+            
+            # Evaluate on validation set
+            y_val_pred = model.predict(X_val_selected)
+            val_r2 = r2_score(y_val, y_val_pred)
+            
+            # Store features and info in trial attributes
+            trial.set_user_attr('features', [predictor_cols[i] for i in feature_indices])
+            trial.set_user_attr('feature_indices', feature_indices)
+            trial.set_user_attr('val_r2', val_r2)
+            trial.set_user_attr('n_features', n_features)
             
             # Handle invalid R² values
-            if np.isnan(r2) or np.isinf(r2):
+            if np.isnan(val_r2) or np.isinf(val_r2):
                 return -1.0
             
-            return r2
+            return val_r2  # We're maximizing R²
             
         except Exception as e:
             self.logger.warning(f"Error in trial {trial.number}: {e}")
@@ -368,7 +337,12 @@ class OptimizationPipeline:
         # Create Optuna study
         study = optuna.create_study(
             direction='maximize',
-            sampler=optuna.samplers.TPESampler(seed=run_seed)
+            sampler=optuna.samplers.TPESampler(
+                seed=run_seed,
+                n_startup_trials=30,  # More initial random trials
+                n_ei_candidates=20,   # Consider more candidates
+                prior_weight=1.0      # Balance prior and likelihood
+            )
         )
         
         # Set up early stopping
@@ -381,131 +355,137 @@ class OptimizationPipeline:
         start_time = time.time()
         
         study.optimize(
-            lambda trial: self.objective_function(trial, X_train, y_train, X_val, y_val),
+            lambda trial: self.objective_function(trial, X_train, y_train, X_val, y_val, predictor_cols, run_seed),
             n_trials=self.opt_config['n_trials'],
             callbacks=[early_stopping]
         )
         
         optimization_time = time.time() - start_time
         
-        # Get best parameters and retrain final model
-        best_params = study.best_params
+        # Get best parameters and features
+        best_params = {}
+        for param_name, param_value in study.best_trial.params.items():
+            if not param_name.startswith('feature_'):
+                best_params[param_name] = param_value
         
-        final_model = xgb.XGBRegressor(**best_params, random_state=42)
-        final_model.fit(X_train, y_train)
+        best_params.update({
+            'objective': 'reg:squarederror',
+            'eval_metric': 'rmse',
+            'random_state': run_seed
+        })
+        
+        best_feature_indices = study.best_trial.user_attrs['feature_indices']
+        best_features = study.best_trial.user_attrs['features']
+        val_r2 = study.best_trial.user_attrs['val_r2']
+        
+        # Train final model on combined training and validation data
+        X_train_val = np.vstack((X_train, X_val))
+        y_train_val = np.concatenate((y_train, y_val))
+        
+        X_train_val_selected = X_train_val[:, best_feature_indices]
+        X_test_selected = X_test[:, best_feature_indices]
+        
+        final_model = xgb.XGBRegressor(**best_params)
+        final_model.fit(X_train_val_selected, y_train_val)
         
         # Evaluate on test set
-        y_test_pred = final_model.predict(X_test)
+        y_test_pred = final_model.predict(X_test_selected)
         test_r2 = r2_score(y_test, y_test_pred)
         
-        # Get feature importance
-        feature_importance = dict(zip(predictor_cols, final_model.feature_importances_))
+        # Calculate feature importance
+        feature_importance = final_model.feature_importances_
+        importance_dict = {feature: importance for feature, importance in zip(best_features, feature_importance)}
         
-        results = {
+        # Create model info dictionary
+        run_results = {
             'run_id': run_id,
             'run_seed': run_seed,
-            'best_params': best_params,
-            'best_val_r2': study.best_value,
+            'model': final_model,
+            'features': best_features,
+            'feature_indices': best_feature_indices,
+            'params': best_params,
+            'val_r2': val_r2,
             'test_r2': test_r2,
-            'feature_importance': feature_importance,
-            'n_trials': len(study.trials),
-            'optimization_time_minutes': optimization_time / 60,
-            'early_stopped': early_stopping.should_stop,
-            'train_size': len(train_indices),
-            'val_size': len(val_indices),
-            'test_size': len(test_indices)
+            'trials_completed': len(study.trials),
+            'optimization_time': optimization_time,
+            'y_test': y_test,
+            'y_pred': y_test_pred,
+            'feature_importance': importance_dict,
+            'partition_info': {
+                'train_size': len(X_train),
+                'val_size': len(X_val),
+                'test_size': len(X_test)
+            },
+            'num_features_used': len(best_features)
         }
         
-        self.logger.info(f"Run {run_id + 1} completed - Val R²: {study.best_value:.4f}, "
-                        f"Test R²: {test_r2:.4f}, Trials: {len(study.trials)}")
+        self.logger.info(f"Run {run_id + 1} completed: Val R²={val_r2:.4f}, Test R²={test_r2:.4f}, "
+                        f"Features used: {len(best_features)}")
         
-        return results
+        return run_results
     
-    def analyze_optimization_results(self, results: List[Dict[str, Any]]) -> Dict[str, Any]:
+    def analyze_optimization_results(self, all_results: List[Dict[str, Any]]) -> Dict[str, Any]:
         """
         Analyze results from multiple optimization runs.
         
         Args:
-            results: List of optimization results
+            all_results: List of results from individual runs
             
         Returns:
-            Summary statistics and analysis
+            Dictionary with aggregated analysis
         """
         # Extract metrics
-        val_r2_scores = [r['best_val_r2'] for r in results]
-        test_r2_scores = [r['test_r2'] for r in results]
-        n_trials = [r['n_trials'] for r in results]
+        val_r2s = [r['val_r2'] for r in all_results]
+        test_r2s = [r['test_r2'] for r in all_results]
+        n_features = [r['num_features_used'] for r in all_results]
         
-        # Feature importance analysis
-        all_features = set()
-        for r in results:
-            all_features.update(r['feature_importance'].keys())
+        # Feature selection frequency analysis
+        all_features = []
+        for result in all_results:
+            all_features.extend(result['features'])
         
-        feature_importance_matrix = pd.DataFrame(
-            [r['feature_importance'] for r in results]
-        ).fillna(0)
+        feature_counts = Counter(all_features)
+        total_runs = len(all_results)
+        feature_frequencies = {feat: count/total_runs for feat, count in feature_counts.items()}
         
-        # Calculate feature selection frequency and mean importance
-        feature_stats = pd.DataFrame({
-            'mean_importance': feature_importance_matrix.mean(),
-            'std_importance': feature_importance_matrix.std(),
-            'selection_frequency': (feature_importance_matrix > 0).mean(),
-            'max_importance': feature_importance_matrix.max()
-        }).sort_values('mean_importance', ascending=False)
-        
-        # Most frequently selected features
-        top_features = feature_stats[feature_stats['selection_frequency'] > 0.5].index.tolist()
-        
-        # Parameter analysis
-        all_params = set()
-        for r in results:
-            all_params.update(r['best_params'].keys())
-        
-        param_stats = {}
-        for param in all_params:
-            values = [r['best_params'].get(param, np.nan) for r in results]
-            values = [v for v in values if not np.isnan(v)]
-            if values:
-                param_stats[param] = {
-                    'mean': np.mean(values),
-                    'std': np.std(values),
-                    'min': np.min(values),
-                    'max': np.max(values)
-                }
+        # Sort features by frequency
+        top_features = sorted(feature_frequencies.items(), key=lambda x: x[1], reverse=True)
         
         summary = {
-            'n_runs': len(results),
             'validation_r2': {
-                'mean': np.mean(val_r2_scores),
-                'std': np.std(val_r2_scores),
-                'min': np.min(val_r2_scores),
-                'max': np.max(val_r2_scores)
+                'mean': np.mean(val_r2s),
+                'std': np.std(val_r2s),
+                'min': np.min(val_r2s),
+                'max': np.max(val_r2s)
             },
             'test_r2': {
-                'mean': np.mean(test_r2_scores),
-                'std': np.std(test_r2_scores),
-                'min': np.min(test_r2_scores),
-                'max': np.max(test_r2_scores)
+                'mean': np.mean(test_r2s),
+                'std': np.std(test_r2s),
+                'min': np.min(test_r2s),
+                'max': np.max(test_r2s)
             },
-            'optimization_efficiency': {
-                'mean_trials': np.mean(n_trials),
-                'std_trials': np.std(n_trials),
-                'early_stopping_rate': np.mean([r['early_stopped'] for r in results])
+            'features_per_run': {
+                'mean': np.mean(n_features),
+                'std': np.std(n_features),
+                'min': np.min(n_features),
+                'max': np.max(n_features)
             },
             'feature_analysis': {
-                'total_features': len(all_features),
-                'frequently_selected': len(top_features),
-                'top_features': top_features[:10],  # Top 10
-                'feature_stats': feature_stats.head(20).to_dict()  # Top 20
+                'feature_frequencies': feature_frequencies,
+                'top_features': [feat for feat, freq in top_features[:20]],  # Top 20
+                'feature_selection_counts': feature_counts
             },
-            'parameter_analysis': param_stats
+            'run_summary': {
+                'total_runs': total_runs,
+                'successful_runs': len([r for r in all_results if r['val_r2'] > 0])
+            }
         }
         
         return summary
     
     def run_optimization_pipeline(self) -> Dict[str, Any]:
         """
-        Run the complete optimization pipeline with multiple independent runs.
+        Execute the complete optimization pipeline.
         
         Returns:
             Dictionary with comprehensive optimization results
@@ -516,7 +496,7 @@ class OptimizationPipeline:
         df = self.load_spatial_data()
         
         # Prepare features
-        df_processed, predictor_cols, target_col = self.prepare_features(df)
+        df_processed, predictor_cols, target_col = self.prepare_data_for_modeling(df)
         
         self.logger.info(f"Dataset shape: {df_processed.shape}")
         self.logger.info(f"Features: {len(predictor_cols)}, Target: {target_col}")
@@ -574,3 +554,21 @@ class OptimizationPipeline:
             'summary': summary,
             'output_directory': str(output_dir)
         }
+    
+    def load_spatial_data(self) -> pd.DataFrame:
+        """Load the spatial dataset with cluster assignments."""
+        # This method should load the clustered dataset
+        # Implementation depends on where the data is stored
+        clustered_dataset_path = self.config['data']['clustered_dataset']
+        
+        if not os.path.exists(clustered_dataset_path):
+            raise FileNotFoundError(f"Clustered dataset not found: {clustered_dataset_path}")
+        
+        df = pd.read_csv(clustered_dataset_path)
+        
+        if 'cluster_id' not in df.columns:
+            raise ValueError("Dataset must contain 'cluster_id' column")
+        
+        self.logger.info(f"Loaded dataset with {len(df)} data points and {df['cluster_id'].nunique()} clusters")
+        
+        return df
