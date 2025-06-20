@@ -1,9 +1,12 @@
-# Biomass Analysis Configuration
+# Biomass Analysis Component Configuration
 # Centralized settings for all analysis scripts
 
-# Base data directory
+component: "biomass_analysis"
+version: "1.0.0"
+
+# Base data directory and paths
 data:
-  base_dir: '/Users/diego/git/iberian.carbon/data'
+  base_dir: '/path/to/data'  # Update this path
   
   # Input data paths (relative to base_dir)
   biomass_maps_dir: 'biomass_maps_merged_with_annual_crop_mask'
@@ -58,7 +61,7 @@ height_ranges:
 # Landcover settings (for Corine Land Cover analysis)
 landcover:
   groups:
-    urban: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]                    # 1-11
+    urban: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]                  # 1-11
     agricultural: [15, 16, 17, 18, 19, 20, 21, 22]                # 15-22  
     natural: [23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39]  # 23-39
 
@@ -75,6 +78,10 @@ interannual:
     output_raw_dir: 'interannual_biomass_differences'                    # raw signed differences 
     output_relative_dir: 'interannual_biomass_differences_relative'      # relative symmetric differences
     create_10km_resampled: false  # Whether to create 10km resampled versions
+  
+  # For transition analysis
+  transitions:
+    save_transition_data: false   # Whether to save raw pixel-level transition data
   
   # For carbon flux calculations  
   carbon_fluxes:
