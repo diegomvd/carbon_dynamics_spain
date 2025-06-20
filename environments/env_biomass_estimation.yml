@@ -1,9 +1,13 @@
-name: biomass-estimation-dask
+# Biomass Estimation Environment
+# For biomass_model component: allometry fitting, Monte Carlo estimation, masking
+# Author: Diego Bengochea
+
+name: biomass_estimation
 channels:
   - conda-forge
   - defaults
 dependencies:
-  - python
+  - python=3.12
   - pandas
   - geopandas
   - rasterio
@@ -21,6 +25,7 @@ dependencies:
   - rioxarray
   - dask
   - distributed
+  - pyyaml
   - pip
   - pip:
     - rasterstats

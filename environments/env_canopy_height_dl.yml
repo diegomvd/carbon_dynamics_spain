@@ -1,0 +1,24 @@
+# Canopy Height Deep Learning Environment
+# CRITICAL: Exact versioning preserved to avoid conflicts
+# For canopy_height_model component: PyTorch training, prediction, post-processing
+# Author: Diego Bengochea
+
+name: canopy_height_dl
+channels:
+  - conda-forge
+dependencies:
+  - python=3.12
+  - torchgeo=0.5.2
+  - rasterio
+  - lightning
+  - pytorch
+  - numpy
+  - natsort
+  - geopandas
+  - shapely
+  - seaborn
+  - pip
+  - pip:
+    - kornia-rs
+    - kornia 
+    - "ray[default]"

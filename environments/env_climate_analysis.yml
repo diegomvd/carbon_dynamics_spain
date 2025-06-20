@@ -1,0 +1,31 @@
+# Climate Analysis Environment  
+# For climate_biomass_analysis component: GRIB processing, bioclimatic variables, spatial analysis
+# Author: Diego Bengochea
+
+name: climate_analysis
+channels:
+  - conda-forge
+dependencies:
+  - python=3.12
+  - xarray
+  - rasterio
+  - rioxarray
+  - geopandas
+  - pandas
+  - numpy
+  - scipy
+  - matplotlib
+  - seaborn
+  - dask
+  - netcdf4
+  - h5netcdf
+  - cfgrib
+  - eccodes
+  - tqdm
+  - pyyaml
+  - scikit-learn
+  - shapely
+  - pyproj
+  - pip
+  - pip:
+    - rasterstats

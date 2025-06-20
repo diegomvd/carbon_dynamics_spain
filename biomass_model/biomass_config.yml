@@ -1,0 +1,90 @@
+# Biomass Estimation Component Configuration
+# Author: Diego Bengochea
+
+# Component metadata
+component:
+  name: "biomass_estimation"
+  version: "1.0.0"
+  description: "Biomass estimation with allometric relationships and Monte Carlo uncertainty"
+
+# Data paths and directories
+data:
+  # Input data
+  input_data_dir: '/Users/diego/git/iberian.carbon/data/canopy_height_predictions/merged_full_country_interpolated/'
+  masks_dir: '/Users/diego/git/iberian.carbon/data/forest_type_masks/100m/'
+  
+  # Reference data files
+  allometries_file: '/Users/diego/git/iberian.carbon/data/stocks_NFI4/H_AGB_Allometries_Tiers_ModelCalibrated_Quantiles_15-85_OnlyPowerLaw.csv'
+  forest_types_file: '/Users/diego/git/iberian.carbon/data/stocks_NFI4/Forest_Types_Tiers.csv'
+  bgb_coeffs_file: '/Users/diego/git/iberian.carbon/data/stocks_NFI4/BGBRatios_Tiers.csv'
+  mfe_dir: '/Users/diego/git/iberian.carbon/data/MFESpain/'
+  
+  # Land cover masking
+  corine_land_cover: '/Users/diego/git/iberian.carbon/data/corine_land_cover/U2018_CLC2018_V2020_20u1.tif'
+  
+  # Output directories
+  output_base_dir: '/Users/diego/git/iberian.carbon/data'
+  biomass_no_masking_dir: 'biomass_no_LC_masking'
+  biomass_with_mask_dir: 'with_annual_crop_mask'
+  
+  # Output subdirectories for different biomass types
+  subdirs:
+    agbd: 'AGBD_MC_100m'
+    bgbd: 'BGBD_MC_100m'
+    total: 'TBD_MC_100m'
+
+# Processing parameters
+processing:
+  height_threshold: 0.0  # Minimum canopy height in meters
+  compute_no_arbolado: true  # Whether to compute non-forest areas
+  file_pattern: '*.tif'
+  target_years: [2017, 2018, 2019, 2020, 2021, 2022, 2023, 2024]
+  
+  # Masking parameters
+  annual_crop_values: [12, 13, 14]  # Corine land cover values for arable land
+
+# Forest type hierarchy configuration
+forest_types:
+  tier_names: ['General', 'Clade', 'Family', 'Genus', 'ForestType']
+  
+# Monte Carlo simulation parameters
+monte_carlo:
+  num_samples: 250  # Number of Monte Carlo samples per pixel
+  random_seed: 42  # Random seed for reproducibility
+  distribution_type: 'normal'  # Statistical distribution assumption
+
+# Output configuration
+output:
+  types: ['agbd', 'bgbd', 'total']  # Output map types to generate
+  measures: ['mean', 'uncertainty']  # Statistical measures to output
+  
+  # File naming patterns
+  prefix: 'S2'  # Prefix for output files
+  
+  # GeoTIFF optimization settings
+  geotiff:
+    tiled: true
+    blockxsize: 256
+    blockysize: 256
+    compress: 'LZW'
+    dtype: 'float32'
+    nodata_value: -9999
+
+# Distributed computing parameters
+compute:
+  num_workers: 4  # Number of Dask workers
+  memory_limit: '41GB'  # Memory limit per worker
+  chunk_size: 2048  # Chunk size for raster processing
+  
+# Masking configuration (for annual cropland masking)
+masking:
+  target_extensions: ['.tif', '.tiff']
+  recursive_processing: true
+  biomass_patterns: ['*AGBD*', '*BGBD*', '*TBD*']
+  corine_resampling_method: 'nearest'
+  
+# Logging configuration
+logging:
+  level: 'INFO'
+  format: 'standard'
+  log_file: null  # Set to path for file logging

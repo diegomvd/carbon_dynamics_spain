@@ -1,0 +1,41 @@
+# Data Preprocessing Environment
+# For data_preprocessing component: Sentinel-2 mosaics, NFI processing, forest inventory
+# Combines requirements from both s2_processing and nfi environments
+# Author: Diego Bengochea
+
+name: data_preprocessing
+channels:
+  - conda-forge
+dependencies:
+  - python=3.12
+  # Sentinel-2 processing dependencies
+  - rasterio=1.4.2
+  - odc-stac=0.3.10
+  - numpy=1.26.4
+  - rioxarray=0.17
+  - geopandas=1.0.1
+  - dask
+  - xarray
+  - pandas
+  - matplotlib
+  - seaborn
+  - scipy
+  - tqdm
+  - pyyaml
+  - asyncssh
+  - boto3
+  # NFI processing dependencies  
+  - xlrd
+  - fiona
+  - shapely
+  - pyproj
+  - pip
+  - pip:
+    - pystac-client
+    - odc-algo
+
+# Note: mdb-tools required for Access database export (.accdb files)
+# Install system-wide: 
+#   Ubuntu/Debian: sudo apt-get install mdb-tools
+#   macOS: brew install mdb-tools
+#   Windows: Use alternative or WSL

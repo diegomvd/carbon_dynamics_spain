@@ -1,0 +1,176 @@
+# Canopy Height Deep Learning Component Configuration
+# Author: Diego Bengochea
+
+# Component metadata
+component:
+  name: "canopy_height_dl"
+  version: "1.0.0"
+  description: "Deep learning pipeline for canopy height estimation using Sentinel-2 and PNOA LiDAR"
+
+# Data paths and directories
+data:
+  # Base data directory
+  data_dir: '/Users/diego/git/iberian.carbon/data'
+  
+  # Training data
+  sentinel2_dir: 'sentinel2_mosaics'
+  pnoa_lidar_dir: 'pnoa_lidar'
+  
+  # Model checkpoints
+  checkpoint_dir: 'canopy_height_model/checkpoints'
+  checkpoint_path: null  # Path to specific checkpoint for prediction/testing
+  
+  # Prediction outputs
+  predictions_dir: 'canopy_height_predictions'
+  
+  # Post-processing paths
+  merged_tiles_dir: 'canopy_height_predictions/merged_tiles'
+  sanitized_dir: 'canopy_height_predictions/sanitized'
+  final_mosaics_dir: 'canopy_height_predictions/final_mosaics'
+
+# Model configuration
+model:
+  # Architecture
+  model_type: 'unet'  # unet, deeplabv3+, etc.
+  backbone: 'efficientnet-b4'
+  weights: 'imagenet'  # Pre-trained weights
+  
+  # Input/output
+  in_channels: 10  # Sentinel-2 bands
+  num_outputs: 1   # Single channel height output
+  target_range: 'universal'  # Height range for normalization
+  
+  # Loss function
+  loss_function: 'mse'
+  range_weighted_loss: true
+  
+  # Data handling
+  nan_value_target: -1.0
+  nan_value_input: 0.0
+
+# Training configuration
+training:
+  # Optimization
+  lr: 1e-4
+  batch_size: 16
+  max_epochs: 100
+  patience: 15  # Early stopping patience
+  
+  # Data augmentation
+  augmentation_enabled: true
+  augmentation_probability: 0.5
+  
+  # Validation
+  val_split: 0.2
+  test_split: 0.1
+  
+  # Hardware
+  accelerator: 'auto'  # auto, gpu, cpu, mps
+  devices: 1
+  precision: 32
+
+# Prediction configuration  
+prediction:
+  # Processing
+  batch_size: 8
+  tile_size: 512
+  overlap: 64
+  
+  # Output format
+  output_dtype: 'float32'
+  compress: 'lzw'
+  tiled: true
+
+# Post-processing configuration
+post_processing:
+  # Step 1: Merge predictions
+  merge:
+    input_dir: 'canopy_height_predictions/patches'
+    output_dir: 'canopy_height_predictions/merged_tiles'
+    tile_size_km: 120  # 120km tiles
+    compression: 'lzw'
+    target_crs: 'EPSG:25830'
+    nodata_value: -9999
+    num_workers: 4
+    
+    # Year processing
+    year_timestamps:
+      2017: '2017-06-15'
+      2018: '2018-06-15'
+      2019: '2019-06-15'
+      2020: '2020-06-15'
+      2021: '2021-06-15'
+      2022: '2022-06-15'
+      2023: '2023-06-15'
+      2024: '2024-06-15'
+  
+  # Step 2: Sanitize and interpolate
+  sanitize:
+    input_dir: 'canopy_height_predictions/merged_tiles'
+    output_dir: 'canopy_height_predictions/sanitized'
+    
+    # Outlier detection
+    outlier_detection: true
+    height_min: 0.0
+    height_max: 50.0
+    zscore_threshold: 4.0
+    
+    # Temporal interpolation
+    temporal_interpolation: true
+    interpolation_method: 'linear'
+    max_gap_years: 2
+  
+  # Step 3: Final mosaics
+  final_merge:
+    input_dir: 'canopy_height_predictions/sanitized'
+    output_dir: 'canopy_height_predictions/final_mosaics'
+    file_pattern: 'canopy_height_*_100m_sanitized.tif'
+    
+    # Downsampling
+    target_resolution: 100  # meters
+    resampling_method: 'bilinear'
+    
+    # Output format
+    output_pattern: 'canopy_height_{year}_100m.tif'
+    create_overview_pyramids: true
+
+# Evaluation configuration
+evaluation:
+  # Metrics
+  primary_metrics: ['mae', 'rmse', 'r2']
+  height_range_analysis: true
+  height_ranges: [[0, 2], [2, 6], [6, 10], [10, 20], [20, 50]]
+  
+  # Validation data
+  validation_plots: true
+  residual_analysis: true
+  spatial_error_maps: true
+
+# Logging configuration
+logging:
+  level: 'INFO'
+  format: 'standard'
+  log_file: null  # Set to path for file logging
+  
+  # MLflow integration
+  mlflow_enabled: false
+  mlflow_experiment_name: 'canopy_height_estimation'
+  mlflow_tracking_uri: null
+
+# Hardware and performance
+compute:
+  # Memory management
+  num_workers: 4
+  prefetch_factor: 2
+  persistent_workers: true
+  
+  # Processing chunks
+  chunk_size: 1024
+  max_memory_gb: 32
+
+# File patterns and naming
+file_patterns:
+  sentinel2_pattern: 'S2_*_mosaic_*.tif'
+  lidar_pattern: 'PNOA_*_height_*.tif'
+  prediction_pattern: 'canopy_height_pred_*.tif'
+  checkpoint_pattern: 'canopy_height_model_*.ckpt'
