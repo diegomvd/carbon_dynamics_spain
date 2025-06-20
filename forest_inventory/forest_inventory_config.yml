@@ -1,0 +1,100 @@
+# Forest Inventory Processing Configuration
+# Spanish National Forest Inventory (NFI) biomass data processing
+# Author: Diego Bengochea
+
+# Data Sources and Paths
+data:
+  base_dir: "/path/to/nfi/data/"                    # Main data directory
+  ifn4_dir: "IFN_4_SP/"                            # NFI4 database files directory
+  mfe_dir: "MFESpain/"                             # Spanish Forest Map directory
+  wood_density_file: "GlobalWoodDensityDatabase.xls"  # Global Wood Density Database
+  species_codes_file: "CODIGOS_IFN.csv"           # Species codes mapping
+  temp_dir: "IFN_4_SP/tmp/"                       # Temporary files directory
+
+# Output Configuration
+output:
+  base_dir: "/path/to/output/"                     # Main output directory
+  target_crs: "EPSG:25830"                        # Final CRS for all outputs
+  
+# File Patterns and Naming
+file_patterns:
+  ifn4_files: "Ifn4*.accdb"                       # IFN4 database file pattern
+  sig_files: "Sig_*.accdb"                        # SIG database file pattern
+  mfe_files: "MFE*.shp"                           # MFE shapefile pattern
+  
+# Output File Templates
+output_templates:
+  utm_biomass: "nfi4_utm{utm}_biomass.shp"        # UTM-specific files
+  combined_biomass: "nfi4_all_biomass.shp"        # Combined file
+  yearly_biomass: "nfi4_{year}_biomass.shp"       # Year-stratified files
+
+# Processing Parameters
+processing:
+  valid_utm_zones: [29, 30, 31]                   # Valid UTM zones (excludes 28)
+  database_tables:
+    ifn4_data: "PCDatosMap"                        # IFN4 plot data table
+    ifn4_parcels: "PCParcelas"                     # IFN4 parcel data table
+    sig_biomass: "Parcelas_exs"                   # SIG biomass/volume table
+  
+  # Column mappings for different data sources
+  column_mappings:
+    volume_columns: ["VCC", "VLE"]                 # Volume columns (stem, branches)
+    biomass_columns: ["BA", "BR"]                  # Direct biomass columns (AGB, BGB)
+    coordinate_columns: ["CoorX", "CoorY"]         # Coordinate columns
+    required_fields: ["Estadillo", "Provincia", "Especie"]  # Required fields
+
+# Forest Type Integration
+forest_types:
+  use_dissolved_files: true                        # Prefer dissolved MFE files
+  dissolved_prefix: "dissolved_"                   # Prefix for dissolved files
+  default_forest_type: "Unknown"                  # Default when no match found
+
+# Data Validation
+validation:
+  min_plots_per_utm: 1                            # Minimum plots required per UTM zone
+  max_missing_agb_ratio: 0.5                      # Maximum allowed missing AGB ratio
+  coordinate_bounds:                               # Valid coordinate ranges by UTM
+    utm29: { min_x: 166021, max_x: 833978, min_y: 4000000, max_y: 4900000 }
+    utm30: { min_x: 166021, max_x: 833978, min_y: 4000000, max_y: 4900000 }
+    utm31: { min_x: 166021, max_x: 833978, min_y: 4000000, max_y: 4900000 }
+
+# System Dependencies
+system:
+  mdb_tools_required: true                        # Requires mdb-tools for .accdb export
+  temp_cleanup: true                              # Clean temporary files after processing
+
+# Logging Configuration
+logging:
+  level: "INFO"                                   # Logging level
+  component_name: "forest_inventory"              # Component name for logger
+  log_sections: true                              # Enable section logging
+  progress_interval: 100                          # Log progress every N items
+
+# Performance Settings
+performance:
+  batch_size: 1000                                # Processing batch size
+  memory_limit_gb: 8                              # Memory limit for large operations
+  parallel_utm_processing: false                  # Process UTM zones in parallel
+  
+# Export Options
+export:
+  include_metadata: true                          # Include processing metadata
+  compression: false                              # Compress output files
+  backup_existing: false                         # Backup existing output files
+  
+  # Output field specifications
+  output_fields:
+    agb: { name: "AGB", description: "Above-ground biomass (Mg/ha)" }
+    bgb: { name: "BGB", description: "Below-ground biomass (Mg/ha)" }
+    bgb_ratio: { name: "BGB_Ratio", description: "BGB/AGB ratio" }
+    year: { name: "Year", description: "Survey year" }
+    forest_type: { name: "ForestType", description: "Forest type from MFE" }
+    region: { name: "Region", description: "Province/region name" }
+    index: { name: "Index", description: "Compound plot identifier" }
+
+# Error Handling
+error_handling:
+  continue_on_missing_files: true                 # Continue if some files missing
+  continue_on_utm_errors: true                    # Continue if UTM zone fails
+  max_retries: 3                                  # Maximum retry attempts
+  retry_delay_seconds: 5                          # Delay between retries
