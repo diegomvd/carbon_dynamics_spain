@@ -1,0 +1,190 @@
+# Sentinel-2 Processing Configuration
+# =============================================================================
+# Comprehensive configuration for Sentinel-2 mosaic processing over Spain
+# Supports main processing pipeline, post-processing workflows, and analysis
+# =============================================================================
+
+# Processing Parameters
+processing:
+  n_scenes: 12                    # Number of best scenes to select for mosaic
+  chunk_size: 2048                # Chunk size for dask processing (pixels)
+  cloud_threshold: 1              # Initial cloud cover threshold (%)
+  years: [2019, 2021, 2022, 2023] # Years to process
+  min_month: 6                    # Start month for summer period (June)
+  max_month: 9                    # End month for summer period (September)
+  tile_size: 12288                # Processing tile size in pixels (12.288 km at 10m resolution)
+  
+# Data Configuration  
+data:
+  bands: ['red', 'green', 'blue', 'nir', 'swir16', 'swir22', 'rededge1', 'rededge2', 'rededge3', 'nir08', 'scl']
+  bands_drop: ['scl']             # Bands to drop after masking (SCL used only for masking)
+  min_n_items: 40                 # Minimum number of scenes required for processing
+  max_cloud_threshold: 61         # Maximum cloud threshold to try (%)
+  stac_url: "https://earth-search.aws.element84.com/v1"  # AWS STAC catalog URL
+  
+# Scene Classification Layer (SCL) Configuration
+scl:
+  valid_classes: [4, 5, 6, 11]    # Valid SCL classes: vegetation, bare soil, water, snow/ice
+
+# Paths Configuration - UPDATE THESE TO YOUR SPECIFIC PATHS
+paths:
+  spain_polygon: "/path/to/spain/polygon.shp"                    # Spain territory boundary shapefile
+  output_dir: "/path/to/sentinel2/mosaics/output/"               # Main output directory for raw mosaics
+  downsampled_dir: "/path/to/sentinel2/mosaics/downsampled/"     # Directory for downsampled mosaics
+  merged_dir: "/path/to/sentinel2/mosaics/merged/"               # Directory for yearly merged mosaics
+  
+# Compute Resources Configuration
+compute:
+  n_workers: 8                    # Number of dask workers
+  threads_per_worker: 3           # Threads per worker process
+  memory_per_worker: "20GB"       # Memory limit per worker
+
+# Logging Configuration
+logging:
+  level: "INFO"                   # Logging level: DEBUG, INFO, WARNING, ERROR
+  log_file: null                  # Log file path (null for console only)
+  
+# Post-processing Configuration
+postprocessing:
+  downsample:
+    scale_factor: 10              # Downsampling scale factor (10x = 100m from 10m)
+    resampling_method: "average"  # Resampling method for downsampling
+    compression: "LZW"            # Output compression format
+  
+  merge:
+    compression: "LZW"            # Output compression for merged files
+    nodata_value: 0               # NoData value for merged outputs
+    
+# Robustness Assessment Configuration
+robustness:
+  min_scenes: 5                   # Minimum scenes for robustness test
+  max_scenes: 30                  # Maximum scenes for robustness test
+  step: 5                         # Step size for scene number testing
+  n_samples: 10                   # Number of random samples per n_scenes
+  improvement_threshold: 0.05     # Threshold for determining optimal scenes (5%)
+  
+# Interannual Consistency Analysis Configuration
+consistency:
+  sample_size: 10000              # Sample size for Kolmogorov-Smirnov tests
+  bands_analyze: null             # Specific bands to analyze (null for all)
+  significance_level: 0.05        # Statistical significance level
+  
+# Quality Assurance Configuration
+quality:
+  completeness_threshold: 95.0    # Minimum completeness percentage for success
+  error_threshold: 80.0           # Minimum completeness percentage before error
+  
+# Advanced Processing Configuration
+advanced:
+  # Memory management
+  memory_monitoring: true         # Enable memory usage monitoring
+  garbage_collection: true       # Enable aggressive garbage collection
+  cluster_restart: true          # Restart cluster between iterations
+  
+  # Processing optimizations
+  baseline_correction: true      # Apply processing baseline correction (year > 2021)
+  correction_factor: 1000        # Correction factor for baseline 04.00
+  
+  # Output optimization
+  tiled_output: true             # Generate tiled output (recommended for large files)
+  overwrite_existing: false     # Skip processing if output exists
+  
+  # STAC catalog configuration
+  stac_timeout: 300              # STAC catalog timeout (seconds)
+  max_retries: 3                 # Maximum retries for STAC operations
+  retry_delay: 10                # Delay between retries (seconds)
+
+# Workflow Configuration
+workflows:
+  # Default workflow execution order
+  default_order: ['downsampling', 'missing', 'robustness', 'consistency']
+  
+  # Workflow dependencies
+  dependencies:
+    missing: ['downsampling']              # Missing analysis requires downsampled files
+    consistency: ['downsampling']          # Consistency analysis requires merged files
+    
+  # Error handling
+  continue_on_error: false               # Continue processing if workflow fails
+  
+# Environment Configuration
+environment:
+  # Required environment variables (optional)
+  required_env_vars: []
+  
+  # System requirements
+  min_memory_gb: 16                      # Minimum system memory (GB)
+  min_disk_space_gb: 100                 # Minimum available disk space (GB)
+  
+  # Python dependencies versions (for reference)
+  python_version: ">=3.8"
+  dask_version: ">=2023.1.0"
+  rasterio_version: ">=1.3.0"
+  xarray_version: ">=2022.1.0"
+
+# Output Specifications
+output:
+  # File naming conventions
+  mosaic_pattern: "S2_summer_mosaic_{year}_{west:.6f}_{south:.6f}_{east:.6f}_{north:.6f}.tif"
+  downsampled_suffix: "_downsampled"
+  merged_pattern: "S2_summer_mosaic_{year}_merged.tif"
+  
+  # Metadata specifications
+  include_metadata: true                 # Include processing metadata in outputs
+  metadata_fields: ['year', 'time_span', 'valid_pixel_percentage', 'sampling_period']
+  
+  # Compression and format settings
+  compression_level: 6                   # LZW compression level
+  predictor: 2                          # Predictor for compression
+  blockxsize: 512                       # Block size for tiled outputs
+  blockysize: 512                       # Block size for tiled outputs
+
+# Regional Configuration (Spain-specific)
+regional:
+  # Coordinate reference system
+  processing_crs: "EPSG:25830"          # UTM zone 30N (Spain)
+  output_crs: "EPSG:25830"              # Output coordinate system
+  
+  # Spatial extent (approximate Spain bounds in EPSG:25830)
+  spatial_bounds:
+    west: 0                              # Western boundary (meters)
+    east: 1200000                        # Eastern boundary (meters)  
+    south: 3800000                       # Southern boundary (meters)
+    north: 4900000                       # Northern boundary (meters)
+  
+  # Temporal specifications
+  processing_season: "summer"            # Processing season
+  season_months: [6, 7, 8, 9]          # Summer months (June-September)
+  
+# Validation Configuration
+validation:
+  # Input validation
+  validate_inputs: true                  # Enable input validation
+  check_disk_space: true               # Check available disk space
+  check_memory: true                    # Check available memory
+  
+  # Processing validation
+  validate_outputs: true               # Enable output validation
+  check_file_integrity: true           # Verify output file integrity
+  check_spatial_coverage: true         # Verify spatial coverage
+  
+  # Error thresholds
+  max_missing_scenes: 5                 # Maximum missing scenes before warning
+  max_cloud_cover: 80                   # Maximum acceptable cloud cover (%)
+
+# Development and Testing Configuration
+development:
+  # Debug settings
+  debug_mode: false                     # Enable debug mode
+  profile_memory: false                 # Enable memory profiling
+  save_intermediate: false              # Save intermediate processing results
+  
+  # Testing settings
+  test_mode: false                      # Enable test mode (smaller datasets)
+  test_tile_size: 2048                  # Tile size for testing
+  test_years: [2022]                    # Years for testing
+  
+  # Performance monitoring
+  track_processing_time: true           # Track processing duration
+  log_memory_usage: true               # Log memory usage statistics
+  monitor_cluster_health: true         # Monitor dask cluster health
