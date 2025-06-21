@@ -10,6 +10,7 @@ for the Iberian Carbon Assessment Pipeline, including:
 - Spatial autocorrelation analysis and clustering
 - Machine learning optimization for predictor selection
 - Bayesian optimization with spatial cross-validation
+- SHAP analysis for model interpretability and feature importance
 
 Pipeline Workflow:
     1. Climate Processing: Convert and harmonize climate data
@@ -17,11 +18,13 @@ Pipeline Workflow:
     3. Biomass Integration: Integrate biomass changes with climate anomalies
     4. Spatial Analysis: Compute spatial autocorrelation and create clusters
     5. ML Optimization: Optimize feature selection using Bayesian methods
+    6. SHAP Analysis: Comprehensive model interpretability analysis
 
 Components:
     core/: Core processing modules
     scripts/: Executable entry points
     config.yaml: Component configuration
+    visualization_config.yaml: Visualization-specific configuration
 
 Author: Diego Bengochea
 """
@@ -31,8 +34,9 @@ from .core.bioclim_calculation import BioclimCalculator
 from .core.biomass_integration import BiomassIntegrator
 from .core.spatial_analysis import SpatialAnalyzer
 from .core.optimization_pipeline import OptimizationPipeline
+from .core.shap_analysis import ShapAnalyzer
 
-__version__ = "1.0.0"
+__version__ = "1.1.0"
 __component__ = "climate_biomass_analysis"
 
 __all__ = [
@@ -40,5 +44,6 @@ __all__ = [
     "BioclimCalculator", 
     "BiomassIntegrator",
     "SpatialAnalyzer",
-    "OptimizationPipeline"
+    "OptimizationPipeline",
+    "ShapAnalyzer"
 ]

@@ -10,6 +10,7 @@ Scripts:
     run_biomass_integration.py: Biomass-climate data integration
     run_spatial_analysis.py: Spatial autocorrelation and clustering
     run_optimization.py: Machine learning optimization
+    run_shap_analysis.py: SHAP analysis for model interpretability
     run_full_pipeline.py: Complete pipeline orchestrator
 
 Author: Diego Bengochea
@@ -21,6 +22,7 @@ from .run_bioclim_calculation import main as run_bioclim_calculation
 from .run_biomass_integration import main as run_biomass_integration
 from .run_spatial_analysis import main as run_spatial_analysis
 from .run_optimization import main as run_optimization
+from .run_shap_analysis import main as run_shap_analysis
 from .run_full_pipeline import main as run_full_pipeline
 
 __all__ = [
@@ -29,5 +31,6 @@ __all__ = [
     "run_biomass_integration", 
     "run_spatial_analysis",
     "run_optimization",
+    "run_shap_analysis",
     "run_full_pipeline"
 ]
