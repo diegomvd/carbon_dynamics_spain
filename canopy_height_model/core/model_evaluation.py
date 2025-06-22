@@ -478,6 +478,29 @@ class ModelEvaluationPipeline:
             # Calculate metrics
             metrics = self._calculate_metrics(predictions, targets, confidence_level=0.95)
             
+            # Save metrics
+            metrics_file = output_dir / 'evaluation_metrics.json'
+            import json
+            with open(metrics_file, 'w') as f:
+                # Convert numpy types to Python types for JSON serialization
+                json_metrics = {k: float(v) if isinstance(v, (np.float32, np.float64)) else v 
+                              for k, v in metrics.items()}
+                json.dump(json_metrics, f, indent=2)
+            
+            # *** ADD THESE LINES TO SAVE PREDICTIONS AND TARGETS ***
+            # Save raw predictions and targets for visualization
+            import pickle
+            results_file = output_dir / 'evaluation_results.pkl'
+            evaluation_data = {
+                'predictions': predictions,
+                'targets': targets,
+                'metrics': metrics
+            }
+            with open(results_file, 'wb') as f:
+                pickle.dump(evaluation_data, f)
+            
+            self.logger.info(f"Raw evaluation data saved to: {results_file}")
+
             # Create plots
             self._create_evaluation_plots(predictions, targets, output_dir, metrics)
             
