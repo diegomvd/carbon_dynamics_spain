@@ -1,0 +1,114 @@
+# Visualization Component Configuration
+# Author: Diego Bengochea
+# Journal-compliant styling and export settings
+
+# Figure styling (rcParams)
+style:
+  font.family: 'Arial'
+  font.size: 8
+  axes.labelsize: 10
+  axes.titlesize: 10
+  xtick.labelsize: 8
+  ytick.labelsize: 8
+  legend.fontsize: 8
+  figure.titlesize: 10
+  figure.dpi: 400
+  axes.linewidth: 0.8
+  axes.spines.top: false
+  axes.spines.right: false
+  grid.alpha: 0.3
+  grid.linestyle: '--'
+  
+# Export settings  
+export:
+  formats: ['png', 'pdf', 'tiff']
+  dpi: 400
+  bbox_inches: 'tight'
+  png_kwargs: {}
+  pdf_kwargs: {}
+  tiff_kwargs:
+    pil_kwargs:
+      compression: 'tiff_lzw'
+  
+# Output paths
+output:
+  figures_dir: 'data/results/figures'
+  main_figures_subdir: 'main_text'
+  si_figures_subdir: 'supporting_info'
+
+# Figure-specific parameters
+figure_params:
+  # Figure 1: Carbon Status and Change
+  figure1:
+    figsize: [6.65, 5.0]  # 169mm × 127mm
+    biomass_to_carbon: 0.5
+    non_forest_color: '#F5F5F5'
+    map_extent: [-9.5, 3.5, 35.5, 44.5]
+    carbon_vmax: 100
+    
+  # Figure 2: Differential Vulnerability  
+  figure2:
+    figsize: [6.65, 8.0]  # 169mm × 203mm
+    biomass_to_carbon: 0.5
+    forest_type_colors:
+      'Forests': '#253D2C'
+      'Broadleaved': '#4575B4'
+      'Conifer': '#D73027'
+      'Mixed': '#984EA3'
+      'Woodlands\nand\nagroforestry': '#E1B768'
+    genus_colors:
+      'Eucaliptales': '#33a02c'
+      'Quercus': '#1f78b4'
+      'Pinus': '#e31a1c'
+      'Fagus': '#ff7f00'
+      'Other': '#999999'
+    
+  # Figure 3: Climate Analysis
+  figure3:
+    figsize: [6.65, 3.2]  # 169mm width
+    colormap: 'RdBu'
+    n_models_display: 2
+    top_n_features: 6
+    xlim_range: [-2.5, 2.5]
+    interaction_features: ['bio12', 'bio12_3yr']
+    
+  # Figure 4: Model Validation
+  figure4:
+    figsize: [6.65, 5.5]  # 169mm × 140mm
+    hexbin_gridsize: 100
+    colormap: 'magma'
+    log_scale_lims: [1, 500]
+    y_axis_min: 10
+
+# Constants used across figures
+constants:
+  start_year: 2017
+  end_year: 2024
+  years: [2017, 2018, 2019, 2020, 2021, 2022, 2023, 2024]
+  
+# Variable name mapping for Figure 3
+variable_mapping:
+  # Temperature variables
+  bio1: 'Annual temp.'
+  bio2: 'Diurnal temp. range'
+  bio3: 'Isothermality'
+  bio4: 'Temp. seasonality'
+  bio5: 'Max temp. of warmest month'
+  bio6: 'Min temp. of coldest month'
+  bio7: 'Annual temp. range'
+  bio8: 'Temp. of wettest quarter'
+  bio9: 'Temp. of driest quarter'
+  bio10: 'Temp. of warmest quarter'
+  bio11: 'Temp. of coldest quarter'
+  
+  # Precipitation variables
+  bio12: 'Annual prec.'
+  bio12_3yr: 'Annual prec. (3-yr)'
+  bio13: 'Prec. of wettest month'
+  bio14: 'Prec. of driest month'
+  bio15: 'Prec. seasonality'
+  bio16: 'Prec. of wettest quarter'
+  bio17: 'Prec. of driest quarter'
+  bio18: 'Prec. of warmest quarter'
+  bio19: 'Prec. of coldest quarter'
+  
