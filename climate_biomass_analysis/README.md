@@ -1,6 +1,6 @@
 # Climate-Biomass Analysis Component
 
-Comprehensive climate-biomass relationship analysis for the Iberian Carbon Assessment Pipeline, including climate data processing, bioclimatic variables calculation, biomass-climate integration, spatial analysis, and machine learning optimization.
+Comprehensive climate-biomass relationship analysis for the Iberian Carbon Assessment Pipeline, including climate data processing, bioclimatic variables calculation, biomass-climate integration, spatial analysis, machine learning optimization, and SHAP analysis for model interpretability.
 
 ## Overview
 
@@ -11,12 +11,14 @@ This component analyzes the relationships between climate variables and biomass 
 - **Biomass-climate integration** - Spatial alignment and data harmonization
 - **Spatial autocorrelation analysis** - Semivariogram calculation and clustering
 - **Machine learning optimization** - Bayesian optimization with spatial cross-validation
+- **SHAP analysis** - Comprehensive model interpretability and feature importance analysis
 
 ## Structure
 
 ```
 climate_biomass_analysis/
 ├── config.yaml                        # Component configuration
+├── visualization_config.yaml          # Visualization-specific configuration
 ├── __init__.py                        # Package initialization
 ├── README.md                          # This file
 ├── core/                              # Core processing modules
@@ -25,7 +27,8 @@ climate_biomass_analysis/
 │   ├── bioclim_calculation.py         # Bioclimatic variables calculation
 │   ├── biomass_integration.py         # Biomass-climate data integration
 │   ├── spatial_analysis.py            # Spatial autocorrelation & clustering
-│   └── optimization_pipeline.py       # ML optimization & feature selection
+│   ├── optimization_pipeline.py       # ML optimization & feature selection
+│   └── shap_analysis.py               # SHAP analysis for interpretability
 └── scripts/                           # Executable entry points
     ├── __init__.py
     ├── run_climate_processing.py       # Climate data processing
@@ -33,10 +36,23 @@ climate_biomass_analysis/
     ├── run_biomass_integration.py      # Data integration
     ├── run_spatial_analysis.py         # Spatial analysis
     ├── run_optimization.py             # ML optimization
+    ├── run_shap_analysis.py            # SHAP analysis
     └── run_full_pipeline.py            # Complete pipeline orchestrator
 ```
 
-## Usage
+## Quick Start
+
+### Generate Paper Figures (Easy Mode)
+```bash
+# Generate all publication figures from repository root
+python generate_paper_figures.py
+
+# High-quality figures for publication
+python generate_paper_figures.py --high-quality
+
+# Specific figures only
+python generate_paper_figures.py --figures importance main
+```
 
 ### Environment Setup
 
@@ -65,9 +81,9 @@ python scripts/run_full_pipeline.py --continue-on-error --config my_config.yaml
 python scripts/run_full_pipeline.py --dry-run
 ```
 
-### Individual Processing Steps
+## Individual Processing Steps
 
-#### 1. Climate Data Processing
+### 1. Climate Data Processing
 ```bash
 # Process GRIB files to GeoTIFF format
 python scripts/run_climate_processing.py \
@@ -83,7 +99,7 @@ python scripts/run_climate_processing.py \
   --validate-outputs
 ```
 
-#### 2. Bioclimatic Variables Calculation
+### 2. Bioclimatic Variables Calculation
 ```bash
 # Calculate bioclimatic variables and anomalies
 python scripts/run_bioclim_calculation.py
@@ -103,7 +119,7 @@ python scripts/run_bioclim_calculation.py \
   --continue-on-error
 ```
 
-#### 3. Biomass-Climate Integration
+### 3. Biomass-Climate Integration
 ```bash
 # Integrate biomass changes with climate anomalies
 python scripts/run_biomass_integration.py
@@ -115,7 +131,7 @@ python scripts/run_biomass_integration.py \
   --output-dataset ./training_data.csv
 ```
 
-#### 4. Spatial Analysis
+### 4. Spatial Analysis
 ```bash
 # Perform spatial autocorrelation analysis and clustering
 python scripts/run_spatial_analysis.py
@@ -127,7 +143,7 @@ python scripts/run_spatial_analysis.py \
   --autocorr-threshold 50
 ```
 
-#### 5. Machine Learning Optimization
+### 5. Machine Learning Optimization
 ```bash
 # Run Bayesian optimization for feature selection
 python scripts/run_optimization.py
@@ -150,11 +166,36 @@ python scripts/run_optimization.py \
   --correlation-threshold 0.9
 ```
 
+### 6. SHAP Analysis (New!)
+```bash
+# Run comprehensive SHAP analysis
+python scripts/run_shap_analysis.py
+
+# Custom parameters
+python scripts/run_shap_analysis.py \
+  --models-dir ./results/models \
+  --dataset ./ml_dataset_with_clusters.csv \
+  --output-dir ./shap_results
+
+# SHAP analysis with custom sampling
+python scripts/run_shap_analysis.py \
+  --shap-max-samples 2000 \
+  --pdp-n-top-features 8 \
+  --r2-threshold 0.3
+
+# Validate inputs before running
+python scripts/run_shap_analysis.py \
+  --validate-inputs \
+  --dry-run
+```
+
 ## Configuration
 
-Key configuration sections in `config.yaml`:
+### Main Configuration (`config.yaml`)
 
-### Data Paths
+Key configuration sections:
+
+#### Data Paths
 ```yaml
 data:
   climate_outputs: "climate_outputs"           # Climate GeoTIFF files
@@ -166,7 +207,7 @@ data:
   clustered_dataset: "ml_dataset_with_clusters.csv"
 ```
 
-### Time Periods
+#### Time Periods
 ```yaml
 time_periods:
   reference:
@@ -179,7 +220,7 @@ time_periods:
     rolling: true
 ```
 
-### Machine Learning
+#### Machine Learning
 ```yaml
 optimization:
   n_trials: 1000                             # Trials per optimization run
@@ -193,63 +234,56 @@ optimization:
     correlation_threshold: 0.95
 ```
 
+#### SHAP Analysis (New!)
+```yaml
+shap_analysis:
+  paths:
+    models_dir: "results/climate_biomass_analysis/models"
+    clustered_dataset: "results/climate_biomass_analysis/ml_dataset_with_clusters.csv"
+    shap_analysis_dir: "results/climate_biomass_analysis/shap_analysis"
+  
+  model_filtering:
+    r2_threshold: 0.2                         # Minimum R² for model inclusion
+    r2_threshold_interactions: 0.2            # R² threshold for interaction analysis
+  
+  analysis:
+    shap_max_samples: 1000                    # Max samples for SHAP calculation
+    perm_max_samples: 5000                    # Max samples for permutation importance
+    pdp_n_top_features: 6                     # Top features for PDP analysis
+    interaction_feature_1: "bio12"            # First interaction feature
+    interaction_feature_2: "bio12_3yr"        # Second interaction feature
+```
+
+### Visualization Configuration (`visualization_config.yaml`)
+
+Separate configuration for visualization settings including plot styling, colors, DPI, and output formats.
+
 ## Pipeline Workflow
 
 ### Stage 1: Climate Processing
-- Convert GRIB files to properly georeferenced GeoTIFFs
-- Reproject to target CRS (EPSG:25830 for Spain)
-- Clip to Spain boundary
-- Harmonize raster grids
+Convert raw climate data (GRIB/NetCDF) to harmonized GeoTIFF rasters with proper georeferencing and coordinate system alignment.
 
-### Stage 2: Bioclimatic Calculation
-- Calculate Bio1-Bio19 variables from monthly temperature/precipitation
-- Compute reference period climatology (1981-2010)
-- Calculate climate anomalies for analysis period (2017-2024)
-- Support both calendar and rolling (Sep-Aug) years
+### Stage 2: Bioclimatic Variables
+Calculate standard bioclimatic variables (bio1-bio19) for reference period and compute anomalies for analysis period using rolling ecological years.
 
 ### Stage 3: Biomass Integration
-- Resample biomass difference maps to climate resolution
-- Harmonize spatial grids between biomass and climate data
-- Extract data points where both datasets have valid values
-- Create ML training dataset with coordinates and features
+Integrate biomass change maps with climate anomalies, performing spatial resampling and creating the final machine learning dataset.
 
 ### Stage 4: Spatial Analysis
-- Calculate spatial autocorrelation using semivariograms
-- Estimate autocorrelation range for spatial independence
-- Create spatial clusters for cross-validation
-- Validate cluster separation exceeds autocorrelation threshold
+Analyze spatial autocorrelation patterns and create spatial clusters for proper cross-validation accounting for spatial dependencies.
 
 ### Stage 5: ML Optimization
-- Multiple independent Bayesian optimization runs
-- Spatial cross-validation to prevent overfitting
-- XGBoost hyperparameter optimization
-- Feature importance analysis and selection frequency
+Run Bayesian optimization with spatial cross-validation to select optimal climate predictors and hyperparameters for biomass prediction.
+
+### Stage 6: SHAP Analysis
+Perform comprehensive model interpretability analysis including:
+- Feature selection frequency analysis
+- SHAP importance calculation
+- Permutation importance assessment
+- Partial dependence plots with LOWESS smoothing
+- 2D interaction analysis
 
 ## Outputs
-
-### Bioclimatic Variables
-```
-bioclimatic_variables/
-├── bio1_1981_2010.tif                 # Annual mean temperature
-├── bio12_1981_2010.tif                # Annual precipitation
-└── ...                                # All bio1-bio19 variables
-```
-
-### Climate Anomalies
-```
-climate_anomalies/
-├── anomalies_2017/
-│   ├── bio1_anomaly_2017.tif
-│   └── bio12_anomaly_2017.tif
-├── anomalies_2018/
-└── ...                                # One directory per year
-```
-
-### ML Training Data
-```
-ml_training_dataset.csv                # Integrated biomass-climate data
-ml_dataset_with_clusters.csv           # With spatial cluster assignments
-```
 
 ### Optimization Results
 ```
@@ -258,6 +292,29 @@ optimization_results/
 ├── optimization_summary.pkl           # Aggregated analysis
 ├── effective_config.json              # Configuration used
 └── feature_importance_analysis.png    # Visualization plots
+```
+
+### SHAP Analysis Results (New!)
+```
+shap_analysis/
+├── feature_frequencies_df.csv         # Feature selection frequencies
+├── avg_shap_importance.pkl            # Average SHAP importance values
+├── avg_permutation_importance.pkl     # Average permutation importance
+├── pdp_data.pkl                       # Raw PDP data
+├── pdp_lowess_data.pkl                # LOWESS smoothed PDP curves
+├── interaction_results.pkl            # 2D interaction analysis
+├── analysis_summary.json              # Analysis metadata
+└── effective_shap_config.json         # Configuration used
+```
+
+### Publication Figures
+```
+figures/
+├── importance_barplots.png            # Feature importance comparison
+├── r2_histogram.png                   # Model performance distribution
+├── importance_scatter.png             # SHAP vs permutation scatter
+├── pdp_panel.png                      # Partial dependence plots
+└── main_figure.png                    # Main manuscript figure
 ```
 
 ## Features
@@ -287,6 +344,13 @@ optimization_results/
 - **Early stopping**: Adaptive termination to prevent overfitting
 - **Feature analysis**: Selection frequency and importance ranking
 
+### SHAP Analysis (New!)
+- **Comprehensive interpretability**: Multiple importance metrics
+- **Partial dependence plots**: 1D effects with LOWESS smoothing
+- **Interaction analysis**: 2D feature interactions with heatmaps
+- **Model ensemble analysis**: Results across multiple optimization runs
+- **Publication-ready figures**: Automated figure generation
+
 ### Quality Control
 - **Input validation**: Check data integrity and spatial alignment
 - **Progress monitoring**: Detailed logging and progress tracking
@@ -295,37 +359,37 @@ optimization_results/
 
 ## Advanced Usage
 
-### Custom Bioclimatic Variables
+### Custom SHAP Analysis
 ```python
-from climate_biomass_analysis.core.bioclim_calculation import BioclimCalculator
+from climate_biomass_analysis.core.shap_analysis import ShapAnalyzer
 
-calculator = BioclimCalculator()
-calculator.bio_variables = ['bio1', 'bio12', 'bio15']  # Subset only
+analyzer = ShapAnalyzer()
 
-results = calculator.calculate_bioclim_variables(
-    temp_files, precip_files, output_dir,
-    start_year=2000, end_year=2020, rolling=True
-)
+# Override analysis parameters
+analyzer.shap_config['analysis']['shap_max_samples'] = 2000
+analyzer.shap_config['analysis']['pdp_n_top_features'] = 8
+
+# Run specific analysis components
+freq_df = analyzer.calculate_feature_frequencies(models)
+shap_importance = analyzer.calculate_shap_importance(models, dataset)
+pdp_data, pdp_lowess = analyzer.calculate_pdp_with_lowess(models, dataset)
+
+# Run full analysis
+results = analyzer.run_comprehensive_shap_analysis()
 ```
 
-### Advanced Spatial Clustering
+### Custom Visualization
 ```python
-from climate_biomass_analysis.core.spatial_analysis import SpatialAnalyzer
-
-analyzer = SpatialAnalyzer()
-
-# Custom autocorrelation analysis
-autocorr_results = analyzer.analyze_spatial_autocorrelation(
-    raster_path="./biomass_change.tif",
-    output_dir="./spatial_analysis"
+from climate_biomass_analysis.visualization_pipeline import (
+    load_shap_results, plot_importance_barplots, plot_main_figure
 )
 
-# Create clusters with custom parameters
-clustered_df = analyzer.create_spatial_clusters(
-    dataset_path="./training_data.csv",
-    output_path="./clustered_data.csv", 
-    autocorr_range_km=75.0
-)
+# Load results
+results = load_shap_results("results/shap_analysis")
+
+# Generate custom figures
+config = load_visualization_config("custom_viz_config.yaml")
+plot_importance_barplots(results, config, variable_mapping)
 ```
 
 ### Custom ML Optimization
@@ -355,59 +419,56 @@ Core packages (managed via conda environment):
 - `scikit-learn` for machine learning utilities
 - `xgboost` for gradient boosting models
 - `optuna` for Bayesian optimization
+- `shap` for model interpretability (NEW!)
+- `statsmodels` for LOWESS smoothing (NEW!)
+- `matplotlib` + `seaborn` for visualization
 - `earthkit-data` for GRIB file handling
 - `kneed` for knee point detection
 
 ## Integration
 
 This component integrates with:
-- **Biomass Model**: Uses biomass difference maps as target variables
-- **Data Preprocessing**: May use preprocessed climate data
-- **Canopy Height Model**: Can incorporate height-derived variables
-- **Analysis Output**: Provides ML models for biomass prediction
-
-## Performance Optimization
-
-### Memory Management
-- Strategic raster sampling for large datasets
-- Chunk-based processing for memory efficiency
-- Automatic cleanup of intermediate files
-- Memory-efficient semivariogram computation
-
-### Parallel Processing
-- Multi-threaded XGBoost training
-- Parallel optimization runs
-- Vectorized raster operations
-- Dask integration for large-scale processing
-
-### Storage Optimization
-- Compressed GeoTIFF outputs (LZW compression)
-- Efficient file formats (Parquet for tabular data)
-- Overview pyramids for visualization
-- Smart caching of intermediate results
+- **Canopy Height Model**: Uses height predictions as input for biomass estimation
+- **Biomass Estimation**: Analyzes climate drivers of biomass changes
+- **Data Preprocessing**: Uses processed climate and biomass data
+- **Visualization Pipeline**: Generates publication-quality figures
 
 ## Troubleshooting
 
 ### Common Issues
-- **Memory errors**: Reduce sample fractions in spatial analysis
-- **Slow raster processing**: Check for proper chunking and compression
-- **CRS misalignment**: Verify coordinate systems across datasets
-- **Missing climate data**: Check file patterns and date ranges
 
-### Performance Tips
-- **Use SSD storage** for faster I/O during raster processing
-- **Increase memory** allocation for large-scale optimization
-- **Enable compression** to reduce storage requirements
-- **Monitor progress** with detailed logging
+#### SHAP Analysis Fails
+```bash
+# Check if optimization results exist
+ls results/climate_biomass_analysis/models/
 
-### Data Quality
-- **Check spatial alignment** between biomass and climate data
-- **Validate time periods** match between datasets
-- **Verify cluster separation** exceeds autocorrelation range
-- **Review optimization convergence** across multiple runs
+# Validate model files
+python scripts/run_shap_analysis.py --validate-inputs --dry-run
+
+# Reduce memory requirements
+python scripts/run_shap_analysis.py --shap-max-samples 500 --pdp-max-samples 1000
+```
+
+#### Missing Dependencies
+```bash
+# Install additional packages for SHAP analysis
+pip install shap statsmodels
+
+# Update conda environment
+conda env update -f ../environments/climate_analysis.yml
+```
+
+#### Figure Generation Issues
+```bash
+# Check SHAP results exist
+python generate_paper_figures.py --dry-run
+
+# Generate specific figures only
+python generate_paper_figures.py --figures importance scatter
+```
 
 ---
 
 **Author**: Diego Bengochea  
 **Component**: Part of the Iberian Carbon Assessment Pipeline  
-**Version**: 1.0.0
+**Version**: 1.1.0 (Added SHAP Analysis)
