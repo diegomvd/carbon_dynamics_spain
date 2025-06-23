@@ -5,7 +5,7 @@ Recipe: Biomass Estimation
 Reproduces biomass estimation results from canopy height predictions.
 Executes the complete biomass model pipeline:
 
-1. Allometry fitting (optional - uses existing if available)
+1. Allometry fitting (always runs - produces calibrated parameters)
 2. Biomass estimation (forest type specific maps)  
 3. Annual cropland masking
 4. Forest type merging (country-wide maps)
@@ -13,20 +13,17 @@ Executes the complete biomass model pipeline:
 This recipe produces the biomass maps used in the paper analysis.
 
 Usage:
-    python reproduce_biomass_estimation.py [OPTIONS]
+    python 2_biomass_estimation_recipe.py [OPTIONS]
 
 Examples:
     # Run complete biomass estimation
-    python reproduce_biomass_estimation.py
+    python 2_biomass_estimation_recipe.py
     
     # Specific years only
-    python reproduce_biomass_estimation.py --years 2020 2021 2022
-    
-    # Skip allometry fitting (use existing)
-    python reproduce_biomass_estimation.py --skip-allometry
+    python 2_biomass_estimation_recipe.py --years 2020 2021 2022
     
     # Continue on errors for testing
-    python reproduce_biomass_estimation.py --continue-on-error
+    python 2_biomass_estimation_recipe.py --continue-on-error
 
 Author: Diego Bengochea
 """
@@ -41,12 +38,12 @@ from typing import Optional, List
 sys.path.insert(0, str(Path(__file__).parent))
 
 # Import utilities
-from shared_utils.data_paths import CentralDataPaths
-from shared_utils.config_utils import load_config, update_config_paths
+from shared_utils.central_data_paths import CentralDataPaths
+from shared_utils.config_utils import load_config
 from shared_utils.logging_utils import setup_logging
 
-# Import component orchestrator
-from biomass_model.scripts.run_full_pipeline import BiomassFullPipelineOrchestrator
+# Import component scripts
+from biomass_model.scripts.run_full_pipeline import main as run_biomass_pipeline_main
 
 
 class BiomassEstimationRecipe:
@@ -74,6 +71,9 @@ class BiomassEstimationRecipe:
             component_name='biomass_recipe'
         )
         
+        # Track stage results
+        self.stage_results = {}
+        
         self.logger.info("Initialized Biomass Estimation Recipe")
         self.logger.info(f"Data root: {self.data_paths.data_root}")
     
@@ -86,58 +86,71 @@ class BiomassEstimationRecipe:
         """
         self.logger.info("Validating prerequisites for biomass estimation...")
         
-        # Check for canopy height predictions
-        height_dir = self.data_paths.get_path('height_predictions')
-        if not height_dir.exists():
-            self.logger.error(f"Height predictions directory not found: {height_dir}")
-            self.logger.error("Please run 'reproduce_height_modeling.py' first to generate height predictions")
+        # Check for height maps (100m for biomass estimation) - UPDATED PATH
+        height_100m_dir = self.data_paths.get_height_maps_100m_dir()
+        if not height_100m_dir.exists():
+            self.logger.error(f"Height maps (100m) directory not found: {height_100m_dir}")
+            self.logger.error("Please run '1_canopy_height_prediction_recipe.py' first")
             return False
         
-        # Check for at least one height file
-        height_files = list(height_dir.rglob("*.tif"))
+        height_files = list(height_100m_dir.glob("*.tif"))
         if not height_files:
-            self.logger.error(f"No height prediction files found in {height_dir}")
+            self.logger.error(f"No height map files found in {height_100m_dir}")
             return False
         
-        self.logger.info(f"✅ Found {len(height_files)} height prediction files")
+        self.logger.info(f"✅ Found {len(height_files)} country-wide height maps (100m)")
         
-        # Check for forest inventory data (allometries, forest types, etc.)
-        forest_inventory_dir = self.data_paths.get_path('forest_inventory')
-        if not forest_inventory_dir.exists():
-            self.logger.error(f"Forest inventory directory not found: {forest_inventory_dir}")
-            self.logger.error("Please ensure forest inventory data is available in data/raw/forest_inventory/")
+        # Check for height maps (10m for allometry calibration) - NEW
+        height_10m_dir = self.data_paths.get_height_maps_10m_dir()
+        if not height_10m_dir.exists():
+            self.logger.error(f"Height maps (10m) directory not found: {height_10m_dir}")
+            self.logger.error("10m height maps needed for allometry calibration")
             return False
         
-        # Check for key files
-        required_files = [
-            "H_AGB_Allometries_Tiers_ModelCalibrated_Quantiles_15-85_OnlyPowerLaw.csv",
-            "Forest_Types_Tiers.csv",
-            "BGBRatios_Tiers.csv"
-        ]
-        
-        missing_files = []
-        for filename in required_files:
-            file_path = forest_inventory_dir / filename
-            if not file_path.exists():
-                missing_files.append(filename)
-        
-        if missing_files:
-            self.logger.error(f"Missing required forest inventory files: {missing_files}")
+        height_10m_files = list(height_10m_dir.glob("*.tif"))
+        if not height_10m_files:
+            self.logger.error(f"No 10m height map files found in {height_10m_dir}")
             return False
         
-        self.logger.info("✅ Forest inventory data validation passed")
+        self.logger.info(f"✅ Found {len(height_10m_files)} sanitized height maps (10m)")
         
-        # Check for forest type masks
-        mask_dir = self.data_paths.get_path('forest_type_masks')
-        if not mask_dir.exists():
-            self.logger.warning(f"Forest type masks directory not found: {mask_dir}")
-            self.logger.warning("Forest type masks will be created during processing if needed")
-        else:
-            mask_files = list(mask_dir.rglob("*.tif"))
-            self.logger.info(f"✅ Found {len(mask_files)} forest type mask files")
+        # Check for processed NFI data - UPDATED PATH
+        nfi_processed_dir = self.data_paths.get_path('forest_inventory_processed')
+        if not nfi_processed_dir.exists():
+            self.logger.error(f"Processed NFI directory not found: {nfi_processed_dir}")
+            self.logger.error("Please run '0_data_preparation_recipe.py' first")
+            return False
         
-        # Check for Corine land cover data
-        corine_path = self.data_paths.get_path('reference_data') / "corine_land_cover" / "U2018_CLC2018_V2020_20u1.tif"
+        nfi_files = list(nfi_processed_dir.glob("*.shp"))
+        if not nfi_files:
+            self.logger.error(f"No processed NFI shapefiles found in {nfi_processed_dir}")
+            return False
+        
+        self.logger.info(f"✅ Found {len(nfi_files)} processed NFI shapefiles")
+        
+        # Check for forest type data - UPDATED PATHS
+        forest_types_file = self.data_paths.get_path('forest_inventory') / "Forest_Types_Tiers.csv"
+        if not forest_types_file.exists():
+            self.logger.error(f"Forest types hierarchy file not found: {forest_types_file}")
+            return False
+        
+        self.logger.info("✅ Forest types hierarchy file found")
+        
+        # Check for forest type maps - UPDATED PATH
+        forest_type_maps_dir = self.data_paths.get_forest_type_maps_dir()
+        if not forest_type_maps_dir.exists():
+            self.logger.error(f"Forest type maps directory not found: {forest_type_maps_dir}")
+            return False
+        
+        mfe_files = list(forest_type_maps_dir.glob("*.shp"))
+        if not mfe_files:
+            self.logger.error(f"No forest type map files found in {forest_type_maps_dir}")
+            return False
+        
+        self.logger.info(f"✅ Found {len(mfe_files)} forest type map files")
+        
+        # Check for Corine land cover data (for masking)
+        corine_path = self.data_paths.get_corine_land_cover_file()
         if not corine_path.exists():
             self.logger.warning(f"Corine land cover data not found: {corine_path}")
             self.logger.warning("Annual cropland masking may not work properly")
@@ -150,148 +163,173 @@ class BiomassEstimationRecipe:
         """Create necessary output directories."""
         self.logger.info("Creating output directory structure...")
         
-        # Create main output directories
-        self.data_paths.create_directories([
-            'biomass_maps',
-            'analysis_outputs',
-            'figures',
-            'tables'
-        ])
+        # Create main directories - NEW STRUCTURE
+        self.data_paths.create_directories(['biomass_maps', 'allometries'])
         
         # Create biomass-specific subdirectories
         biomass_base = self.data_paths.get_path('biomass_maps')
         for subdir in self.data_paths.subdirs['biomass_maps'].values():
             (biomass_base / subdir).mkdir(parents=True, exist_ok=True)
             
-            # Create biomass type subdirectories
+            # Create biomass type subdirectories in each
             for biomass_type in ['AGBD_MC_100m', 'BGBD_MC_100m', 'TBD_MC_100m']:
                 (biomass_base / subdir / biomass_type).mkdir(parents=True, exist_ok=True)
         
         self.logger.info("✅ Output directory structure created")
-    
-    def prepare_config_overrides(self) -> dict:
-        """
-        Prepare configuration overrides for centralized data paths.
-        
-        Returns:
-            dict: Configuration overrides for biomass model component
-        """
-        overrides = self.data_paths.get_component_config_overrides('biomass_model')
-        
-        self.logger.debug(f"Config overrides prepared: {len(overrides)} settings")
-        for key, value in overrides.items():
-            self.logger.debug(f"  {key}: {value}")
-        
-        return overrides
+        self.logger.info(f"   📁 allometries/ - fitted allometric parameters")
+        self.logger.info(f"   📁 biomass_maps/raw/ - no LC masking")
+        self.logger.info(f"   📁 biomass_maps/per_forest_type/ - LC masked per forest type")
+        self.logger.info(f"   📁 biomass_maps/full_country/ - merged country-wide")
     
     def run_biomass_estimation(self, 
                               years: Optional[List[int]] = None,
-                              skip_allometry: bool = False,
-                              continue_on_error: bool = False,
-                              overwrite_allometry: bool = False) -> bool:
+                              continue_on_error: bool = False) -> bool:
         """
         Run the biomass estimation pipeline.
         
         Args:
             years: Specific years to process
-            skip_allometry: Skip allometry fitting stage
             continue_on_error: Continue if a stage fails
-            overwrite_allometry: Overwrite existing allometry files
             
         Returns:
             bool: True if successful
         """
-        self.logger.info("Starting biomass estimation pipeline...")
+        stage_name = "Biomass Estimation Pipeline"
+        self.logger.info(f"\n{'='*60}")
+        self.logger.info(f"Starting {stage_name}")
+        self.logger.info(f"{'='*60}")
+        
+        stage_start = time.time()
         
         try:
-            # Initialize orchestrator with config overrides
-            config_overrides = self.prepare_config_overrides()
+            # Check if already completed - UPDATED PATH
+            full_country_dir = self.data_paths.get_biomass_maps_full_country_dir()
+            existing_outputs = []
+            for biomass_type in ['AGBD_MC_100m', 'BGBD_MC_100m', 'TBD_MC_100m']:
+                type_dir = full_country_dir / biomass_type
+                if type_dir.exists():
+                    existing_outputs.extend(list(type_dir.glob("*_merged.tif")))
             
-            # For now, create a temporary config with overrides
-            # In a full implementation, you might want to patch the config loading
-            orchestrator = BiomassFullPipelineOrchestrator(
-                config_path=None,  # Use default config
-                log_level=self.logger.level
-            )
-            
-            # Apply config overrides manually
-            # Note: This is a simplified approach - in production you'd want 
-            # a more sophisticated config merging mechanism
-            for key, value in config_overrides.items():
-                keys = key.split('.')
-                config_section = orchestrator.config
-                for k in keys[:-1]:
-                    if k not in config_section:
-                        config_section[k] = {}
-                    config_section = config_section[k]
-                config_section[keys[-1]] = value
-            
-            # Run the pipeline
-            results = orchestrator.run_full_pipeline(
-                skip_allometry=skip_allometry,
-                continue_on_error=continue_on_error,
-                years=years,
-                overwrite_allometry=overwrite_allometry
-            )
-            
-            # Print summary
-            orchestrator.print_pipeline_summary()
-            
-            # Check for failures
-            failed_stages = [k for k, v in results.items() if not v['success']]
-            
-            if failed_stages:
-                if continue_on_error:
-                    self.logger.warning(f"Pipeline completed with failures in: {failed_stages}")
-                    return True  # Consider it successful if continue_on_error
-                else:
-                    self.logger.error(f"Pipeline failed in stages: {failed_stages}")
-                    return False
-            else:
-                self.logger.info("✅ Biomass estimation pipeline completed successfully!")
+            if existing_outputs:
+                self.logger.info(f"✅ {stage_name} - Found existing outputs: {len(existing_outputs)} merged files")
+                self.stage_results[stage_name] = {
+                    'success': True,
+                    'duration_minutes': 0,
+                    'result': 'existing_outputs_used'
+                }
                 return True
+            
+            # Run biomass estimation with new paths
+            import sys
+            old_argv = sys.argv.copy()
+            
+            try:
+                # Prepare arguments for biomass estimation with new paths
+                sys.argv = [
+                    'run_full_pipeline.py',
+                    '--height-100m-dir', str(self.data_paths.get_height_maps_100m_dir()),
+                    '--height-10m-dir', str(self.data_paths.get_height_maps_10m_dir()),
+                    '--nfi-processed-dir', str(self.data_paths.get_path('forest_inventory_processed')),
+                    '--forest-types-file', str(self.data_paths.get_path('forest_inventory') / "Forest_Types_Tiers.csv"),
+                    '--forest-type-maps-dir', str(self.data_paths.get_forest_type_maps_dir()),
+                    '--allometries-output-dir', str(self.data_paths.get_allometries_dir()),
+                    '--output-dir', str(self.data_paths.get_path('biomass_maps')),
+                    '--corine-file', str(self.data_paths.get_corine_land_cover_file()),
+                    '--always-fit-allometry',  # NEW: always fit allometry (no existence check)
+                    '--log-level', 'INFO'
+                ]
                 
+                if years:
+                    sys.argv.extend(['--years'] + [str(y) for y in years])
+                
+                if continue_on_error:
+                    sys.argv.append('--continue-on-error')
+                
+                # Run the pipeline
+                result = run_biomass_pipeline_main()
+                
+                stage_time = time.time() - stage_start
+                success = result if result is not None else True
+                
+                self.stage_results[stage_name] = {
+                    'success': success,
+                    'duration_minutes': stage_time / 60,
+                    'result': result
+                }
+                
+                if success:
+                    self.logger.info(f"✅ {stage_name} completed successfully in {stage_time/60:.2f} minutes")
+                else:
+                    self.logger.error(f"❌ {stage_name} failed after {stage_time/60:.2f} minutes")
+                
+                return success
+                
+            finally:
+                sys.argv = old_argv
+        
         except Exception as e:
-            self.logger.error(f"Pipeline execution failed: {str(e)}")
+            stage_time = time.time() - stage_start
+            
+            self.stage_results[stage_name] = {
+                'success': False,
+                'duration_minutes': stage_time / 60,
+                'error': str(e)
+            }
+            
+            self.logger.error(f"❌ {stage_name} failed with error: {str(e)}")
             return False
     
     def validate_outputs(self) -> bool:
         """
-        Validate that expected outputs were created.
+        Validate that outputs were created successfully.
         
         Returns:
             bool: True if outputs are valid
         """
         self.logger.info("Validating biomass estimation outputs...")
         
-        # Check for merged biomass maps (final outputs)
-        merged_dir = self.data_paths.get_path('biomass_maps') / self.data_paths.subdirs['biomass_maps']['merged']
+        # Check all three output directories - NEW STRUCTURE
+        stage_checks = [
+            ('Raw outputs', self.data_paths.get_biomass_maps_raw_dir()),
+            ('Per forest type', self.data_paths.get_biomass_maps_per_forest_type_dir()),
+            ('Full country', self.data_paths.get_biomass_maps_full_country_dir())
+        ]
         
-        if not merged_dir.exists():
-            self.logger.error(f"Merged biomass directory not found: {merged_dir}")
+        total_files = 0
+        for stage_name, stage_dir in stage_checks:
+            if not stage_dir.exists():
+                self.logger.error(f"{stage_name} directory not found: {stage_dir}")
+                return False
+            
+            # Count all biomass files (mean + uncertainty)
+            stage_files = list(stage_dir.rglob("*.tif"))
+            if not stage_files:
+                self.logger.error(f"No biomass files found in {stage_name}")
+                return False
+            
+            total_files += len(stage_files)
+            self.logger.info(f"✅ {stage_name}: {len(stage_files)} files")
+        
+        self.logger.info(f"✅ Total biomass estimation outputs: {total_files} files")
+        
+        # Basic validation - check for both mean and uncertainty files
+        full_country_dir = self.data_paths.get_biomass_maps_full_country_dir()
+        mean_files = list(full_country_dir.rglob("*_mean_*.tif"))
+        uncertainty_files = list(full_country_dir.rglob("*_uncertainty_*.tif"))
+        
+        if not mean_files or not uncertainty_files:
+            self.logger.error("Missing mean or uncertainty files in final outputs")
             return False
         
-        # Check for expected biomass files
-        biomass_types = ['TBD', 'AGBD', 'BGBD']
-        statistics = ['mean', 'uncertainty']
-        expected_files = []
+        self.logger.info(f"✅ Found {len(mean_files)} mean files and {len(uncertainty_files)} uncertainty files")
         
-        for biomass_type in biomass_types:
-            for stat in statistics:
-                pattern = f"{biomass_type}_S2_{stat}_*_100m_merged.tif"
-                files = list(merged_dir.glob(pattern))
-                expected_files.extend(files)
-        
-        if not expected_files:
-            self.logger.error("No merged biomass files found")
-            return False
-        
-        self.logger.info(f"✅ Found {len(expected_files)} merged biomass files")
-        
-        # Check file sizes (basic validation)
-        for file_path in expected_files[:3]:  # Check first few files
-            if file_path.stat().st_size < 1000:  # Very small files likely indicate errors
-                self.logger.warning(f"Suspiciously small output file: {file_path}")
+        # Check allometry outputs - NEW
+        allometries_dir = self.data_paths.get_allometries_dir()
+        if allometries_dir.exists():
+            allometry_files = list(allometries_dir.glob("*.csv"))
+            self.logger.info(f"✅ Found {len(allometry_files)} allometry parameter files")
+        else:
+            self.logger.warning("⚠️  Allometries directory not found")
         
         return True
     
@@ -301,24 +339,41 @@ class BiomassEstimationRecipe:
         self.logger.info(f"BIOMASS ESTIMATION RECIPE SUMMARY")
         self.logger.info(f"{'='*60}")
         
-        # Check output directories
-        merged_dir = self.data_paths.get_path('biomass_maps') / self.data_paths.subdirs['biomass_maps']['merged']
-        if merged_dir.exists():
-            biomass_files = list(merged_dir.glob("*.tif"))
-            self.logger.info(f"📁 Final biomass maps: {len(biomass_files)} files in {merged_dir}")
+        # Show results for each stage
+        for stage_name, results in self.stage_results.items():
+            status = "✅" if results['success'] else "❌"
+            duration = results['duration_minutes']
+            self.logger.info(f"  {status} {stage_name}: {duration:.2f} min")
         
-        # Show data structure
+        # Check output directories - NEW STRUCTURE
+        stage_mappings = [
+            ('Allometries', self.data_paths.get_allometries_dir()),
+            ('Raw Maps', self.data_paths.get_biomass_maps_raw_dir()),
+            ('Per Forest Type', self.data_paths.get_biomass_maps_per_forest_type_dir()),
+            ('Full Country', self.data_paths.get_biomass_maps_full_country_dir())
+        ]
+        
+        for stage_name, stage_dir in stage_mappings:
+            if stage_dir.exists():
+                if stage_name == 'Allometries':
+                    stage_files = list(stage_dir.glob("*.csv"))
+                else:
+                    stage_files = list(stage_dir.rglob("*.tif"))
+                self.logger.info(f"📁 {stage_name}: {len(stage_files)} files in {stage_dir}")
+        
+        # Show NEW data structure
         self.logger.info(f"📂 Data structure created in: {self.data_paths.data_root}")
-        self.logger.info(f"   ├── processed/biomass_maps/")
-        self.logger.info(f"   │   ├── biomass_no_LC_masking/")
-        self.logger.info(f"   │   ├── with_annual_crop_mask/")
-        self.logger.info(f"   │   └── biomass_maps_merged/")
-        self.logger.info(f"   └── results/")
+        self.logger.info(f"   └── processed/")
+        self.logger.info(f"       └── biomass_maps/                  # NEW structure")
+        self.logger.info(f"           ├── raw/                       # No LC masking")
+        self.logger.info(f"           ├── per_forest_type/           # LC masked per forest type")
+        self.logger.info(f"           └── full_country/              # Merged country-wide")
         
         self.logger.info(f"\n🎯 Next steps:")
-        self.logger.info(f"   1. Run 'reproduce_analysis.py' to analyze biomass patterns")
-        self.logger.info(f"   2. Check output quality in data/processed/biomass_maps/")
-        self.logger.info(f"   3. Use merged files for further analysis")
+        self.logger.info(f"   1. Run '3_analysis_recipe.py' to analyze biomass patterns")
+        self.logger.info(f"   2. Check allometry parameters in processed/allometries/")
+        self.logger.info(f"   3. Check biomass maps quality in biomass_maps/ directories")
+        self.logger.info(f"   4. Use full_country/ files for further analysis")
 
 
 def parse_arguments() -> argparse.Namespace:
@@ -328,22 +383,39 @@ def parse_arguments() -> argparse.Namespace:
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 This recipe reproduces the biomass estimation results by executing:
-1. Allometry fitting (optional - uses existing if available)
+1. Allometry fitting (always runs - produces calibrated parameters)
 2. Biomass estimation (forest type specific maps)
 3. Annual cropland masking  
 4. Forest type merging (country-wide maps)
 
+NEW DATA STRUCTURE:
+  data/processed/allometries/             # Fitted allometric parameters (NEW)
+    ├── fitted_parameters.csv             # Calibrated allometric equations
+    ├── bgb_ratios.csv                    # Calculated BGB ratios
+    └── fitting_summary.csv               # Model fit statistics
+  data/processed/biomass_maps/            # Output structure
+    ├── raw/                              # No LC masking
+    ├── per_forest_type/                  # LC masked per forest type  
+    └── full_country/                     # Merged country-wide
+
+INPUTS FROM PREVIOUS RECIPES:
+  data/processed/height_maps/100m/        # Primary height data (Recipe 1)
+  data/processed/height_maps/10m/         # For allometry calibration (Recipe 1)
+  data/processed/forest_inventory/        # Processed NFI plots (Recipe 0)
+  data/raw/forest_inventory/Forest_Types_Tiers.csv  # Forest type hierarchy
+  data/raw/forest_type_maps/              # MFE forest type maps (Recipe 0)
+
 Examples:
   %(prog)s                              # Run complete pipeline
   %(prog)s --years 2020 2021 2022       # Specific years only
-  %(prog)s --skip-allometry             # Use existing allometries
   %(prog)s --continue-on-error          # Continue despite failures
   %(prog)s --data-root /path/to/data    # Custom data directory
 
-Requirements:
-  - Canopy height predictions (run reproduce_height_modeling.py first)
-  - Forest inventory data in data/raw/forest_inventory/
-  - Corine land cover data in data/raw/reference_data/
+Requirements (FROM PREVIOUS RECIPES):
+  - Height predictions from height modeling recipe (100m + 10m)
+  - Processed forest inventory data from data preparation recipe
+  - Forest type maps and hierarchy from data preparation recipe
+  - Corine land cover data in data/raw/land_cover/ for annual cropland masking
         """
     )
     
@@ -362,21 +434,9 @@ Requirements:
     )
     
     parser.add_argument(
-        '--skip-allometry',
-        action='store_true',
-        help='Skip allometry fitting (use existing allometry files)'
-    )
-    
-    parser.add_argument(
         '--continue-on-error',
         action='store_true',
         help='Continue pipeline execution if a stage fails'
-    )
-    
-    parser.add_argument(
-        '--overwrite-allometry',
-        action='store_true',
-        help='Overwrite existing allometry files'
     )
     
     parser.add_argument(
@@ -421,7 +481,7 @@ def main():
         # Validate prerequisites
         if not recipe.validate_prerequisites():
             recipe.logger.error("❌ Prerequisites validation failed")
-            recipe.logger.error("Please ensure required input data is available")
+            recipe.logger.error("Please ensure height maps and processed NFI data are available")
             sys.exit(1)
         
         if args.validate_only:
@@ -431,25 +491,23 @@ def main():
         # Create output structure
         recipe.create_output_structure()
         
-        # Run biomass estimation
+        # Run biomass estimation pipeline
         success = recipe.run_biomass_estimation(
             years=args.years,
-            skip_allometry=args.skip_allometry,
-            continue_on_error=args.continue_on_error,
-            overwrite_allometry=args.overwrite_allometry
+            continue_on_error=args.continue_on_error
         )
         
-        if success:
-            # Validate outputs
-            if recipe.validate_outputs():
-                recipe.print_summary()
-                elapsed_time = time.time() - start_time
-                recipe.logger.info(f"🎉 Biomass estimation recipe completed successfully in {elapsed_time/60:.2f} minutes!")
-            else:
-                recipe.logger.error("❌ Output validation failed")
-                sys.exit(1)
+        if not success:
+            recipe.logger.error("❌ Biomass estimation pipeline failed")
+            sys.exit(1)
+        
+        # Validate outputs
+        if success and recipe.validate_outputs():
+            recipe.print_summary()
+            elapsed_time = time.time() - start_time
+            recipe.logger.info(f"🎉 Biomass estimation recipe completed successfully in {elapsed_time/60:.2f} minutes!")
         else:
-            recipe.logger.error("❌ Biomass estimation recipe failed")
+            recipe.logger.error("❌ Biomass estimation recipe failed or output validation failed")
             sys.exit(1)
     
     except KeyboardInterrupt:

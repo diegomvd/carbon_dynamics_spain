@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """
-Centralized Data Path Management
+Centralized Data Path Management - HARMONIZED VERSION
 
 Provides standardized data path management for all components in the
-Iberian Carbon Assessment Pipeline. Ensures consistent data organization
-and simplifies path handling across recipe scripts.
+Iberian Carbon Assessment Pipeline. Updated with harmonized structure
+across all recipes (0-3).
 
 Author: Diego Bengochea
 """
@@ -19,7 +19,7 @@ class CentralDataPaths:
     Centralized data path management for all pipeline components.
     
     Provides standardized paths for raw data, processed outputs, results,
-    and models following the agreed data/ directory structure.
+    and models following the harmonized data/ directory structure.
     """
     
     def __init__(self, data_root: Union[str, Path] = "data"):
@@ -37,52 +37,83 @@ class CentralDataPaths:
         self.results = self.data_root / "results"
         self.models = self.data_root / "models"
         
-        # Define standard data structure mapping
+        # Define harmonized data structure mapping
         self.paths = {
-            # Raw data inputs
+            # Raw data inputs - RECIPE 0 HARMONIZED
             'forest_inventory': self.raw / "forest_inventory",
-            'sentinel2_raw': self.raw / "sentinel2",
+            'forest_type_maps': self.raw / "forest_type_maps",      # SEPARATED from forest_inventory
+            'wood_density': self.raw / "wood_density",             # NEW: dedicated directory
+            'als_canopy_height': self.raw / "als_canopy_height",   # RENAMED from pnoa_lidar
+            'land_cover': self.raw / "land_cover",                 # NEW: for Corine land cover data
             'climate_raw': self.raw / "climate",
-            'reference_data': self.raw / "reference_data",
+            'sentinel2_raw': self.raw / "sentinel2",
             
-            # Processed intermediate data
+            # Processed intermediate data - RECIPES 0,1,2 HARMONIZED
+            'forest_inventory_processed': self.processed / "forest_inventory",  # SEPARATED processed
+            'sentinel2_processed': self.processed / "sentinel2",                # SEPARATED processed
+            'als_canopy_height_processed': self.processed / "als_canopy_height", # SEPARATED processed
+            'allometries': self.processed / "allometries",                      # NEW: fitted parameters
+            'bioclim': self.processed / "bioclim",                              # NEW: processed climate
             'sentinel2_mosaics': self.processed / "sentinel2_mosaics",
-            'height_predictions': self.processed / "height_predictions", 
-            'biomass_maps': self.processed / "biomass_maps",
-            'climate_variables': self.processed / "climate_variables",
+            'height_maps': self.processed / "height_maps",                      # RENAMED from height_predictions
+            'biomass_maps': self.processed / "biomass_maps",                    # RESTRUCTURED
             'forest_type_masks': self.processed / "forest_type_masks",
             'height_range_masks': self.processed / "height_range_masks",
             
-            # Analysis results
-            'figures': self.results / "figures",
-            'tables': self.results / "tables", 
+            # Analysis results - RECIPE 3 HARMONIZED
             'analysis_outputs': self.results / "analysis_outputs",
+            'tables': self.results / "tables", 
             'ml_outputs': self.results / "ml_outputs",
             
-            # Model files
-            'height_model': self.models / "height_model_checkpoint.pkl",
+            # Model files - RECIPE 1 HARMONIZED
+            'pretrained_height_models': self.data_root / "pretrained_height_models",  # MOVED from models/
             'ml_models': self.models / "ml_models"
         }
         
-        # Component-specific subdirectory mappings
+        # Component-specific subdirectory mappings - ALL RECIPES HARMONIZED
         self.subdirs = {
+            # RECIPE 0: Data preparation
+            'forest_inventory': {
+                'nfi4': 'nfi4',                        # CHANGED from IFN_4_SP
+                'codes': 'nfi4_codes.csv',             # CHANGED from Codigos_IFN.csv  
+                'types': 'Forest_Types_Tiers.csv',
+                'bgb_ratios': 'BGBRatios_Tiers.csv'
+            },
+            'als_canopy_height': {
+                'data': 'data',                        # Contains NDSM-VEGETACION-*.tif
+                'tile_metadata': 'tile_metadata',      # Coverage/metadata
+                'utm_zones': ['utm_29', 'utm_30', 'utm_31']  # CHANGED from Huso_XX
+            },
+            'wood_density': {
+                'database': 'GlobalWoodDensityDatabase.xls'
+            },
+            
+            # RECIPE 1: Height prediction
+            'height_maps': {
+                'tmp_raw': 'tmp/raw',                  # Raw prediction patches
+                'tmp_merged_120km': 'tmp/merged_120km', # 120km merged tiles  
+                'sanitized_10m': '10m',                # Sanitized 10m maps
+                'country_100m': '100m'                 # Country-wide 100m maps
+            },
+            
+            # RECIPE 2: Biomass estimation
             'biomass_maps': {
-                'no_masking': 'biomass_no_LC_masking',
-                'with_mask': 'with_annual_crop_mask', 
-                'merged': 'biomass_maps_merged'
+                'raw': 'raw',                          # No LC masking
+                'per_forest_type': 'per_forest_type',  # LC masked per forest type
+                'full_country': 'full_country'         # Merged country-wide
             },
-            'height_predictions': {
-                'patches': 'patches',
-                'merged_tiles': 'merged_tiles',
-                'sanitized': 'sanitized',
-                'final_mosaics': 'final_mosaics',
-                'merged_full_country': 'merged_full_country_interpolated'
+            'allometries': {
+                'fitted_parameters': 'fitted_parameters.csv',
+                'bgb_ratios': 'bgb_ratios.csv', 
+                'fitting_summary': 'fitting_summary.csv',
+                'validation_metrics': 'validation_metrics.csv'
             },
-            'climate_variables': {
-                'raw_outputs': 'climate_outputs',
-                'harmonized': 'harmonized_climate',
-                'bioclimatic': 'bioclimatic_variables',
-                'anomalies': 'climate_anomalies'
+            
+            # RECIPE 3: Analysis
+            'bioclim': {
+                'harmonized': 'harmonized',            # Harmonized climate data
+                'variables': 'variables',              # Bioclimatic variables
+                'anomalies': 'anomalies'               # Climate anomalies
             }
         }
         
@@ -97,9 +128,12 @@ class CentralDataPaths:
             create: Whether to create directory if it doesn't exist
             
         Returns:
-            Path: Standardized path object
+            Path object
         """
-        path = self.paths.get(key, self.data_root / key)
+        if key not in self.paths:
+            raise KeyError(f"Unknown path key: {key}")
+        
+        path = self.paths[key]
         
         if create and not path.exists():
             path.mkdir(parents=True, exist_ok=True)
@@ -107,188 +141,112 @@ class CentralDataPaths:
         
         return path
     
-    def get_biomass_path(self, biomass_type: str, year: int, 
-                        statistic: str = 'mean', with_mask: bool = True,
-                        forest_type_code: Optional[str] = None) -> Path:
+    def create_directories(self, keys: List[str]) -> None:
         """
-        Get biomass file path following naming conventions.
+        Create multiple directories from path keys.
         
         Args:
-            biomass_type: Type of biomass (TBD, AGBD, BGBD)
-            year: Year of data
-            statistic: Statistic type (mean, uncertainty)
-            with_mask: Whether file has annual crop mask applied
-            forest_type_code: Optional forest type code for non-merged files
-            
-        Returns:
-            Path: Full path to biomass file
+            keys: List of path keys to create
         """
-        # Determine subdirectory
-        if with_mask:
-            subdir = self.subdirs['biomass_maps']['with_mask']
-        else:
-            subdir = self.subdirs['biomass_maps']['no_masking']
-        
-        base_path = self.get_path('biomass_maps') / subdir
-        
-        # Build filename
-        if forest_type_code:
-            # Forest type specific file
-            filename = f"{biomass_type}_S2_{statistic}_{year}_100m_code{forest_type_code}.tif"
-            # Add biomass type subdirectory
-            if biomass_type == 'TBD':
-                type_subdir = 'TBD_MC_100m'
-            elif biomass_type == 'AGBD':
-                type_subdir = 'AGBD_MC_100m'
-            elif biomass_type == 'BGBD':
-                type_subdir = 'BGBD_MC_100m'
-            else:
-                type_subdir = f"{biomass_type}_MC_100m"
-            
-            full_path = base_path / type_subdir / filename
-        else:
-            # Merged file
-            merged_dir = self.get_path('biomass_maps') / self.subdirs['biomass_maps']['merged']
-            filename = f"{biomass_type}_S2_{statistic}_{year}_100m_merged.tif"
-            full_path = merged_dir / filename
-        
-        return full_path
+        for key in keys:
+            self.get_path(key, create=True)
     
-    def get_height_prediction_path(self, year: int, processing_stage: str = 'final_mosaics') -> Path:
-        """
-        Get canopy height prediction file path.
-        
-        Args:
-            year: Year of predictions
-            processing_stage: Processing stage (patches, merged_tiles, sanitized, final_mosaics, merged_full_country)
-            
-        Returns:
-            Path: Full path to height prediction file
-        """
-        base_path = self.get_path('height_predictions')
-        
-        if processing_stage in self.subdirs['height_predictions']:
-            subdir = self.subdirs['height_predictions'][processing_stage]
-            stage_path = base_path / subdir
-        else:
-            stage_path = base_path / processing_stage
-        
-        if processing_stage == 'merged_full_country':
-            filename = f"canopy_height_{year}_100m.tif"
-        else:
-            filename = f"canopy_height_{year}_*.tif"  # Pattern for multiple files
-        
-        return stage_path / filename
+    # RECIPE 0: Data preparation convenience methods
+    def get_nfi4_database_dir(self) -> Path:
+        """Get NFI4 database directory."""
+        return self.get_path('forest_inventory') / self.subdirs['forest_inventory']['nfi4']
     
-    def get_climate_path(self, variable_type: str, year: Optional[int] = None, 
-                        variable_name: Optional[str] = None) -> Path:
-        """
-        Get climate data path.
-        
-        Args:
-            variable_type: Type of climate data (raw_outputs, harmonized, bioclimatic, anomalies)
-            year: Optional year for year-specific data
-            variable_name: Optional variable name (e.g., 'bio1', 'temperature')
-            
-        Returns:
-            Path: Climate data path
-        """
-        base_path = self.get_path('climate_variables')
-        
-        if variable_type in self.subdirs['climate_variables']:
-            subdir = self.subdirs['climate_variables'][variable_type]
-            var_path = base_path / subdir
-        else:
-            var_path = base_path / variable_type
-        
-        # Add year-specific subdirectory if needed
-        if year and variable_type == 'anomalies':
-            var_path = var_path / f"anomalies_{year}"
-        
-        # Add specific file if variable name provided
-        if variable_name:
-            if variable_type == 'bioclimatic':
-                filename = f"{variable_name}.tif"
-            else:
-                filename = f"{variable_name}_{year}.tif" if year else f"{variable_name}.tif"
-            var_path = var_path / filename
-        
-        return var_path
+    def get_forest_type_maps_dir(self) -> Path:
+        """Get forest type maps directory (MFE + boundaries)."""
+        return self.get_path('forest_type_maps')
     
-    def get_forest_mask_path(self, forest_type_code: str, resolution: str = "100m") -> Path:
-        """
-        Get forest type mask path.
-        
-        Args:
-            forest_type_code: Forest type code
-            resolution: Spatial resolution (default: 100m)
-            
-        Returns:
-            Path: Forest type mask file path
-        """
-        mask_dir = self.get_path('forest_type_masks') / resolution
-        filename = f"forest_type_mask_{forest_type_code}_{resolution}.tif"
-        return mask_dir / filename
+    def get_wood_density_file(self) -> Path:
+        """Get wood density database file."""
+        return (self.get_path('wood_density') / 
+                self.subdirs['wood_density']['database'])
     
-    def get_sentinel2_mosaic_path(self, year: int, tile_id: Optional[str] = None, 
-                                 merged: bool = False) -> Path:
-        """
-        Get Sentinel-2 mosaic path.
-        
-        Args:
-            year: Year of mosaic
-            tile_id: Optional tile identifier for individual tiles
-            merged: Whether to get merged country-wide mosaic
-            
-        Returns:
-            Path: Sentinel-2 mosaic file path
-        """
-        base_path = self.get_path('sentinel2_mosaics')
-        
-        if merged:
-            filename = f"S2_summer_mosaic_{year}_merged.tif"
-        elif tile_id:
-            filename = f"S2_summer_mosaic_{year}_{tile_id}.tif"
-        else:
-            filename = f"S2_summer_mosaic_{year}_*.tif"  # Pattern for all tiles
-        
-        return base_path / filename
+    def get_als_data_dir(self) -> Path:
+        """Get ALS canopy height data directory."""
+        return (self.get_path('als_canopy_height') / 
+                self.subdirs['als_canopy_height']['data'])
     
-    def create_directories(self, paths: Optional[List[str]] = None) -> None:
-        """
-        Create directory structure.
-        
-        Args:
-            paths: Optional list of specific paths to create. If None, creates all standard paths.
-        """
-        if paths is None:
-            # Create all standard directories
-            paths_to_create = [
-                self.raw, self.processed, self.results, self.models,
-                self.get_path('forest_inventory'),
-                self.get_path('sentinel2_raw'),
-                self.get_path('climate_raw'),
-                self.get_path('sentinel2_mosaics'),
-                self.get_path('height_predictions'),
-                self.get_path('biomass_maps'),
-                self.get_path('climate_variables'),
-                self.get_path('forest_type_masks'),
-                self.get_path('figures'),
-                self.get_path('tables'),
-                self.get_path('analysis_outputs')
-            ]
-        else:
-            paths_to_create = [self.get_path(p) for p in paths]
-        
-        for path in paths_to_create:
-            path.mkdir(parents=True, exist_ok=True)
-            self.logger.debug(f"Created directory: {path}")
-        
-        self.logger.info(f"Created data directory structure in: {self.data_root}")
+    def get_als_metadata_dir(self) -> Path:
+        """Get ALS tile metadata directory."""
+        return (self.get_path('als_canopy_height') / 
+                self.subdirs['als_canopy_height']['tile_metadata'])
     
+    def get_forest_inventory_codes_file(self) -> Path:
+        """Get NFI4 codes file."""
+        return (self.get_path('forest_inventory') / 
+                self.subdirs['forest_inventory']['codes'])
+    
+    def get_corine_land_cover_file(self) -> Path:
+        """Get Corine land cover file."""
+        return self.get_path('land_cover') / "U2018_CLC2018_V2020_20u1.tif"
+    
+    # RECIPE 1: Height prediction convenience methods
+    def get_pretrained_height_models_dir(self) -> Path:
+        """Get pretrained height models directory."""
+        return self.get_path('pretrained_height_models')
+    
+    def get_height_maps_tmp_raw_dir(self) -> Path:
+        """Get height maps raw patches directory."""
+        return self.get_path('height_maps') / self.subdirs['height_maps']['tmp_raw']
+    
+    def get_height_maps_tmp_merged_dir(self) -> Path:
+        """Get height maps 120km merged tiles directory."""
+        return self.get_path('height_maps') / self.subdirs['height_maps']['tmp_merged_120km']
+    
+    def get_height_maps_10m_dir(self) -> Path:
+        """Get height maps sanitized 10m directory.""" 
+        return self.get_path('height_maps') / self.subdirs['height_maps']['sanitized_10m']
+    
+    def get_height_maps_100m_dir(self) -> Path:
+        """Get height maps country-wide 100m directory."""
+        return self.get_path('height_maps') / self.subdirs['height_maps']['country_100m']
+    
+    # RECIPE 2: Biomass estimation convenience methods
+    def get_biomass_maps_raw_dir(self) -> Path:
+        """Get biomass maps raw directory (no LC masking)."""
+        return self.get_path('biomass_maps') / self.subdirs['biomass_maps']['raw']
+    
+    def get_biomass_maps_per_forest_type_dir(self) -> Path:
+        """Get biomass maps per forest type directory (LC masked)."""
+        return self.get_path('biomass_maps') / self.subdirs['biomass_maps']['per_forest_type']
+    
+    def get_biomass_maps_full_country_dir(self) -> Path:
+        """Get biomass maps full country directory (merged)."""
+        return self.get_path('biomass_maps') / self.subdirs['biomass_maps']['full_country']
+    
+    def get_allometries_dir(self) -> Path:
+        """Get allometries output directory."""
+        return self.get_path('allometries')
+    
+    def get_fitted_parameters_file(self) -> Path:
+        """Get fitted allometric parameters file."""
+        return self.get_path('allometries') / self.subdirs['allometries']['fitted_parameters']
+    
+    def get_bgb_ratios_file(self) -> Path:
+        """Get calculated BGB ratios file."""
+        return self.get_path('allometries') / self.subdirs['allometries']['bgb_ratios']
+    
+    # RECIPE 3: Analysis convenience methods
+    def get_bioclim_harmonized_dir(self) -> Path:
+        """Get harmonized climate data directory."""
+        return self.get_path('bioclim') / self.subdirs['bioclim']['harmonized']
+    
+    def get_bioclim_variables_dir(self) -> Path:
+        """Get bioclimatic variables directory."""
+        return self.get_path('bioclim') / self.subdirs['bioclim']['variables']
+    
+    def get_bioclim_anomalies_dir(self) -> Path:
+        """Get climate anomalies directory."""
+        return self.get_path('bioclim') / self.subdirs['bioclim']['anomalies']
+    
+    # Component configuration overrides - ALL RECIPES HARMONIZED
     def get_component_config_overrides(self, component_name: str) -> Dict[str, str]:
         """
-        Get configuration overrides for a specific component to use centralized paths.
+        Get configuration path overrides for a component.
         
         Args:
             component_name: Name of the component
@@ -300,69 +258,63 @@ class CentralDataPaths:
         
         if component_name == 'biomass_model':
             overrides = {
-                'data.input_data_dir': str(self.get_path('height_predictions') / 
-                                         self.subdirs['height_predictions']['merged_full_country']),
-                'data.masks_dir': str(self.get_path('forest_type_masks') / "100m"),
-                'data.output_base_dir': str(self.processed),
-                'data.allometries_file': str(self.get_path('forest_inventory') / 
-                                            "H_AGB_Allometries_Tiers_ModelCalibrated_Quantiles_15-85_OnlyPowerLaw.csv"),
+                'data.input_data_dir': str(self.get_height_maps_100m_dir()),      # 100m for biomass estimation
+                'data.input_10m_dir': str(self.get_height_maps_10m_dir()),        # 10m for allometry calibration
+                'data.nfi_processed_dir': str(self.get_path('forest_inventory_processed')),
                 'data.forest_types_file': str(self.get_path('forest_inventory') / "Forest_Types_Tiers.csv"),
-                'data.bgb_coeffs_file': str(self.get_path('forest_inventory') / "BGBRatios_Tiers.csv"),
-                'data.mfe_dir': str(self.get_path('forest_inventory') / "MFESpain"),
-                'data.corine_land_cover': str(self.get_path('reference_data') / "corine_land_cover" / 
-                                             "U2018_CLC2018_V2020_20u1.tif")
+                'data.forest_type_maps_dir': str(self.get_forest_type_maps_dir()),
+                'data.allometries_output_dir': str(self.get_allometries_dir()),   # Fitted parameters output
+                'data.output_base_dir': str(self.get_path('biomass_maps')),
+                'data.corine_land_cover': str(self.get_corine_land_cover_file())
             }
         
         elif component_name == 'canopy_height_model':
             overrides = {
                 'data.data_dir': str(self.data_root),
                 'data.sentinel2_dir': str(self.get_path('sentinel2_mosaics').relative_to(self.data_root)),
-                'data.predictions_dir': str(self.get_path('height_predictions').relative_to(self.data_root)),
-                'data.checkpoint_dir': str(self.models.relative_to(self.data_root)),
-                'data.checkpoint_path': str(self.get_path('height_model'))
+                'data.sentinel2_processed_dir': str(self.get_path('sentinel2_processed').relative_to(self.data_root)),
+                'data.als_processed_dir': str(self.get_path('als_canopy_height_processed').relative_to(self.data_root)),
+                'data.predictions_dir': str(self.get_path('height_maps').relative_to(self.data_root)),
+                'data.checkpoint_dir': str(self.get_pretrained_height_models_dir().relative_to(self.data_root)),
+                'data.checkpoint_path': str(self.get_pretrained_height_models_dir() / "height_model_checkpoint.pkl")
             }
         
         elif component_name == 'biomass_analysis':
             overrides = {
                 'data.base_dir': str(self.data_root),
-                'data.biomass_maps_dir': str(self.get_path('biomass_maps').relative_to(self.data_root) / 
-                                            self.subdirs['biomass_maps']['with_mask']),
-                'data.country_bounds_path': str(self.get_path('reference_data').relative_to(self.data_root) / 
-                                               "SpainPolygon" / "gadm41_ESP_0.shp"),
-                'data.forest_types_csv': str(self.get_path('forest_inventory').relative_to(self.data_root) / 
-                                             "Forest_Types_Tiers.csv"),
-                'data.forest_type_masks_dir': str(self.get_path('forest_type_masks').relative_to(self.data_root) / "100m"),
-                'data.canopy_height_dir': str(self.get_path('height_predictions').relative_to(self.data_root) / 
-                                             self.subdirs['height_predictions']['merged_full_country']),
-                'output.base_output_dir': str(self.get_path('analysis_outputs').relative_to(self.data_root))
+                'data.biomass_maps_dir': str(self.get_biomass_maps_full_country_dir().relative_to(self.data_root)),
+                'data.country_bounds_path': str(self.get_forest_type_maps_dir() / "gadm41_ESP_0.shp"),
+                'data.forest_types_file': str(self.get_path('forest_inventory') / "Forest_Types_Tiers.csv"),
+                'output.base_output_dir': str(self.get_path('analysis_outputs').relative_to(self.data_root)),
+                'output.tables_dir': str(self.get_path('tables').relative_to(self.data_root))
             }
         
         elif component_name == 'climate_biomass_analysis':
             overrides = {
-                'data.climate_outputs': str(self.get_path('climate_variables') / 
-                                           self.subdirs['climate_variables']['raw_outputs']),
-                'data.harmonized_dir': str(self.get_path('climate_variables') / 
-                                          self.subdirs['climate_variables']['harmonized']),
-                'data.bioclim_dir': str(self.get_path('climate_variables') / 
-                                       self.subdirs['climate_variables']['bioclimatic']),
-                'data.anomaly_dir': str(self.get_path('climate_variables') / 
-                                       self.subdirs['climate_variables']['anomalies']),
-                'data.biomass_diff_dir': str(self.get_path('analysis_outputs') / 
-                                            "interannual_biomass_differences_relative"),
-                'data.training_dataset': str(self.get_path('ml_outputs') / "ml_training_dataset.csv"),
-                'data.clustered_dataset': str(self.get_path('ml_outputs') / "ml_dataset_with_clusters.csv")
+                'data.climate_raw_dir': str(self.get_path('climate_raw')),
+                'data.bioclim_harmonized_dir': str(self.get_bioclim_harmonized_dir()),
+                'data.bioclim_variables_dir': str(self.get_bioclim_variables_dir()),
+                'data.bioclim_anomalies_dir': str(self.get_bioclim_anomalies_dir()),
+                'data.biomass_maps_dir': str(self.get_biomass_maps_full_country_dir()),
+                'output.climate_analysis_dir': str(self.get_path('analysis_outputs') / 'climate_analysis'),
+                'output.ml_outputs_dir': str(self.get_path('ml_outputs'))
             }
         
         elif component_name == 'forest_inventory':
             overrides = {
                 'data.base_dir': str(self.get_path('forest_inventory')),
-                'output.base_dir': str(self.get_path('forest_inventory') / "processed")
+                'data.nfi4_dir': str(self.get_nfi4_database_dir()),
+                'data.forest_type_maps_dir': str(self.get_forest_type_maps_dir()),
+                'data.codes_file': str(self.get_forest_inventory_codes_file()),
+                'data.wood_density_file': str(self.get_wood_density_file()),
+                'output.base_dir': str(self.get_path('forest_inventory_processed'))
             }
         
         elif component_name == 'sentinel2_processing':
             overrides = {
                 'paths.output_dir': str(self.get_path('sentinel2_mosaics')),
-                'paths.spain_polygon': str(self.get_path('reference_data') / "SpainPolygon" / "gadm41_ESP_0.shp")
+                'paths.processed_dir': str(self.get_path('sentinel2_processed')),
+                'paths.boundary_file': str(self.get_forest_type_maps_dir() / "gadm41_ESP_0.shp")
             }
         
         return overrides
@@ -387,64 +339,3 @@ def get_central_data_paths(data_root: Union[str, Path] = "data") -> CentralDataP
         CentralDataPaths: Configured data paths instance
     """
     return CentralDataPaths(data_root)
-
-
-# Convenience functions for common use cases
-def get_biomass_files(data_root: Union[str, Path] = "data", 
-                     years: List[int] = None, 
-                     biomass_types: List[str] = None) -> Dict[str, List[Path]]:
-    """
-    Get all biomass files matching criteria.
-    
-    Args:
-        data_root: Root data directory
-        years: List of years to include
-        biomass_types: List of biomass types to include
-        
-    Returns:
-        Dict mapping (year, type) tuples to file paths
-    """
-    paths = CentralDataPaths(data_root)
-    
-    if years is None:
-        years = list(range(2017, 2025))  # Default years
-    if biomass_types is None:
-        biomass_types = ['TBD', 'AGBD', 'BGBD']
-    
-    files = {}
-    for year in years:
-        for biomass_type in biomass_types:
-            key = f"{year}_{biomass_type}"
-            mean_path = paths.get_biomass_path(biomass_type, year, 'mean', with_mask=True)
-            uncertainty_path = paths.get_biomass_path(biomass_type, year, 'uncertainty', with_mask=True)
-            
-            files[key] = {
-                'mean': mean_path,
-                'uncertainty': uncertainty_path
-            }
-    
-    return files
-
-
-def get_height_files(data_root: Union[str, Path] = "data", 
-                    years: List[int] = None) -> Dict[int, Path]:
-    """
-    Get canopy height prediction files.
-    
-    Args:
-        data_root: Root data directory
-        years: List of years to include
-        
-    Returns:
-        Dict mapping years to height file paths
-    """
-    paths = CentralDataPaths(data_root)
-    
-    if years is None:
-        years = list(range(2017, 2025))
-    
-    files = {}
-    for year in years:
-        files[year] = paths.get_height_prediction_path(year, 'merged_full_country')
-    
-    return files
