@@ -3,6 +3,7 @@ I/O Utilities for Biomass Estimation
 
 This module provides efficient raster I/O operations with support for
 large-scale processing, chunking, and distributed computing.
+Updated to use CentralDataPaths instead of config file paths.
 
 Author: Diego Bengochea
 """
@@ -20,7 +21,7 @@ from rasterio.windows import Window
 from rasterio.enums import Resampling
 
 # Shared utilities
-from shared_utils import get_logger, find_files, validate_file_exists
+from shared_utils import get_logger, find_files, validate_file_exists, CentralDataPaths
 
 
 class RasterManager:
@@ -31,14 +32,16 @@ class RasterManager:
     with support for chunking and distributed processing.
     """
     
-    def __init__(self, config: Dict[str, Any]):
+    def __init__(self, config: Dict[str, Any], data_paths: CentralDataPaths):
         """
         Initialize the raster manager.
         
         Args:
-            config: Configuration dictionary
+            config: Configuration dictionary (processing parameters only)
+            data_paths: Centralized data path manager
         """
         self.config = config
+        self.data_paths = data_paths
         self.logger = get_logger('biomass_estimation.io')
         
         # Processing parameters
@@ -47,34 +50,39 @@ class RasterManager:
         
         self.logger.info("RasterManager initialized")
     
-    def find_height_rasters_for_year(self, year: int) -> List[Path]:
+    def find_height_rasters_for_year(self, year: int, resolution: str = '100m') -> List[Path]:
         """
-        Find height raster files for a specific year.
+        Find height raster files for a specific year using CentralDataPaths.
         
         Args:
             year: Year to search for
+            resolution: Resolution to use ('10m' or '100m')
             
         Returns:
             List of matching height raster files
         """
-        input_dir = Path(self.config['data']['input_data_dir'])
+        # UPDATED: Use CentralDataPaths instead of config
+        if resolution == '10m':
+            height_maps_dir = self.data_paths.get_height_maps_10m_dir()
+        else:
+            height_maps_dir = self.data_paths.get_height_maps_100m_dir()
+        
+        year_dir = height_maps_dir / str(year)
+        
+        if not year_dir.exists():
+            self.logger.warning(f"Height maps directory for {year} not found: {year_dir}")
+            return []
+        
+        # Find all .tif files in the year directory
         pattern = self.config['processing']['file_pattern']
+        all_files = list(year_dir.glob(pattern))
         
-        # Find all files matching pattern
-        all_files = find_files(input_dir, pattern)
-        
-        # Filter by year
-        year_files = []
-        for file in all_files:
-            if self._extract_year_from_filename(file) == year:
-                year_files.append(file)
-        
-        self.logger.debug(f"Found {len(year_files)} height rasters for year {year}")
-        return sorted(year_files)
+        self.logger.debug(f"Found {len(all_files)} height rasters for year {year}")
+        return sorted(all_files)
     
     def find_mask_files_for_year(self, year: int) -> List[Path]:
         """
-        Find forest type mask files for a specific year.
+        Find forest type mask files for a specific year using CentralDataPaths.
         
         Args:
             year: Year to search for
@@ -82,86 +90,67 @@ class RasterManager:
         Returns:
             List of matching mask files
         """
-        masks_dir = Path(self.config['data']['masks_dir'])
+        # UPDATED: Use CentralDataPaths instead of config
+        masks_dir = self.data_paths.get_forest_type_maps_dir()
         
-        # Find all mask files
-        all_masks = find_files(masks_dir, '*.tif')
+        if not masks_dir.exists():
+            self.logger.warning(f"Forest type maps directory not found: {masks_dir}")
+            return []
         
-        # Filter by year
-        year_masks = []
-        for mask_file in all_masks:
-            if self._extract_year_from_filename(mask_file) == year:
-                year_masks.append(mask_file)
+        # Look for mask files with year in filename
+        mask_files = []
+        for pattern in ["*.shp", "*.tif"]:
+            files = list(masks_dir.glob(pattern))
+            # Filter by year if year is in filename
+            year_files = [f for f in files if str(year) in f.name]
+            mask_files.extend(year_files)
         
-        self.logger.debug(f"Found {len(year_masks)} mask files for year {year}")
-        return sorted(year_masks)
+        # If no year-specific files, return all mask files
+        if not mask_files:
+            for pattern in ["*.shp", "*.tif"]:
+                mask_files.extend(list(masks_dir.glob(pattern)))
+        
+        self.logger.debug(f"Found {len(mask_files)} mask files for year {year}")
+        return sorted(mask_files)
     
     def _extract_year_from_filename(self, filepath: Path) -> Optional[int]:
         """
-        Extract year from filename using common patterns.
+        Extract year from filename using regex patterns.
         
         Args:
-            filepath: File path to extract year from
+            filepath: File path to analyze
             
         Returns:
-            Year as integer or None if not found
+            Year if found, None otherwise
         """
-        filename = filepath.stem
+        filename = filepath.name
         
         # Common year patterns in filenames
         patterns = [
-            r'(\d{4})',  # Any 4-digit number
-            r'_(\d{4})_',  # Year surrounded by underscores
-            r'(\d{4})_',  # Year followed by underscore
-            r'_(\d{4})',  # Year preceded by underscore
-        ]
-        
-        for pattern in patterns:
-            matches = re.findall(pattern, filename)
-            for match in matches:
-                year = int(match)
-                # Reasonable year range
-                if 2000 <= year <= 2030:
-                    return year
-        
-        return None
-    
-    def extract_forest_type_from_filename(self, filepath: Path) -> Optional[str]:
-        """
-        Extract forest type code from filename.
-        
-        Args:
-            filepath: File path to extract forest type from
-            
-        Returns:
-            Forest type code or None if not found
-        """
-        filename = filepath.stem
-        
-        # Common forest type patterns
-        patterns = [
-            r'code(\d+)',  # code123
-            r'type(\d+)',  # type123
-            r'_(\d+)$',    # ending with underscore and number
-            r'(\d+)\.tif$'  # number before .tif extension
+            r'_(\d{4})_',  # _YYYY_
+            r'_(\d{4})\.',  # _YYYY.
+            r'^(\d{4})_',   # YYYY_
+            r'(\d{4})$'     # YYYY at end
         ]
         
         for pattern in patterns:
             match = re.search(pattern, filename)
             if match:
-                return match.group(1)
+                year = int(match.group(1))
+                # Validate year range
+                if 2000 <= year <= 2030:
+                    return year
         
-        self.logger.warning(f"Could not extract forest type from filename: {filename}")
         return None
     
-    def load_raster_data(
+    def load_raster_as_array(
         self, 
-        filepath: Path, 
+        filepath: Path,
         chunks: Optional[Tuple[int, int]] = None,
         window: Optional[Window] = None
     ) -> Optional[xr.DataArray]:
         """
-        Load raster data as xarray DataArray with optional chunking.
+        Load raster as xarray DataArray with optional chunking.
         
         Args:
             filepath: Raster file path
@@ -413,42 +402,48 @@ class RasterManager:
         Args:
             raster_files: List of raster files to check
             check_crs: Whether to check CRS alignment
-            check_transform: Whether to check transform alignment  
+            check_transform: Whether to check transform alignment
             check_shape: Whether to check shape alignment
             
         Returns:
             Tuple of (is_aligned, list_of_issues)
         """
-        issues = []
-        
         if len(raster_files) < 2:
             return True, []
         
+        issues = []
+        reference_info = None
+        
         try:
-            # Get reference properties from first raster
-            with rasterio.open(raster_files[0]) as ref:
-                ref_crs = ref.crs
-                ref_transform = ref.transform
-                ref_shape = (ref.height, ref.width)
+            # Get reference info from first file
+            with rasterio.open(raster_files[0]) as ref_src:
+                reference_info = {
+                    'crs': ref_src.crs,
+                    'transform': ref_src.transform,
+                    'shape': (ref_src.height, ref_src.width)
+                }
             
-            # Check each subsequent raster
+            # Check each file against reference
             for i, raster_file in enumerate(raster_files[1:], 1):
                 with rasterio.open(raster_file) as src:
-                    if check_crs and src.crs != ref_crs:
-                        issues.append(f"CRS mismatch in {raster_file.name}: {src.crs} vs {ref_crs}")
+                    # Check CRS
+                    if check_crs and src.crs != reference_info['crs']:
+                        issues.append(f"File {i}: CRS mismatch ({src.crs} vs {reference_info['crs']})")
                     
-                    if check_transform and src.transform != ref_transform:
-                        issues.append(f"Transform mismatch in {raster_file.name}")
+                    # Check transform
+                    if check_transform and src.transform != reference_info['transform']:
+                        issues.append(f"File {i}: Transform mismatch")
                     
-                    if check_shape and (src.height, src.width) != ref_shape:
-                        issues.append(f"Shape mismatch in {raster_file.name}: {(src.height, src.width)} vs {ref_shape}")
+                    # Check shape
+                    if check_shape and (src.height, src.width) != reference_info['shape']:
+                        issues.append(f"File {i}: Shape mismatch ({src.height}x{src.width} vs {reference_info['shape']})")
             
             is_aligned = len(issues) == 0
             
             if is_aligned:
                 self.logger.debug(f"All {len(raster_files)} rasters are properly aligned")
             else:
-                self.logger.warning(f"Found {len(issues)} alignment issues")
+                self.logger.warning(f"Raster alignment issues found: {len(issues)} problems")
             
             return is_aligned, issues
             
@@ -456,115 +451,70 @@ class RasterManager:
             self.logger.error(f"Error checking raster alignment: {str(e)}")
             return False, [f"Error during alignment check: {str(e)}"]
     
-    def create_overview_pyramids(self, raster_file: Path, levels: List[int] = None) -> bool:
-        """
-        Create overview pyramids for faster visualization.
-        
-        Args:
-            raster_file: Raster file to create overviews for
-            levels: Overview levels (default: [2, 4, 8, 16])
-            
-        Returns:
-            bool: True if successful
-        """
-        try:
-            if levels is None:
-                levels = [2, 4, 8, 16]
-            
-            with rasterio.open(raster_file, 'r+') as src:
-                # Calculate overview levels that make sense for this raster
-                valid_levels = []
-                for level in levels:
-                    if src.width // level > 256 and src.height // level > 256:
-                        valid_levels.append(level)
-                
-                if valid_levels:
-                    src.build_overviews(valid_levels, Resampling.average)
-                    src.update_tags(ns='rio_overview', resampling='average')
-                    self.logger.debug(f"Created overviews for {raster_file.name}: {valid_levels}")
-                    return True
-                else:
-                    self.logger.debug(f"Raster too small for overviews: {raster_file.name}")
-                    return True
-                    
-        except Exception as e:
-            self.logger.error(f"Error creating overviews for {raster_file}: {str(e)}")
-            return False
-    
-    def get_processing_chunks(
+    def resample_raster_to_match(
         self, 
-        raster_shape: Tuple[int, int],
-        chunk_size: Optional[int] = None,
-        overlap: int = 0
-    ) -> List[Tuple[Window, Tuple[int, int]]]:
+        source_file: Path, 
+        reference_file: Path, 
+        output_file: Path,
+        resampling_method: Resampling = Resampling.bilinear
+    ) -> bool:
         """
-        Generate processing chunks for large rasters.
+        Resample a raster to match the spatial properties of a reference raster.
         
         Args:
-            raster_shape: Shape of raster (height, width)
-            chunk_size: Size of chunks (uses config default if None)
-            overlap: Overlap between chunks in pixels
+            source_file: Source raster to resample
+            reference_file: Reference raster for target properties
+            output_file: Output path for resampled raster
+            resampling_method: Resampling algorithm to use
             
         Returns:
-            List of (window, chunk_shape) tuples
-        """
-        if chunk_size is None:
-            chunk_size = self.chunk_size
-        
-        height, width = raster_shape
-        chunks = []
-        
-        for row in range(0, height, chunk_size - overlap):
-            for col in range(0, width, chunk_size - overlap):
-                # Calculate actual chunk dimensions
-                chunk_height = min(chunk_size, height - row)
-                chunk_width = min(chunk_size, width - col)
-                
-                # Create window
-                window = Window(col, row, chunk_width, chunk_height)
-                chunk_shape = (chunk_height, chunk_width)
-                
-                chunks.append((window, chunk_shape))
-        
-        self.logger.debug(f"Generated {len(chunks)} processing chunks for shape {raster_shape}")
-        return chunks
-    
-    def validate_output_directory(self, output_dir: Path) -> bool:
-        """
-        Validate output directory is writable and has sufficient space.
-        
-        Args:
-            output_dir: Output directory to validate
-            
-        Returns:
-            bool: True if directory is suitable for output
+            bool: True if resampling succeeded
         """
         try:
-            # Create directory if it doesn't exist
-            output_dir.mkdir(parents=True, exist_ok=True)
+            # Ensure output directory exists
+            output_file.parent.mkdir(parents=True, exist_ok=True)
             
-            # Test write permissions
-            test_file = output_dir / '.write_test'
-            try:
-                test_file.write_text('test')
-                test_file.unlink()
-            except Exception:
-                self.logger.error(f"No write permission for output directory: {output_dir}")
-                return False
+            with rasterio.open(reference_file) as ref_src:
+                # Get target properties from reference
+                target_transform = ref_src.transform
+                target_crs = ref_src.crs
+                target_width = ref_src.width
+                target_height = ref_src.height
             
-            # Check available space (warn if less than 10GB)
-            from shared_utils.path_utils import get_available_space
-            available_gb = get_available_space(output_dir)
+            with rasterio.open(source_file) as src:
+                # Read source data
+                source_data = src.read(1)
+                
+                # Create output array
+                resampled_data = np.empty((target_height, target_width), dtype=source_data.dtype)
+                
+                # Perform resampling
+                rasterio.warp.reproject(
+                    source=source_data,
+                    destination=resampled_data,
+                    src_transform=src.transform,
+                    src_crs=src.crs,
+                    dst_transform=target_transform,
+                    dst_crs=target_crs,
+                    resampling=resampling_method
+                )
+                
+                # Create output profile
+                output_profile = src.profile.copy()
+                output_profile.update({
+                    'crs': target_crs,
+                    'transform': target_transform,
+                    'width': target_width,
+                    'height': target_height
+                })
+                
+                # Write output
+                with rasterio.open(output_file, 'w', **output_profile) as dst:
+                    dst.write(resampled_data, 1)
             
-            if available_gb < 10:
-                self.logger.warning(f"Low disk space in output directory: {available_gb:.1f} GB available")
-                if available_gb < 1:
-                    self.logger.error("Insufficient disk space (< 1GB)")
-                    return False
-            
-            self.logger.debug(f"Output directory validated: {output_dir} ({available_gb:.1f} GB available)")
+            self.logger.info(f"Successfully resampled {source_file.name} to match {reference_file.name}")
             return True
             
         except Exception as e:
-            self.logger.error(f"Error validating output directory {output_dir}: {str(e)}")
+            self.logger.error(f"Error resampling raster: {str(e)}")
             return False

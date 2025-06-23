@@ -3,6 +3,7 @@ Allometric Relationship Management
 
 This module manages allometric relationships for biomass estimation,
 including hierarchical forest type processing and parameter retrieval.
+Updated to use CentralDataPaths instead of config file paths.
 
 Author: Diego Bengochea
 """
@@ -14,7 +15,7 @@ from typing import Dict, Optional, Tuple, List, Any
 import logging
 
 # Shared utilities
-from shared_utils import get_logger, validate_file_exists
+from shared_utils import get_logger, validate_file_exists, CentralDataPaths
 
 
 class AllometryManager:
@@ -25,14 +26,16 @@ class AllometryManager:
     forest types with hierarchical fallback system.
     """
     
-    def __init__(self, config: Dict[str, Any]):
+    def __init__(self, config: Dict[str, Any], data_paths: CentralDataPaths):
         """
         Initialize the allometry manager.
         
         Args:
-            config: Configuration dictionary
+            config: Configuration dictionary (processing parameters only)
+            data_paths: Centralized data path manager
         """
         self.config = config
+        self.data_paths = data_paths
         self.logger = get_logger('biomass_estimation.allometry')
         
         # Data containers
@@ -41,38 +44,56 @@ class AllometryManager:
         self.bgb_ratios_data = None
         self.hierarchy_mapping = None
         
+        # Hierarchy tier names mapping
+        self.tier_names = {
+            0: 'Dummy',
+            1: 'Clade', 
+            2: 'Family',
+            3: 'Genus',
+            4: 'ForestTypeMFE'
+        }
+        
         # Load all allometric data
         self._load_allometric_data()
         
         self.logger.info("AllometryManager initialized successfully")
     
     def _load_allometric_data(self) -> None:
-        """Load all allometric data files."""
+        """Load all allometric data files using CentralDataPaths."""
         self.logger.info("Loading allometric data files...")
         
-        # Load allometry relationships
-        allometry_file = validate_file_exists(
-            self.config['data']['allometries_file'],
-            "Allometry relationships file"
-        )
-        self.allometry_data = pd.read_csv(allometry_file)
-        self.logger.info(f"Loaded {len(self.allometry_data)} allometric relationships")
+        # Load allometry relationships - UPDATED: Use CentralDataPaths
+        allometry_file = self.data_paths.get_fitted_parameters_file()
+        if allometry_file.exists():
+            self.allometry_data = pd.read_csv(allometry_file)
+            # Set forest_type as index for efficient lookup
+            if 'forest_type' in self.allometry_data.columns:
+                self.allometry_data = self.allometry_data.set_index('forest_type')
+            self.logger.info(f"Loaded {len(self.allometry_data)} allometric relationships")
+        else:
+            self.logger.warning(f"Allometry file not found: {allometry_file}")
+            self.allometry_data = pd.DataFrame()
         
-        # Load forest type hierarchies
-        forest_types_file = validate_file_exists(
-            self.config['data']['forest_types_file'],
-            "Forest types hierarchy file"
-        )
-        self.forest_types_data = pd.read_csv(forest_types_file)
-        self.logger.info(f"Loaded {len(self.forest_types_data)} forest type mappings")
+        # Load forest type hierarchies - UPDATED: Use CentralDataPaths
+        forest_types_file = self.data_paths.get_path('forest_inventory') / "Forest_Types_Tiers.csv"
+        if forest_types_file.exists():
+            self.forest_types_data = pd.read_csv(forest_types_file)
+            self.logger.info(f"Loaded {len(self.forest_types_data)} forest type mappings")
+        else:
+            self.logger.warning(f"Forest types file not found: {forest_types_file}")
+            self.forest_types_data = pd.DataFrame()
         
-        # Load BGB ratios
-        bgb_file = validate_file_exists(
-            self.config['data']['bgb_coeffs_file'],
-            "BGB ratios file"
-        )
-        self.bgb_ratios_data = pd.read_csv(bgb_file)
-        self.logger.info(f"Loaded {len(self.bgb_ratios_data)} BGB ratio coefficients")
+        # Load BGB ratios - UPDATED: Use CentralDataPaths
+        bgb_file = self.data_paths.get_bgb_ratios_file()
+        if bgb_file.exists():
+            self.bgb_ratios_data = pd.read_csv(bgb_file)
+            # Set forest_type as index for efficient lookup
+            if 'forest_type' in self.bgb_ratios_data.columns:
+                self.bgb_ratios_data = self.bgb_ratios_data.set_index('forest_type')
+            self.logger.info(f"Loaded {len(self.bgb_ratios_data)} BGB ratio coefficients")
+        else:
+            self.logger.warning(f"BGB ratios file not found: {bgb_file}")
+            self.bgb_ratios_data = pd.DataFrame()
         
         # Build hierarchy mapping
         self._build_hierarchy_mapping()
@@ -81,255 +102,224 @@ class AllometryManager:
         """Build forest type hierarchy mapping for fallback system."""
         self.logger.info("Building forest type hierarchy mapping...")
         
-        self.hierarchy_mapping = {}
-        tier_names = self.config['forest_types']['tier_names']
-        
-        for _, row in self.forest_types_data.iterrows():
-            forest_type = row.get('ForestTypeMFE')
-            if pd.notna(forest_type):
-                hierarchy = {}
-                for tier in tier_names:
-                    if tier in row and pd.notna(row[tier]):
-                        hierarchy[tier] = row[tier]
-                
-                self.hierarchy_mapping[forest_type] = hierarchy
-        
-        self.logger.info(f"Built hierarchy mapping for {len(self.hierarchy_mapping)} forest types")
-    
-    def get_allometry_parameters(self, forest_type_code: str) -> Optional[Dict[str, Any]]:
-        """
-        Get allometric parameters for a forest type with hierarchical fallback.
-        
-        Args:
-            forest_type_code: Forest type code
-            
-        Returns:
-            Dict containing allometric parameters or None if not found
-        """
-        try:
-            # Convert code to forest type name if needed
-            forest_type_name = self._code_to_forest_type(forest_type_code)
-            
-            if not forest_type_name:
-                self.logger.warning(f"Could not resolve forest type for code: {forest_type_code}")
-                return None
-            
-            # Try hierarchical parameter retrieval
-            params = self._get_parameters_with_fallback(forest_type_name)
-            
-            if params:
-                self.logger.debug(f"Found allometric parameters for {forest_type_name} (code: {forest_type_code})")
-                return params
-            else:
-                self.logger.warning(f"No allometric parameters found for {forest_type_name}")
-                return None
-                
-        except Exception as e:
-            self.logger.error(f"Error getting allometry parameters for {forest_type_code}: {str(e)}")
-            return None
-    
-    def _code_to_forest_type(self, forest_type_code: str) -> Optional[str]:
-        """
-        Convert forest type code to forest type name.
-        
-        Args:
-            forest_type_code: Numeric or string forest type code
-            
-        Returns:
-            Forest type name or None if not found
-        """
-        # Handle different code formats
-        if isinstance(forest_type_code, str):
-            # Remove 'code' prefix if present
-            code = forest_type_code.replace('code', '')
+        # Create hierarchical mapping from forest types data
+        if self.forest_types_data is not None and not self.forest_types_data.empty:
             try:
-                code = int(code)
-            except ValueError:
-                self.logger.warning(f"Could not parse forest type code: {forest_type_code}")
-                return None
+                # Create mapping for each tier level
+                self.hierarchy_mapping = {}
+                for tier_name in ['Clade', 'Family', 'Genus', 'ForestTypeMFE']:
+                    if tier_name in self.forest_types_data.columns:
+                        tier_data = self.forest_types_data.dropna(subset=[tier_name])
+                        self.hierarchy_mapping[tier_name] = tier_data.groupby(tier_name).first().to_dict('index')
+                
+                self.logger.info("Hierarchy mapping built successfully")
+            except Exception as e:
+                self.logger.error(f"Error building hierarchy mapping: {str(e)}")
+                self.hierarchy_mapping = {}
         else:
-            code = int(forest_type_code)
-        
-        # Look up in forest types data
-        matching_rows = self.forest_types_data[self.forest_types_data['ForestTypeCode'] == code]
-        
-        if not matching_rows.empty:
-            return matching_rows.iloc[0]['ForestTypeMFE']
-        
-        self.logger.warning(f"Forest type code {code} not found in mapping")
-        return None
+            self.hierarchy_mapping = {}
     
-    def _get_parameters_with_fallback(self, forest_type_name: str) -> Optional[Dict[str, Any]]:
+    def update_tiers(self, tier: int) -> Tuple[int, str, str]:
         """
-        Get allometric parameters with hierarchical fallback.
+        Update tier level when moving up the forest type hierarchy.
         
         Args:
-            forest_type_name: Forest type name
+            tier (int): Current tier level
             
         Returns:
-            Dictionary containing parameters or None
+            tuple: (new_tier, old_tier_name, new_tier_name)
         """
-        # Get hierarchy for this forest type
-        hierarchy = self.hierarchy_mapping.get(forest_type_name, {})
+        old_tier_name = self.tier_names[tier]
+        new_tier = tier - 1
+        new_tier_name = self.tier_names[new_tier]
+        return new_tier, old_tier_name, new_tier_name
+    
+    def update_forest_type(self, forest_type: str, old_tier_name: str, new_tier_name: str) -> Optional[str]:
+        """
+        Get parent forest type when moving up the hierarchy.
         
-        # Define fallback order (most specific to most general)
-        tier_names = self.config['forest_types']['tier_names']
-        fallback_order = list(reversed(tier_names))  # ForestType -> Genus -> Family -> Clade -> General
+        Traverses the forest type hierarchy to find the parent category
+        for the current forest type at a higher (more general) tier level.
         
-        # Try each level in the hierarchy
-        for tier in fallback_order:
-            if tier in hierarchy:
-                tier_value = hierarchy[tier]
+        Args:
+            forest_type (str): Current forest type name
+            old_tier_name (str): Name of current tier level
+            new_tier_name (str): Name of parent tier level
+            
+        Returns:
+            str: Parent forest type name, or None if not found
+        """
+        try:
+            # Look up parent forest type in hierarchy table
+            forest_match = self.forest_types_data[
+                self.forest_types_data[old_tier_name] == forest_type
+            ]
+            
+            if forest_match.empty:
+                return None
+            
+            # Get parent tier value
+            new_forest_type = forest_match.iloc[0][new_tier_name]
+            
+            return new_forest_type if pd.notna(new_forest_type) else None
+            
+        except Exception as e:
+            self.logger.error(f"Error updating forest type {forest_type}: {str(e)}")
+            return None
+    
+    def get_allometry_parameters(self, forest_type_name: str) -> Tuple[Optional[Dict], Optional[Dict]]:
+        """
+        Get allometry parameters for a forest type, traversing hierarchy if needed.
+        
+        Implements a hierarchical fallback system that starts with the most specific
+        forest type and progressively moves to more general categories until
+        parameters are found. Ensures all forest types have valid allometric
+        relationships for biomass estimation.
+        
+        Args:
+            forest_type_name (str): Specific forest type name to get parameters for
+            
+        Returns:
+            tuple: (agb_params, bgb_params) where:
+                - agb_params: dict with 'median', 'p15', 'p85' allometry parameters
+                - bgb_params: dict with 'mean', 'p5', 'p95' ratio parameters
+        """
+        # Start at the most specific tier (ForestTypeMFE)
+        tier = 4  
+        current_forest_type = forest_type_name
+        
+        # Handle non-forest areas - skip hierarchy traversal
+        if forest_type_name == 'No arbolado':
+            tier = -1  # Skip allometry search and go to general fallback
+        
+        # Initialize parameter dictionaries
+        agb_params = None
+        bgb_params = None
+
+        # Traverse hierarchy from specific to general until parameters are found
+        while tier >= 0:
+            try:
+                # Attempt to find AGB allometry parameters at current tier
+                if agb_params is None:
+                    try:
+                        agb_subset = self.allometry_data[self.allometry_data['tier'] == tier]
+                        if current_forest_type in agb_subset.index:
+                            agb_row = agb_subset.loc[current_forest_type]
+                            
+                            # Extract function type for allometric relationship
+                            function_type = agb_row.get('function_type', 'power')
+                            
+                            # Build parameter dictionary for different percentiles
+                            agb_params = {
+                                'median': (
+                                    np.exp(agb_row['median_intercept']),    # Transform log-intercept
+                                    agb_row['median_slope'],
+                                    function_type
+                                ),
+                                'p15': (
+                                    np.exp(agb_row['low_bound_intercept']), # Transform log-intercept
+                                    agb_row['low_bound_slope'],
+                                    function_type
+                                ),
+                                'p85': (
+                                    np.exp(agb_row['upper_bound_intercept']), # Transform log-intercept
+                                    agb_row['upper_bound_slope'],
+                                    function_type
+                                )
+                            }
+                    except (KeyError, IndexError):
+                        pass  # Continue to next tier if parameters not found
                 
-                # Look for parameters at this tier level
-                agb_params = self._get_agb_parameters(tier, tier_value)
-                bgb_params = self._get_bgb_parameters(tier, tier_value)
+                # Attempt to find BGB ratio parameters at current tier
+                if bgb_params is None:
+                    try:
+                        bgb_subset = self.bgb_ratios_data[self.bgb_ratios_data['tier'] == tier]
+                        if current_forest_type in bgb_subset.index:
+                            bgb_row = bgb_subset.loc[current_forest_type]
+                            
+                            # Build BGB ratio parameter dictionary
+                            bgb_params = {
+                                'mean': bgb_row['mean'],
+                                'p5': bgb_row['q05'],
+                                'p95': bgb_row['q95']
+                            }
+                    except (KeyError, IndexError):
+                        pass  # Continue to next tier if parameters not found
                 
-                if agb_params is not None:
-                    result = {
-                        'agb_params': agb_params,
-                        'bgb_params': bgb_params,  # May be None
-                        'tier_used': tier,
-                        'tier_value': tier_value,
-                        'forest_type': forest_type_name
-                    }
+                # Exit loop if both parameter sets found
+                if agb_params is not None and bgb_params is not None:
+                    break
+
+                # Move up hierarchy to more general tier
+                tier, old_tier_name, new_tier_name = self.update_tiers(tier)
+                current_forest_type = self.update_forest_type(current_forest_type, old_tier_name, new_tier_name)
+            
+                # Fallback to General category if hierarchy traversal fails
+                if current_forest_type is None:
+                    self.logger.error(f'Could not get parent forest type, returning general allometry.')
+                    current_forest_type = 'General'
+                    tier = 0  # Use dummy tier for General category
                     
-                    self.logger.debug(f"Found parameters at {tier} level: {tier_value}")
-                    return result
+            except Exception as e:
+                self.logger.error(f"Error getting parameters for {forest_type_name}: {str(e)}")
+                # Force fallback to General category
+                current_forest_type = 'General'
+                tier = 0  # Use dummy tier for General category
         
-        self.logger.warning(f"No parameters found for {forest_type_name} at any hierarchy level")
-        return None
-    
-    def _get_agb_parameters(self, tier: str, tier_value: str) -> Optional[Dict[str, float]]:
-        """
-        Get AGB allometric parameters for a specific tier and value.
+        # Final fallback to General allometry if AGB parameters still missing
+        if agb_params is None:
+            self.logger.info(f'{forest_type_name}: Could not find any parameters for H-AGB allometry. Falling back to general allometry.')
+            try:
+                agb_general = self.allometry_data[self.allometry_data['tier'] == 0]
+                if 'General' in agb_general.index:
+                    agb_row = agb_general.loc['General']
+                    function_type = agb_row.get('function_type', 'power')
+                    agb_params = {
+                        'median': (
+                            np.exp(agb_row['median_intercept']),
+                            agb_row['median_slope'],
+                            function_type
+                        ),
+                        'p15': (
+                            np.exp(agb_row['low_bound_intercept']),
+                            agb_row['low_bound_slope'],
+                            function_type
+                        ),
+                        'p85': (
+                            np.exp(agb_row['upper_bound_intercept']),
+                            agb_row['upper_bound_slope'],
+                            function_type
+                        )
+                    }
+            except:
+                # Absolute last resort - zero parameters
+                agb_params = {
+                    'median': (0.0, 0.0, 'power'),
+                    'p15': (0.0, 0.0, 'power'),
+                    'p85': (0.0, 0.0, 'power')
+                }
         
-        Args:
-            tier: Hierarchy tier name
-            tier_value: Value at that tier
-            
-        Returns:
-            Dictionary with AGB parameters or None
-        """
-        # Look for exact match in allometry data
-        matching_rows = self.allometry_data[self.allometry_data[tier] == tier_value]
-        
-        if matching_rows.empty:
-            return None
-        
-        # Take first match (should be unique)
-        row = matching_rows.iloc[0]
-        
-        # Extract parameters (assuming specific column names from existing data)
-        try:
-            params = {
-                'a_mean': row.get('a_mean', row.get('a_50')),
-                'b_mean': row.get('b_mean', row.get('b_50')),
-                'a_std': self._calculate_parameter_std(row, 'a'),
-                'b_std': self._calculate_parameter_std(row, 'b'),
-                'a_15': row.get('a_15'),
-                'a_85': row.get('a_85'),
-                'b_15': row.get('b_15'),
-                'b_85': row.get('b_85')
-            }
-            
-            # Validate parameters
-            if all(pd.notna(v) for v in [params['a_mean'], params['b_mean']]):
-                return params
-            else:
-                return None
-                
-        except Exception as e:
-            self.logger.error(f"Error extracting AGB parameters: {str(e)}")
-            return None
-    
-    def _get_bgb_parameters(self, tier: str, tier_value: str) -> Optional[Dict[str, float]]:
-        """
-        Get BGB ratio parameters for a specific tier and value.
-        
-        Args:
-            tier: Hierarchy tier name
-            tier_value: Value at that tier
-            
-        Returns:
-            Dictionary with BGB parameters or None
-        """
-        # Look for exact match in BGB ratios data
-        matching_rows = self.bgb_ratios_data[self.bgb_ratios_data[tier] == tier_value]
-        
-        if matching_rows.empty:
-            return None
-        
-        # Take first match
-        row = matching_rows.iloc[0]
-        
-        try:
-            params = {
-                'ratio_mean': row.get('BGB_Ratio_Mean'),
-                'ratio_std': self._calculate_bgb_ratio_std(row),
-                'ratio_05': row.get('BGB_Ratio_05'),
-                'ratio_95': row.get('BGB_Ratio_95')
-            }
-            
-            # Validate parameters
-            if pd.notna(params['ratio_mean']):
-                return params
-            else:
-                return None
-                
-        except Exception as e:
-            self.logger.error(f"Error extracting BGB parameters: {str(e)}")
-            return None
-    
-    def _calculate_parameter_std(self, row: pd.Series, param_prefix: str) -> float:
-        """
-        Calculate standard deviation from quantiles for allometric parameters.
-        
-        Args:
-            row: Data row containing quantile values
-            param_prefix: Parameter prefix ('a' or 'b')
-            
-        Returns:
-            Estimated standard deviation
-        """
-        try:
-            # Get 15th and 85th percentiles
-            q15 = row.get(f'{param_prefix}_15')
-            q85 = row.get(f'{param_prefix}_85')
-            
-            if pd.notna(q15) and pd.notna(q85):
-                # Approximate std from quantiles (assuming normal distribution)
-                # 85th - 15th percentile ≈ 2.07 * std
-                return (q85 - q15) / 2.07
-            else:
-                # Fallback to small default std if quantiles not available
-                return 0.1
-                
-        except Exception:
-            return 0.1
-    
-    def _calculate_bgb_ratio_std(self, row: pd.Series) -> float:
-        """
-        Calculate standard deviation for BGB ratios from quantiles.
-        
-        Args:
-            row: Data row containing BGB ratio quantiles
-            
-        Returns:
-            Estimated standard deviation
-        """
-        try:
-            q05 = row.get('BGB_Ratio_05')
-            q95 = row.get('BGB_Ratio_95')
-            
-            if pd.notna(q05) and pd.notna(q95):
-                # 95th - 5th percentile ≈ 3.29 * std
-                return (q95 - q05) / 3.29
-            else:
-                return 0.05  # Small default
-                
-        except Exception:
-            return 0.05
+        # Final fallback to General BGB coefficients if still missing
+        if bgb_params is None:
+            self.logger.info(f'{forest_type_name}: Could not find any parameter for BGB coefficient. Falling back to general coefficients.')
+            try:
+                bgb_general = self.bgb_ratios_data[self.bgb_ratios_data['tier'] == 0]
+                if 'General' in bgb_general.index:
+                    bgb_row = bgb_general.loc['General']
+                    bgb_params = {
+                        'mean': bgb_row['mean'],
+                        'p5': bgb_row['q05'],
+                        'p95': bgb_row['q95']
+                    }
+            except:
+                # Absolute last resort - zero parameters
+                bgb_params = {
+                    'mean': 0.0,
+                    'p5': 0.0,
+                    'p95': 0.0
+                }
+
+        return agb_params, bgb_params
     
     def get_available_forest_types(self) -> List[str]:
         """
@@ -341,9 +331,13 @@ class AllometryManager:
         forest_types = set()
         
         # From allometry data
-        for tier in self.config['forest_types']['tier_names']:
-            if tier in self.allometry_data.columns:
-                values = self.allometry_data[tier].dropna().unique()
+        if hasattr(self.allometry_data, 'index'):
+            forest_types.update(self.allometry_data.index.tolist())
+        
+        # From hierarchy data
+        for tier_name in ['Clade', 'Family', 'Genus', 'ForestTypeMFE']:
+            if tier_name in self.forest_types_data.columns:
+                values = self.forest_types_data[tier_name].dropna().unique()
                 forest_types.update(values)
         
         return sorted(list(forest_types))
@@ -359,22 +353,24 @@ class AllometryManager:
         
         issues = []
         
-        # Check required columns exist
-        required_allometry_cols = ['a_mean', 'b_mean', 'a_15', 'a_85', 'b_15', 'b_85']
-        missing_cols = [col for col in required_allometry_cols if col not in self.allometry_data.columns]
-        if missing_cols:
-            issues.append(f"Missing allometry columns: {missing_cols}")
+        # Check required columns exist in allometry data
+        required_allometry_cols = ['median_intercept', 'median_slope', 'tier']
+        if self.allometry_data is not None:
+            missing_cols = [col for col in required_allometry_cols if col not in self.allometry_data.columns]
+            if missing_cols:
+                issues.append(f"Missing allometry columns: {missing_cols}")
         
         # Check for NaN values in critical columns
-        for col in ['a_mean', 'b_mean']:
-            if col in self.allometry_data.columns:
-                nan_count = self.allometry_data[col].isna().sum()
-                if nan_count > 0:
-                    issues.append(f"Found {nan_count} NaN values in critical column {col}")
+        if self.allometry_data is not None:
+            for col in ['median_intercept', 'median_slope']:
+                if col in self.allometry_data.columns:
+                    nan_count = self.allometry_data[col].isna().sum()
+                    if nan_count > 0:
+                        issues.append(f"Found {nan_count} NaN values in critical column {col}")
         
         # Check BGB ratios
-        if 'BGB_Ratio_Mean' in self.bgb_ratios_data.columns:
-            nan_count = self.bgb_ratios_data['BGB_Ratio_Mean'].isna().sum()
+        if self.bgb_ratios_data is not None and 'mean' in self.bgb_ratios_data.columns:
+            nan_count = self.bgb_ratios_data['mean'].isna().sum()
             if nan_count > 0:
                 issues.append(f"Found {nan_count} NaN values in BGB ratios")
         
@@ -395,24 +391,25 @@ class AllometryManager:
             Dictionary with summary statistics
         """
         summary = {
-            'total_allometric_relationships': len(self.allometry_data),
-            'total_forest_type_mappings': len(self.forest_types_data),
-            'total_bgb_ratios': len(self.bgb_ratios_data),
+            'total_allometric_relationships': len(self.allometry_data) if self.allometry_data is not None else 0,
+            'total_forest_type_mappings': len(self.forest_types_data) if self.forest_types_data is not None else 0,
+            'total_bgb_ratios': len(self.bgb_ratios_data) if self.bgb_ratios_data is not None else 0,
             'available_forest_types': len(self.get_available_forest_types()),
-            'hierarchy_levels': len(self.config['forest_types']['tier_names'])
+            'hierarchy_levels': len(self.tier_names)
         }
         
         # Parameter ranges
-        if 'a_mean' in self.allometry_data.columns:
-            summary['a_parameter_range'] = (
-                self.allometry_data['a_mean'].min(),
-                self.allometry_data['a_mean'].max()
-            )
-        
-        if 'b_mean' in self.allometry_data.columns:
-            summary['b_parameter_range'] = (
-                self.allometry_data['b_mean'].min(), 
-                self.allometry_data['b_mean'].max()
-            )
+        if self.allometry_data is not None:
+            if 'median_intercept' in self.allometry_data.columns:
+                summary['intercept_range'] = (
+                    self.allometry_data['median_intercept'].min(),
+                    self.allometry_data['median_intercept'].max()
+                )
+            
+            if 'median_slope' in self.allometry_data.columns:
+                summary['slope_range'] = (
+                    self.allometry_data['median_slope'].min(), 
+                    self.allometry_data['median_slope'].max()
+                )
         
         return summary

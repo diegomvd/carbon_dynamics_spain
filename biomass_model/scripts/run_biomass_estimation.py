@@ -3,7 +3,8 @@
 Biomass Estimation Pipeline Script
 
 Main entry point for running the biomass estimation pipeline with
-Monte Carlo uncertainty quantification.
+Monte Carlo uncertainty quantification. Updated with recipe integration
+arguments for harmonized path management.
 
 Usage:
     python run_biomass_estimation.py [OPTIONS]
@@ -20,6 +21,9 @@ Examples:
     
     # Run single forest type for testing
     python run_biomass_estimation.py --test-mode --year 2020 --forest-type 12
+    
+    # Recipe integration with custom paths
+    python run_biomass_estimation.py --height-100m-dir ./height_maps/100m --allometries-output-dir ./allometries
 
 Author: Diego Bengochea
 """
@@ -35,7 +39,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 # Component imports
 from biomass_model.core.biomass_estimation import BiomassEstimationPipeline
-from shared_utils import setup_logging, log_pipeline_start, log_pipeline_end
+from shared_utils import setup_logging, log_pipeline_start, log_pipeline_end, CentralDataPaths
 
 
 def parse_arguments() -> argparse.Namespace:
@@ -45,27 +49,48 @@ def parse_arguments() -> argparse.Namespace:
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  %(prog)s                                    # Run full pipeline
-  %(prog)s --config custom_config.yaml       # Custom configuration  
-  %(prog)s --years 2020 2021                 # Specific years only
-  %(prog)s --test-mode --year 2020 --forest-type 12  # Test single forest type
-  %(prog)s --validate-only                   # Validate inputs only
+  %(prog)s                                    # Run with default settings
+  %(prog)s --config custom.yaml              # Custom configuration
+  %(prog)s --years 2020 2021 2022            # Specific years only
+  %(prog)s --test-mode --forest-type 12      # Test single forest type
+  
+Recipe Integration:
+  %(prog)s --height-100m-dir ./heights       # Custom height maps directory
+  %(prog)s --allometries-output-dir ./out    # Custom allometries output
+  %(prog)s --biomass-output-dir ./biomass    # Custom biomass output
         """
     )
     
+    # Core configuration
     parser.add_argument(
         '--config',
         type=str,
-        help='Path to configuration file (default: use component config)'
+        help='Path to configuration file'
     )
     
+    parser.add_argument(
+        '--data-root',
+        type=str,
+        default='data',
+        help='Root directory for data storage (default: data)'
+    )
+    
+    # Processing parameters
     parser.add_argument(
         '--years',
         type=int,
         nargs='+',
-        help='Specific years to process (default: all years in config)'
+        help='Specific years to process'
     )
     
+    parser.add_argument(
+        '--forest-types',
+        type=str,
+        nargs='+',
+        help='Specific forest types to process'
+    )
+    
+    # Test mode
     parser.add_argument(
         '--test-mode',
         action='store_true',
@@ -73,186 +98,334 @@ Examples:
     )
     
     parser.add_argument(
-        '--year',
-        type=int,
-        help='Year for test mode'
-    )
-    
-    parser.add_argument(
         '--forest-type',
         type=str,
-        help='Forest type code for test mode'
+        help='Forest type for test mode'
     )
     
+    # **NEW: Recipe integration arguments**
     parser.add_argument(
-        '--output-dir',
+        '--height-100m-dir',
         type=str,
-        help='Custom output directory'
+        help='Custom directory for 100m height maps (overrides default)'
     )
     
     parser.add_argument(
-        '--validate-only',
-        action='store_true',
-        help='Only validate inputs without processing'
+        '--height-10m-dir',
+        type=str,
+        help='Custom directory for 10m height maps (overrides default)'
     )
     
+    parser.add_argument(
+        '--allometries-input-dir',
+        type=str,
+        help='Custom directory for fitted allometries input (overrides default)'
+    )
+    
+    parser.add_argument(
+        '--allometries-output-dir',
+        type=str,
+        help='Custom directory for allometries output (overrides default)'
+    )
+    
+    parser.add_argument(
+        '--biomass-output-dir',
+        type=str,
+        help='Custom directory for biomass maps output (overrides default)'
+    )
+    
+    parser.add_argument(
+        '--nfi-processed-dir',
+        type=str,
+        help='Custom directory for processed NFI data (overrides default)'
+    )
+    
+    parser.add_argument(
+        '--forest-type-maps-dir',
+        type=str,
+        help='Custom directory for forest type maps (overrides default)'
+    )
+    
+    parser.add_argument(
+        '--land-cover-file',
+        type=str,
+        help='Custom path to Corine land cover file (overrides default)'
+    )
+    
+    # Pipeline control
+    parser.add_argument(
+        '--skip-allometry-fitting',
+        action='store_true',
+        help='Skip allometry fitting (use existing fitted parameters)'
+    )
+    
+    parser.add_argument(
+        '--stages',
+        nargs='+',
+        choices=['allometry_fitting', 'biomass_estimation', 'masking', 'merging'],
+        help='Specific pipeline stages to run'
+    )
+    
+    parser.add_argument(
+        '--continue-on-error',
+        action='store_true',
+        help='Continue processing if a stage fails'
+    )
+    
+    parser.add_argument(
+        '--overwrite',
+        action='store_true',
+        help='Overwrite existing output files'
+    )
+    
+    # Logging and output
     parser.add_argument(
         '--log-level',
         choices=['DEBUG', 'INFO', 'WARNING', 'ERROR'],
         default='INFO',
-        help='Logging level (default: INFO)'
+        help='Logging level'
     )
     
     parser.add_argument(
-        '--no-dask',
+        '--quiet',
         action='store_true',
-        help='Disable Dask distributed processing'
+        help='Suppress non-error output'
+    )
+    
+    parser.add_argument(
+        '--output-summary',
+        type=str,
+        help='Path to save pipeline execution summary'
+    )
+    
+    # Monte Carlo settings
+    parser.add_argument(
+        '--monte-carlo-samples',
+        type=int,
+        help='Number of Monte Carlo samples (overrides config)'
+    )
+    
+    parser.add_argument(
+        '--random-seed',
+        type=int,
+        help='Random seed for Monte Carlo sampling (overrides config)'
     )
     
     return parser.parse_args()
 
 
 def validate_arguments(args: argparse.Namespace) -> bool:
-    """
-    Validate command line arguments.
-    
-    Args:
-        args: Parsed arguments
-        
-    Returns:
-        bool: True if arguments are valid
-    """
-    if args.test_mode:
-        if not args.year or not args.forest_type:
-            print("Error: --test-mode requires --year and --forest-type")
-            return False
-    
+    """Validate command line arguments."""
+    # Validate config file if provided
     if args.config and not Path(args.config).exists():
         print(f"Error: Config file not found: {args.config}")
+        return False
+    
+    # Validate data root directory
+    data_root = Path(args.data_root)
+    if not data_root.exists():
+        print(f"Error: Data root directory not found: {args.data_root}")
+        return False
+    
+    # Validate test mode arguments
+    if args.test_mode and not args.forest_type:
+        print("Error: --forest-type required when using --test-mode")
+        return False
+    
+    # Validate custom path arguments if provided
+    path_args = [
+        ('height-100m-dir', args.height_100m_dir),
+        ('height-10m-dir', args.height_10m_dir),
+        ('allometries-input-dir', args.allometries_input_dir),
+        ('nfi-processed-dir', args.nfi_processed_dir),
+        ('forest-type-maps-dir', args.forest_type_maps_dir)
+    ]
+    
+    for arg_name, arg_value in path_args:
+        if arg_value and not Path(arg_value).exists():
+            print(f"Error: {arg_name} directory not found: {arg_value}")
+            return False
+    
+    if args.land_cover_file and not Path(args.land_cover_file).exists():
+        print(f"Error: Land cover file not found: {args.land_cover_file}")
         return False
     
     return True
 
 
-def run_full_pipeline(pipeline: BiomassEstimationPipeline, years: Optional[List[int]]) -> bool:
+class BiomassEstimationRunner:
     """
-    Run the complete biomass estimation pipeline.
+    Biomass estimation pipeline runner with recipe integration support.
     
-    Args:
-        pipeline: Pipeline instance
-        years: Years to process
-        
-    Returns:
-        bool: True if successful
+    Handles setup of centralized paths, configuration overrides, and
+    pipeline execution with comprehensive error handling.
     """
-    return pipeline.run_pipeline(years=years)
-
-
-def run_test_mode(
-    pipeline: BiomassEstimationPipeline, 
-    year: int, 
-    forest_type_code: str,
-    output_dir: Optional[str]
-) -> bool:
-    """
-    Run pipeline in test mode for single forest type.
     
-    Args:
-        pipeline: Pipeline instance
-        year: Year to process
-        forest_type_code: Forest type code
-        output_dir: Optional custom output directory
+    def __init__(self, args: argparse.Namespace):
+        """Initialize pipeline runner."""
+        # Setup centralized data paths
+        self.data_paths = CentralDataPaths(args.data_root)
         
-    Returns:
-        bool: True if successful
-    """
-    return pipeline.run_single_forest_type(
-        year=year,
-        forest_type_code=forest_type_code,
-        output_dir=output_dir
-    )
+        # Apply custom path overrides from recipe arguments
+        self._apply_path_overrides(args)
+        
+        # Setup logging
+        log_level = 'ERROR' if args.quiet else args.log_level
+        self.logger = setup_logging(
+            level=log_level,
+            component_name='biomass_estimation'
+        )
+        
+        # Store arguments
+        self.args = args
+        
+        self.logger.info("BiomassEstimationRunner initialized")
+        self.logger.info(f"Data root: {self.data_paths.data_root}")
+    
+    def _apply_path_overrides(self, args: argparse.Namespace) -> None:
+        """Apply custom path arguments to override default paths."""
+        overrides = {
+            'height_maps_100m': args.height_100m_dir,
+            'height_maps_10m': args.height_10m_dir,
+            'allometries': args.allometries_output_dir or args.allometries_input_dir,
+            'biomass_maps': args.biomass_output_dir,
+            'forest_inventory_processed': args.nfi_processed_dir,
+            'forest_type_maps': args.forest_type_maps_dir
+        }
+        
+        for path_key, override_value in overrides.items():
+            if override_value:
+                self.data_paths.paths[path_key] = Path(override_value)
+                self.logger.info(f"Path override: {path_key} -> {override_value}")
+    
+    def create_pipeline_config(self) -> dict:
+        """Create pipeline configuration with argument overrides."""
+        # Load base configuration (no longer needs path overrides)
+        config = load_config(self.args.config, component_name="biomass_estimation")
+        
+        # Apply CLI argument overrides
+        if self.args.monte_carlo_samples:
+            config['monte_carlo']['num_samples'] = self.args.monte_carlo_samples
+        
+        if self.args.random_seed:
+            config['monte_carlo']['random_seed'] = self.args.random_seed
+        
+        if self.args.years:
+            config['processing']['target_years'] = self.args.years
+        
+        return config
+    
+    def run_pipeline(self) -> bool:
+        """
+        Execute the biomass estimation pipeline.
+        
+        Returns:
+            bool: True if pipeline completed successfully
+        """
+        try:
+            self.logger.info("Starting biomass estimation pipeline...")
+            start_time = time.time()
+            
+            # Create pipeline configuration
+            config = self.create_pipeline_config()
+            
+            # Initialize pipeline - UPDATED: Pass data_paths to constructor
+            pipeline = BiomassEstimationPipeline(config, self.data_paths)
+            
+            # Validate inputs
+            if not pipeline.validate_inputs():
+                self.logger.error("Input validation failed")
+                return False
+            
+            # Setup output directories
+            output_dirs = pipeline.setup_output_directories()
+            
+            # Process each year
+            all_success = True
+            years_to_process = self.args.years or config['processing']['target_years']
+            
+            for year in years_to_process:
+                self.logger.info(f"Processing year {year}...")
+                
+                year_success = pipeline.process_year(year, output_dirs)
+                if not year_success:
+                    if self.args.continue_on_error:
+                        self.logger.warning(f"Year {year} failed, continuing...")
+                        all_success = False
+                    else:
+                        self.logger.error(f"Year {year} failed, stopping pipeline")
+                        return False
+            
+            # Log completion
+            duration = time.time() - start_time
+            status = "completed with warnings" if not all_success else "completed successfully"
+            self.logger.info(f"Biomass estimation pipeline {status} in {duration:.2f} seconds")
+            
+            # Save execution summary if requested
+            if self.args.output_summary:
+                self._save_execution_summary(self.args.output_summary, duration, all_success)
+            
+            return all_success
+            
+        except Exception as e:
+            self.logger.error(f"Pipeline execution failed: {str(e)}")
+            return False
+    
+    def _save_execution_summary(self, summary_path: str, duration: float, success: bool) -> None:
+        """Save pipeline execution summary to file."""
+        try:
+            summary = {
+                'success': success,
+                'duration_seconds': duration,
+                'args': vars(self.args),
+                'data_paths': {
+                    'data_root': str(self.data_paths.data_root),
+                    'height_maps_100m': str(self.data_paths.get_height_maps_100m_dir()),
+                    'allometries': str(self.data_paths.get_allometries_dir()),
+                    'biomass_output': str(self.data_paths.get_path('biomass_maps'))
+                }
+            }
+            
+            import json
+            with open(summary_path, 'w') as f:
+                json.dump(summary, f, indent=2)
+            
+            self.logger.info(f"Execution summary saved to {summary_path}")
+            
+        except Exception as e:
+            self.logger.warning(f"Could not save execution summary: {e}")
 
 
 def main():
     """Main entry point."""
-    start_time = time.time()
-    
     # Parse arguments
     args = parse_arguments()
     
+    # Validate arguments
     if not validate_arguments(args):
-        sys.exit(1)
-    
-    # Setup logging
-    logger = setup_logging(
-        level=args.log_level,
-        component_name='biomass_estimation',
-        format_style='detailed' if args.log_level == 'DEBUG' else 'standard'
-    )
+        return False
     
     try:
-        # Initialize pipeline
-        logger.info("Initializing Biomass Estimation Pipeline...")
-        pipeline = BiomassEstimationPipeline(config_path=args.config)
+        # Initialize and run pipeline
+        runner = BiomassEstimationRunner(args)
+        success = runner.run_pipeline()
         
-        # Log pipeline start
-        log_pipeline_start(logger, "Biomass Estimation", pipeline.config)
-        
-        # Validation-only mode
-        if args.validate_only:
-            logger.info("Running input validation...")
-            if pipeline.validate_inputs():
-                logger.info("✅ Input validation successful")
-                sys.exit(0)
-            else:
-                logger.error("❌ Input validation failed")
-                sys.exit(1)
-        
-        # Disable Dask if requested
-        if args.no_dask:
-            logger.info("Dask disabled by user request")
-            pipeline.client = None
-        
-        # Run pipeline
-        success = False
-        
-        if args.test_mode:
-            logger.info(f"Running test mode: year {args.year}, forest type {args.forest_type}")
-            success = run_test_mode(
-                pipeline=pipeline,
-                year=args.year,
-                forest_type_code=args.forest_type,
-                output_dir=args.output_dir
-            )
-        else:
-            logger.info("Running full biomass estimation pipeline...")
-            success = run_full_pipeline(
-                pipeline=pipeline,
-                years=args.years
-            )
-        
-        # Pipeline completion
-        elapsed_time = time.time() - start_time
-        log_pipeline_end(logger, "Biomass Estimation", success, elapsed_time)
-        
+        # Log completion
         if success:
-            logger.info("🎉 Pipeline completed successfully!")
-            sys.exit(0)
+            print("\n✅ Biomass estimation completed successfully")
+            return True
         else:
-            logger.error("💥 Pipeline failed!")
-            sys.exit(1)
+            print("\n❌ Biomass estimation failed")
+            return False
             
     except KeyboardInterrupt:
-        logger.info("Pipeline interrupted by user")
-        sys.exit(1)
-        
+        print("\n⚠️ Pipeline interrupted by user")
+        return False
     except Exception as e:
-        logger.error(f"Pipeline failed with unexpected error: {str(e)}")
-        if args.log_level == 'DEBUG':
-            import traceback
-            logger.debug(traceback.format_exc())
-        sys.exit(1)
+        print(f"\n💥 Pipeline failed with error: {str(e)}")
+        return False
 
 
 if __name__ == "__main__":
-    main()
+    success = main()
+    sys.exit(0 if success else 1)

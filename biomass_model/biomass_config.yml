@@ -1,5 +1,6 @@
 # Biomass Estimation Component Configuration
 # Author: Diego Bengochea
+# UPDATED: All paths removed - using CentralDataPaths instead
 
 # Component metadata
 component:
@@ -7,33 +8,7 @@ component:
   version: "1.0.0"
   description: "Biomass estimation with allometric relationships and Monte Carlo uncertainty"
 
-# Data paths and directories
-data:
-  # Input data
-  input_data_dir: '/Users/diego/git/iberian.carbon/data/canopy_height_predictions/merged_full_country_interpolated/'
-  masks_dir: '/Users/diego/git/iberian.carbon/data/forest_type_masks/100m/'
-  
-  # Reference data files
-  allometries_file: '/Users/diego/git/iberian.carbon/data/stocks_NFI4/H_AGB_Allometries_Tiers_ModelCalibrated_Quantiles_15-85_OnlyPowerLaw.csv'
-  forest_types_file: '/Users/diego/git/iberian.carbon/data/stocks_NFI4/Forest_Types_Tiers.csv'
-  bgb_coeffs_file: '/Users/diego/git/iberian.carbon/data/stocks_NFI4/BGBRatios_Tiers.csv'
-  mfe_dir: '/Users/diego/git/iberian.carbon/data/MFESpain/'
-  
-  # Land cover masking
-  corine_land_cover: '/Users/diego/git/iberian.carbon/data/corine_land_cover/U2018_CLC2018_V2020_20u1.tif'
-  
-  # Output directories
-  output_base_dir: '/Users/diego/git/iberian.carbon/data'
-  biomass_no_masking_dir: 'biomass_no_LC_masking'
-  biomass_with_mask_dir: 'with_annual_crop_mask'
-  
-  # Output subdirectories for different biomass types
-  subdirs:
-    agbd: 'AGBD_MC_100m'
-    bgbd: 'BGBD_MC_100m'
-    total: 'TBD_MC_100m'
-
-# Processing parameters
+# Processing parameters (NO PATHS - all paths come from CentralDataPaths)
 processing:
   height_threshold: 0.0  # Minimum canopy height in meters
   compute_no_arbolado: true  # Whether to compute non-forest areas
@@ -51,40 +26,37 @@ forest_types:
 monte_carlo:
   num_samples: 250  # Number of Monte Carlo samples per pixel
   random_seed: 42  # Random seed for reproducibility
-  distribution_type: 'normal'  # Statistical distribution assumption
+  distribution_type: 'normal'  # Distribution for parameter sampling
 
 # Output configuration
 output:
-  types: ['agbd', 'bgbd', 'total']  # Output map types to generate
+  types: ['agbd', 'bgbd', 'total']  # Biomass types to compute
   measures: ['mean', 'uncertainty']  # Statistical measures to output
   
-  # File naming patterns
-  prefix: 'S2'  # Prefix for output files
-  
-  # GeoTIFF optimization settings
+  # Output file format
   geotiff:
+    compress: 'lzw'
     tiled: true
-    blockxsize: 256
-    blockysize: 256
-    compress: 'LZW'
-    dtype: 'float32'
-    nodata_value: -9999
+    blockxsize: 512
+    blockysize: 512
+    nodata_value: -9999.0
 
-# Distributed computing parameters
+# Compute configuration for distributed processing
 compute:
+  use_dask: false  # Whether to use Dask for distributed processing
   num_workers: 4  # Number of Dask workers
-  memory_limit: '41GB'  # Memory limit per worker
-  chunk_size: 2048  # Chunk size for raster processing
-  
-# Masking configuration (for annual cropland masking)
-masking:
-  target_extensions: ['.tif', '.tiff']
-  recursive_processing: true
-  biomass_patterns: ['*AGBD*', '*BGBD*', '*TBD*']
-  corine_resampling_method: 'nearest'
-  
+  memory_limit: '4GB'  # Memory limit per worker
+  chunk_size: 1024  # Raster chunk size for processing
+
 # Logging configuration
 logging:
   level: 'INFO'
-  format: 'standard'
-  log_file: null  # Set to path for file logging
+  format: '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+  # log_file: 'biomass_estimation.log'  # Optional log file
+
+# Quality control parameters
+quality:
+  min_height: 0.5  # Minimum height for valid pixels (meters)
+  max_height: 80.0  # Maximum height for valid pixels (meters)
+  min_biomass: 0.0  # Minimum biomass value (Mg/ha)
+  max_biomass: 1000.0  # Maximum biomass value (Mg/ha)

@@ -3,7 +3,16 @@
 Allometry Fitting Pipeline Script
 
 Entry point for fitting allometric relationships from NFI data and 
-canopy height predictions.
+canopy height predictions. Uses complete implementation with quantile
+regression and hierarchical forest type processing.
+
+Features:
+- Dynamic training dataset creation from NFI data + height maps
+- Height-AGB allometry fitting using quantile regression  
+- BGB-AGB ratio fitting using hierarchical percentile calculation
+- Hierarchical forest type processing (General → Clade → Family → Genus → ForestType)
+- Compatible outputs for existing biomass estimation pipeline
+- Integration with harmonized data paths
 
 Usage:
     python run_allometry_fitting.py [OPTIONS]
@@ -17,6 +26,9 @@ Examples:
     
     # Specific years only
     python run_allometry_fitting.py --years 2020 2021
+    
+    # Use 100m height maps instead of 10m
+    python run_allometry_fitting.py --use-100m
     
     # Validation only
     python run_allometry_fitting.py --validate-only
@@ -33,9 +45,12 @@ from typing import List, Optional
 # Add repo root to path for absolute imports
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
+# Shared utilities
+from shared_utils import setup_logging, load_config, log_pipeline_start, log_pipeline_end, CentralDataPaths
+
 # Component imports
+from biomass_model.core.allometry_fitting import run_allometry_fitting_pipeline, save_allometry_results
 from biomass_model.core.allometry import AllometryManager
-from shared_utils import setup_logging, load_config, log_pipeline_start, log_pipeline_end
 
 
 def parse_arguments() -> argparse.Namespace:
@@ -45,11 +60,13 @@ def parse_arguments() -> argparse.Namespace:
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  %(prog)s                              # Fit all allometries
+  %(prog)s                              # Fit all allometries using 10m height maps
   %(prog)s --config custom.yaml         # Custom configuration
   %(prog)s --years 2020 2021           # Specific years only
+  %(prog)s --use-100m                  # Use 100m height maps instead of 10m
   %(prog)s --validate-only             # Validate data only
-  %(prog)s --output-dir ./results      # Custom output directory
+  %(prog)s --data-root ./my_data       # Custom data root directory
+  %(prog)s --height-10m-dir ./heights  # Custom 10m height maps directory
         """
     )
     
@@ -67,9 +84,34 @@ Examples:
     )
     
     parser.add_argument(
-        '--output-dir',
+        '--data-root',
         type=str,
-        help='Custom output directory for fitted allometries'
+        default='data',
+        help='Root directory for data storage (default: data)'
+    )
+    
+    parser.add_argument(
+        '--height-10m-dir', 
+        type=str,
+        help='Custom directory for 10m height maps (overrides default)'
+    )
+    
+    parser.add_argument(
+        '--height-100m-dir',
+        type=str, 
+        help='Custom directory for 100m height maps (overrides default)'
+    )
+    
+    parser.add_argument(
+        '--allometries-output-dir',
+        type=str,
+        help='Custom output directory for fitted allometries (overrides default)'
+    )
+    
+    parser.add_argument(
+        '--use-100m',
+        action='store_true',
+        help='Use 100m height maps instead of 10m for fitting'
     )
     
     parser.add_argument(
@@ -98,198 +140,289 @@ Examples:
         help='Overwrite existing output files'
     )
     
+    parser.add_argument(
+        '--continue-on-error',
+        action='store_true',
+        help='Continue processing even if some stages fail'
+    )
+    
     return parser.parse_args()
 
 
 def validate_arguments(args: argparse.Namespace) -> bool:
     """Validate command line arguments."""
+    # Validate config file if provided
     if args.config and not Path(args.config).exists():
         print(f"Error: Config file not found: {args.config}")
         return False
     
-    if args.output_dir:
-        output_path = Path(args.output_dir)
-        try:
-            output_path.mkdir(parents=True, exist_ok=True)
-        except Exception as e:
-            print(f"Error: Cannot create output directory {args.output_dir}: {e}")
-            return False
+    # Validate data root directory
+    data_root = Path(args.data_root)
+    if not data_root.exists():
+        print(f"Error: Data root directory not found: {args.data_root}")
+        return False
     
     return True
 
 
+def create_fitting_config(args: argparse.Namespace) -> dict:
+    """
+    Create fitting configuration from arguments and default values.
+    
+    Args:
+        args: Parsed command line arguments
+        
+    Returns:
+        dict: Configuration dictionary for allometry fitting
+    """
+    # Default fitting configuration
+    default_config = {
+        'data': {
+            'target_years': args.years or [2017, 2018, 2019, 2020, 2021, 2022, 2023, 2024],
+        },
+        'height_agb': {
+            'quantiles': [0.15, 0.85],
+            'alpha': 0.05,
+            'min_samples': 10,
+            'max_height': 50.0,
+            'min_height': 1.0
+        },
+        'bgb_agb': {
+            'min_samples': 25,
+            'percentiles': [5, 50, 95]
+        },
+        'outlier_removal': {
+            'enabled': True,
+            'contamination': 0.12
+        },
+        'quality_filters': {
+            'min_r2': 0.1,
+            'min_slope': 0.0
+        },
+        'use_10m_for_fitting': not args.use_100m  # Use 10m by default, unless --use-100m specified
+    }
+    
+    # Load custom config if provided
+    if args.config:
+        try:
+            custom_config = load_config(args.config)
+            # Merge custom config with defaults
+            for key, value in custom_config.items():
+                if key in default_config:
+                    if isinstance(value, dict) and isinstance(default_config[key], dict):
+                        default_config[key].update(value)
+                    else:
+                        default_config[key] = value
+                else:
+                    default_config[key] = value
+        except Exception as e:
+            print(f"Warning: Could not load custom config {args.config}: {e}")
+    
+    return default_config
+
+
 class AllometryFittingPipeline:
     """
-    Pipeline for fitting allometric relationships.
+    Complete allometry fitting pipeline with harmonized path integration.
     
-    This is a placeholder for the actual allometry fitting logic
-    that would integrate with existing fitting modules.
+    Orchestrates the full pipeline from NFI data loading to fitted parameter
+    output using the new allometry fitting modules.
     """
     
-    def __init__(self, config_path: Optional[str] = None):
+    def __init__(self, args: argparse.Namespace):
         """Initialize fitting pipeline."""
-        self.config = load_config(config_path, component_name="biomass_estimation")
+        # Setup centralized data paths
+        self.data_paths = CentralDataPaths(args.data_root)
+        
+        # Apply custom path overrides if provided
+        if args.height_10m_dir:
+            # Override 10m height maps directory
+            self.data_paths.paths['height_maps_10m'] = Path(args.height_10m_dir)
+        
+        if args.height_100m_dir:
+            # Override 100m height maps directory  
+            self.data_paths.paths['height_maps_100m'] = Path(args.height_100m_dir)
+        
+        if args.allometries_output_dir:
+            # Override allometries output directory
+            self.data_paths.paths['allometries'] = Path(args.allometries_output_dir)
+        
+        # Create fitting configuration
+        self.config = create_fitting_config(args)
+        
+        # Setup logging
         self.logger = setup_logging(
-            level=self.config['logging']['level'],
+            level=args.log_level,
             component_name='allometry_fitting'
         )
         
-        self.allometry_manager = AllometryManager(self.config)
+        # Pipeline settings
+        self.continue_on_error = args.continue_on_error
+        self.validate_only = args.validate_only
+        self.overwrite = args.overwrite
         
         self.logger.info("AllometryFittingPipeline initialized")
+        self.logger.info(f"Data root: {self.data_paths.data_root}")
+        self.logger.info(f"Using {'10m' if self.config['use_10m_for_fitting'] else '100m'} height maps for fitting")
     
-    def validate_inputs(self) -> bool:
-        """Validate input data for allometry fitting."""
-        self.logger.info("Validating allometry fitting inputs...")
-        
-        try:
-            # Validate allometric data
-            if not self.allometry_manager.validate_allometric_data():
-                return False
-            
-            # Check for NFI data (placeholder - would check actual NFI files)
-            nfi_dir = Path(self.config['data'].get('nfi_data_dir', 'data/nfi'))
-            if not nfi_dir.exists():
-                self.logger.warning(f"NFI data directory not found: {nfi_dir}")
-                # This might not be critical if allometries are pre-fitted
-            
-            # Check for height prediction data
-            height_dir = Path(self.config['data']['input_data_dir'])
-            if not height_dir.exists():
-                self.logger.error(f"Height predictions directory not found: {height_dir}")
-                return False
-            
-            self.logger.info("Input validation passed")
-            return True
-            
-        except Exception as e:
-            self.logger.error(f"Error validating inputs: {str(e)}")
-            return False
-    
-    def fit_allometries(
-        self, 
-        years: Optional[List[int]] = None,
-        forest_types: Optional[List[str]] = None,
-        output_dir: Optional[str] = None
-    ) -> bool:
+    def validate_prerequisites(self) -> bool:
         """
-        Fit allometric relationships.
+        Validate that required input data exists.
         
-        Args:
-            years: Years to include in fitting
-            forest_types: Forest types to fit
-            output_dir: Output directory
+        Returns:
+            bool: True if prerequisites are met
+        """
+        self.logger.info("Validating prerequisites...")
+        
+        issues = []
+        
+        # Check NFI processed data directory
+        nfi_dir = self.data_paths.get_path('forest_inventory_processed')
+        if not nfi_dir.exists():
+            issues.append(f"NFI processed directory not found: {nfi_dir}")
+        
+        # Check forest types hierarchy file
+        forest_types_file = self.data_paths.get_path('forest_inventory') / "Forest_Types_Tiers.csv"
+        if not forest_types_file.exists():
+            issues.append(f"Forest types hierarchy file not found: {forest_types_file}")
+        
+        # Check height maps directory
+        if self.config['use_10m_for_fitting']:
+            height_dir = self.data_paths.get_height_maps_10m_dir()
+            resolution = "10m"
+        else:
+            height_dir = self.data_paths.get_height_maps_100m_dir()
+            resolution = "100m"
+        
+        if not height_dir.exists():
+            issues.append(f"{resolution} height maps directory not found: {height_dir}")
+        
+        # Check for at least one year of data
+        found_data = False
+        for year in self.config['data']['target_years']:
+            nfi_file = nfi_dir / f'nfi4_{year}_biomass.shp'
+            height_year_dir = height_dir / str(year)
             
+            if nfi_file.exists() and height_year_dir.exists():
+                found_data = True
+                break
+        
+        if not found_data:
+            issues.append(f"No matching NFI and height data found for target years: {self.config['data']['target_years']}")
+        
+        # Log issues
+        if issues:
+            for issue in issues:
+                self.logger.error(f"Prerequisite check failed: {issue}")
+            return False
+        else:
+            self.logger.info("All prerequisites validated successfully")
+            return True
+    
+    def run_fitting(self) -> bool:
+        """
+        Run the complete allometry fitting pipeline.
+        
         Returns:
             bool: True if fitting succeeded
         """
-        self.logger.info("Starting allometry fitting...")
-        
         try:
-            # This is a placeholder for actual fitting logic
-            # In the real implementation, this would:
-            # 1. Load NFI plot data
-            # 2. Sample height predictions at NFI locations
-            # 3. Fit allometric relationships by forest type hierarchy
-            # 4. Generate quantile regression results
-            # 5. Save fitted parameters
+            self.logger.info("Starting allometry fitting pipeline...")
+            start_time = time.time()
             
-            # Get available forest types if not specified
-            if forest_types is None:
-                forest_types = self.allometry_manager.get_available_forest_types()
+            # Run the fitting pipeline
+            allometry_df, ratio_df = run_allometry_fitting_pipeline(
+                self.data_paths, self.config
+            )
             
-            self.logger.info(f"Fitting allometries for {len(forest_types)} forest types")
+            # Save results to harmonized output locations
+            output_files = save_allometry_results(
+                allometry_df, ratio_df, self.data_paths
+            )
             
-            # Placeholder fitting process
-            fitted_count = 0
-            for forest_type in forest_types:
-                self.logger.info(f"Fitting allometry for forest type: {forest_type}")
-                
-                # Here would be the actual fitting logic
-                # For now, just validate existing parameters
-                params = self.allometry_manager.get_allometry_parameters(forest_type)
-                if params:
-                    fitted_count += 1
-                    self.logger.debug(f"Parameters available for {forest_type}")
-                else:
-                    self.logger.warning(f"No parameters for {forest_type}")
+            # Log summary
+            duration = time.time() - start_time
+            self.logger.info(f"Allometry fitting completed in {duration:.2f} seconds")
+            self.logger.info(f"Output files created:")
+            for file_type, file_path in output_files.items():
+                self.logger.info(f"  {file_type}: {file_path}")
             
-            self.logger.info(f"Allometry fitting completed: {fitted_count}/{len(forest_types)} successful")
-            
-            # Generate summary statistics
-            summary = self.allometry_manager.get_summary_statistics()
-            self.logger.info(f"Summary: {summary}")
-            
-            return fitted_count > 0
+            return True
             
         except Exception as e:
-            self.logger.error(f"Error in allometry fitting: {str(e)}")
+            self.logger.error(f"Allometry fitting failed: {str(e)}")
+            if not self.continue_on_error:
+                raise
+            return False
+    
+    def run(self) -> bool:
+        """
+        Execute complete pipeline with validation and error handling.
+        
+        Returns:
+            bool: True if pipeline completed successfully
+        """
+        try:
+            # Validate prerequisites
+            if not self.validate_prerequisites():
+                self.logger.error("Prerequisites validation failed")
+                return False
+            
+            # If validation only, stop here
+            if self.validate_only:
+                self.logger.info("Validation completed successfully (validation-only mode)")
+                return True
+            
+            # Run fitting
+            success = self.run_fitting()
+            
+            if success:
+                self.logger.info("Allometry fitting pipeline completed successfully")
+            else:
+                self.logger.error("Allometry fitting pipeline failed")
+            
+            return success
+            
+        except Exception as e:
+            self.logger.error(f"Pipeline error: {str(e)}")
             return False
 
 
 def main():
     """Main entry point."""
-    start_time = time.time()
-    
     # Parse arguments
     args = parse_arguments()
     
+    # Validate arguments
     if not validate_arguments(args):
-        sys.exit(1)
+        return False
     
-    # Setup logging
-    logger = setup_logging(
-        level=args.log_level,
-        component_name='allometry_fitting',
-        format_style='detailed' if args.log_level == 'DEBUG' else 'standard'
-    )
+    # Setup pipeline start logging
+    start_time = time.time()
     
     try:
-        # Initialize pipeline
-        logger.info("Initializing Allometry Fitting Pipeline...")
-        pipeline = AllometryFittingPipeline(config_path=args.config)
+        # Initialize and run pipeline
+        pipeline = AllometryFittingPipeline(args)
+        success = pipeline.run()
         
-        # Log pipeline start
-        log_pipeline_start(logger, "Allometry Fitting", pipeline.config)
-        
-        # Validation
-        if not pipeline.validate_inputs():
-            logger.error("Input validation failed")
-            sys.exit(1)
-        
-        if args.validate_only:
-            logger.info("✅ Validation successful - exiting")
-            sys.exit(0)
-        
-        # Run fitting
-        success = pipeline.fit_allometries(
-            years=args.years,
-            forest_types=args.forest_types,
-            output_dir=args.output_dir
-        )
-        
-        # Pipeline completion
-        elapsed_time = time.time() - start_time
-        log_pipeline_end(logger, "Allometry Fitting", success, elapsed_time)
-        
+        # Log completion
+        duration = time.time() - start_time
         if success:
-            logger.info("🎉 Allometry fitting completed successfully!")
-            sys.exit(0)
+            print(f"\n✅ Allometry fitting completed successfully in {duration:.2f} seconds")
+            return True
         else:
-            logger.error("💥 Allometry fitting failed!")
-            sys.exit(1)
+            print(f"\n❌ Allometry fitting failed after {duration:.2f} seconds")
+            return False
             
     except KeyboardInterrupt:
-        logger.info("Pipeline interrupted by user")
-        sys.exit(1)
-        
+        print("\n⚠️ Pipeline interrupted by user")
+        return False
     except Exception as e:
-        logger.error(f"Pipeline failed with unexpected error: {str(e)}")
-        if args.log_level == 'DEBUG':
-            import traceback
-            logger.debug(traceback.format_exc())
-        sys.exit(1)
+        duration = time.time() - start_time
+        print(f"\n💥 Pipeline failed with error after {duration:.2f} seconds: {str(e)}")
+        return False
 
 
 if __name__ == "__main__":
-    main()
+    success = main()
+    sys.exit(0 if success else 1)

@@ -15,7 +15,7 @@ from typing import Dict, List, Optional, Tuple, Any, Union
 import time
 
 # Shared utilities
-from shared_utils import get_logger, ensure_directory
+from shared_utils import get_logger, ensure_directory, CentralDataPaths
 
 # Component imports
 from .io_utils import RasterManager
@@ -29,7 +29,7 @@ class MonteCarloEstimator:
     biomass estimates with uncertainty bounds.
     """
     
-    def __init__(self, config: Dict[str, Any]):
+    def __init__(self, config: Dict[str, Any], data_paths: CentralDataPaths):
         """
         Initialize the Monte Carlo estimator.
         
@@ -51,7 +51,7 @@ class MonteCarloEstimator:
         self.rng = np.random.RandomState(self.random_seed)
         
         # Initialize raster manager
-        self.raster_manager = RasterManager(config)
+        self.raster_manager = RasterManager(config, data_paths)
         
         self.logger.info(f"MonteCarloEstimator initialized with {self.num_samples} samples")
     
