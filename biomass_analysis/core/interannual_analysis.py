@@ -384,8 +384,7 @@ class InterannualAnalyzer:
         })
         
         # Save to output directory
-        base_dir = self.config['data']['base_dir']
-        output_dir = os.path.join(base_dir, self.config['output']['base_output_dir'])
+        output_dir = ANALYSIS_OUTPUTS_DIR
         os.makedirs(output_dir, exist_ok=True)
         
         output_file = os.path.join(output_dir, f"raw_transition_data_{year1}_{year2}.csv")
@@ -478,10 +477,9 @@ class InterannualAnalyzer:
         self.logger.info("Starting interannual difference mapping...")
         
         # Get input and output directories from config
-        base_dir = self.config['data']['base_dir']
-        input_dir = os.path.join(base_dir, self.config['interannual']['differences']['input_biomass_dir'])
-        output_raw_dir = os.path.join(base_dir, self.config['interannual']['differences']['output_raw_dir'])
-        output_relative_dir = os.path.join(base_dir, self.config['interannual']['differences']['output_relative_dir'])
+        input_dir = BIOMASS_MAPS_FULL_COUNTRY_DIR / "mean"
+        output_raw_dir = ANALYSIS_OUTPUTS_DIR
+        output_relative_dir = ANALYSIS_OUTPUTS_DIR
         
         self.logger.info(f"Input directory: {input_dir}")
         self.logger.info(f"Raw output directory: {output_raw_dir}")
@@ -515,8 +513,7 @@ class InterannualAnalyzer:
         self.logger.info("Starting biomass transition distribution analysis...")
         
         # Get input directory from config
-        base_dir = self.config['data']['base_dir']
-        input_dir = os.path.join(base_dir, self.config['interannual']['differences']['input_biomass_dir'])
+        input_dir = BIOMASS_MAPS_FULL_COUNTRY_DIR / "mean"
         
         self.logger.info(f"Input directory: {input_dir}")
         
@@ -540,8 +537,7 @@ class InterannualAnalyzer:
             self.logger.warning("No results to save")
             return None
         
-        base_dir = self.config['data']['base_dir']
-        output_dir = os.path.join(base_dir, self.config['output']['base_output_dir'])
+        output_dir = ANALYSIS_OUTPUTS_DIR
         os.makedirs(output_dir, exist_ok=True)
         
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")

@@ -1,20 +1,6 @@
 # Forest Inventory Processing Configuration
 # Spanish National Forest Inventory (NFI) biomass data processing
 # Author: Diego Bengochea
-
-# Data Sources and Paths
-data:
-  base_dir: "/path/to/nfi/data/"                    # Main data directory
-  ifn4_dir: "IFN_4_SP/"                            # NFI4 database files directory
-  mfe_dir: "MFESpain/"                             # Spanish Forest Map directory
-  wood_density_file: "GlobalWoodDensityDatabase.xls"  # Global Wood Density Database
-  species_codes_file: "CODIGOS_IFN.csv"           # Species codes mapping
-  temp_dir: "IFN_4_SP/tmp/"                       # Temporary files directory
-
-# Output Configuration
-output:
-  base_dir: "/path/to/output/"                     # Main output directory
-  target_crs: "EPSG:25830"                        # Final CRS for all outputs
   
 # File Patterns and Naming
 file_patterns:

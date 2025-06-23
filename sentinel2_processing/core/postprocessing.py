@@ -36,6 +36,7 @@ from pystac_client import Client
 
 # Shared utilities
 from shared_utils import setup_logging, get_logger, load_config, ensure_directory
+from shared_utils.central_data_paths_constants import *
 
 # Component utilities - using refactored imports
 from .s2_utils import mask_scene
@@ -317,9 +318,9 @@ class DownsamplingMergingProcessor:
         
         try:
             # Get directories from configuration
-            input_directory = self.config['paths']['output_dir']
-            downsampled_directory = self.config['paths']['downsampled_dir']
-            merged_directory = self.config['paths']['merged_dir']
+            input_directory = SENTINEL2_MOSAICS_DIR
+            downsampled_directory = SENTINEL2_DOWNSAMPLED_DIR
+            merged_directory = SENTINEL2_MERGED_DIR
             
             # Step 1: Downsample rasters
             self.logger.info("\n" + "="*50)
@@ -559,7 +560,7 @@ class MissingTilesAnalyzer:
         
         try:
             # Get directory path from config
-            directory_path = self.config['paths']['output_dir']
+            directory_path = SENTINEL2_PROCESSED_DIR
             
             self.logger.info(f"Analyzing directory: {directory_path}")
             
@@ -1142,8 +1143,8 @@ class InterannualConsistencyAnalyzer:
         
         try:
             # Get directories from config
-            input_directory = self.config['paths']['merged_dir']
-            output_directory = os.path.join(input_directory, 'interannual_consistency_results')
+            input_directory = SENTINEL2_MERGED_DIR
+            output_directory = input_directory / 'interannual_consistency_results'
             
             self.logger.info(f"Input directory: {input_directory}")
             self.logger.info(f"Output directory: {output_directory}")

@@ -280,7 +280,6 @@ class BiomassEstimationRunner:
         self.args = args
         
         self.logger.info("BiomassEstimationRunner initialized")
-        self.logger.info(f"Data root: {self.data_paths.data_root}")
     
     def _apply_path_overrides(self, args: argparse.Namespace) -> None:
         """Apply custom path arguments to override default paths."""
@@ -293,10 +292,6 @@ class BiomassEstimationRunner:
             'forest_type_maps': args.forest_type_maps_dir
         }
         
-        for path_key, override_value in overrides.items():
-            if override_value:
-                self.data_paths.paths[path_key] = Path(override_value)
-                self.logger.info(f"Path override: {path_key} -> {override_value}")
     
     def create_pipeline_config(self) -> dict:
         """Create pipeline configuration with argument overrides."""
@@ -329,7 +324,6 @@ class BiomassEstimationRunner:
             # Create pipeline configuration
             config = self.create_pipeline_config()
             
-            # Initialize pipeline - UPDATED: Pass data_paths to constructor
             pipeline = BiomassEstimationPipeline(config, self.data_paths)
             
             # Validate inputs
@@ -379,10 +373,9 @@ class BiomassEstimationRunner:
                 'duration_seconds': duration,
                 'args': vars(self.args),
                 'data_paths': {
-                    'data_root': str(self.data_paths.data_root),
-                    'height_maps_100m': str(self.data_paths.get_height_maps_100m_dir()),
-                    'allometries': str(self.data_paths.get_allometries_dir()),
-                    'biomass_output': str(self.data_paths.get_path('biomass_maps'))
+                    'height_maps_100m': str(HEIGHT_MAPS_100M_DIR),
+                    'allometries': str(FITTED_PARAMETERS_FILE),
+                    'biomass_output': str(BIOMASS_MAPS_DIR)
                 }
             }
             

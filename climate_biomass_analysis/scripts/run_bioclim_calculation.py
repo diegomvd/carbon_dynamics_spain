@@ -214,7 +214,7 @@ def main():
             # Use config paths
             import glob
             import os
-            data_dir = calculator.config['data']['climate_outputs']
+            data_dir = CLIMATE_HARMONIZED_DIR
             temp_files = glob.glob(os.path.join(data_dir, calculator.climate_config['temp_pattern']))
             precip_files = glob.glob(os.path.join(data_dir, calculator.climate_config['precip_pattern']))
         
@@ -230,9 +230,9 @@ def main():
         
         # Step 1: Harmonize rasters (unless skipped)
         if not args.skip_harmonization:
-            harmonized_dir = calculator.config['data']['harmonized_dir']
-            harmonized_temp_dir = Path(harmonized_dir) / "temperature"
-            harmonized_precip_dir = Path(harmonized_dir) / "precipitation"
+            harmonized_dir = CLIMATE_HARMONIZED_DIR
+            harmonized_temp_dir = harmonized_dir / "temperature"
+            harmonized_precip_dir = harmonized_dir / "precipitation"
             
             logger.info("Harmonizing raster files...")
             harmonized_temp_files = calculator.harmonize_rasters(temp_files, harmonized_temp_dir)
@@ -246,7 +246,7 @@ def main():
         if args.mode in ['reference', 'both']:
             logger.info("Calculating reference bioclimatic variables...")
             
-            output_dir = args.output_dir or calculator.config['data']['bioclim_dir']
+            output_dir = args.output_dir or BIOCLIM_VARIABLES_DIR
             
             reference_bioclim = calculator.calculate_bioclim_variables(
                 harmonized_temp_files,
@@ -268,8 +268,8 @@ def main():
         if args.mode in ['anomalies', 'both']:
             logger.info("Calculating bioclimatic anomalies...")
             
-            reference_dir = args.output_dir or calculator.config['data']['bioclim_dir']
-            anomaly_dir = args.anomaly_dir or calculator.config['data']['anomaly_dir']
+            reference_dir = args.output_dir or BIOCLIM_VARIABLES_DIR
+            anomaly_dir = args.anomaly_dir or BIOCLIM_ANOMALIES_DIR
             
             yearly_anomalies = calculator.calculate_bioclim_anomalies(
                 harmonized_temp_files,

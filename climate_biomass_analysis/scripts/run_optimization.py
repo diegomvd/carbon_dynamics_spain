@@ -104,20 +104,6 @@ def parse_arguments():
         help='Minimum trials before early stopping (overrides config)'
     )
     
-    # Input/Output
-    parser.add_argument(
-        '--input-dataset',
-        type=str,
-        help='Path to clustered dataset CSV (overrides config)'
-    )
-    
-    parser.add_argument(
-        '--output-dir',
-        type=str,
-        default='optimization_results',
-        help='Output directory for results'
-    )
-    
     # Execution control
     parser.add_argument(
         '--single-run',
@@ -231,11 +217,6 @@ def override_config(optimizer, args):
         optimizer.early_stopping_config['min_trials'] = args.min_trials
         config_changed = True
     
-    # Input dataset
-    if args.input_dataset:
-        optimizer.config['data']['clustered_dataset'] = args.input_dataset
-        config_changed = True
-    
     if config_changed:
         optimizer.logger.info("Configuration overridden with command line arguments")
     
@@ -252,7 +233,6 @@ def save_configuration(optimizer, output_dir):
         'cv_strategy': optimizer.cv_config,
         'features': optimizer.features_config,
         'early_stopping': optimizer.early_stopping_config,
-        'data_paths': optimizer.config['data']
     }
     
     with open(config_file, 'w') as f:

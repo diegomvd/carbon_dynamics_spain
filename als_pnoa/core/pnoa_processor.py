@@ -17,6 +17,7 @@ import numpy as np
 from typing import List, Tuple, Dict, Optional
 import logging
 
+from shared_utils.central_data_paths import *
 
 class PNOAProcessor:
     """
@@ -37,10 +38,10 @@ class PNOAProcessor:
         self.logger = logging.getLogger(__name__)
         
         # Extract paths from config
-        self.sentinel_path = config['paths']['sentinel2_dir']
-        self.pnoa_coverage_paths = config['paths']['pnoa_coverage_dirs']
-        self.pnoa_data_dir = config['paths']['pnoa_data_dir']
-        self.target_output_dir = config['paths']['output_dir']
+        self.sentinel_path = SENTINEL2_MOSAICS_DIR
+        self.pnoa_coverage_paths = [ALS_METADATA_UTM_29_DIR,ALS_METADATA_UTM_30_DIR,ALS_METADATA_UTM_31_DIR]
+        self.pnoa_data_dir = ALS_DATA_DIR
+        self.target_output_dir = ALS_CANOPY_HEIGHT_PROCESSED_DIR
         
         # Processing parameters
         self.target_years = config['processing']['target_years']

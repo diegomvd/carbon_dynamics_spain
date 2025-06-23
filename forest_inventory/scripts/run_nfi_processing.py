@@ -71,21 +71,6 @@ For more information, see the component documentation.
         help='Path to configuration file (default: uses component default)'
     )
     
-    # Directory overrides
-    parser.add_argument(
-        '--data-dir',
-        type=str,
-        default=None,
-        help='Override data directory from configuration'
-    )
-    
-    parser.add_argument(
-        '--output-dir',
-        type=str,
-        default=None,
-        help='Override output directory from configuration'
-    )
-    
     # Logging options
     parser.add_argument(
         '--log-level',
@@ -143,14 +128,7 @@ def override_config_from_args(config: dict, args: argparse.Namespace) -> dict:
         
     Returns:
         dict: Updated configuration
-    """
-    # Override directories if specified
-    if args.data_dir:
-        config['data']['base_dir'] = str(Path(args.data_dir).resolve())
-    
-    if args.output_dir:
-        config['output']['base_dir'] = str(Path(args.output_dir).resolve())
-    
+    """    
     # Override logging settings
     config['logging']['level'] = args.log_level
     if args.log_file:
@@ -258,9 +236,9 @@ def main() -> int:
         pipeline.config = config  # Use the overridden config
         
         # Update pipeline attributes from config
-        pipeline.data_dir = config['data']['base_dir']
-        pipeline.output_dir = config['output']['base_dir']
-        pipeline.temp_dir = f"{pipeline.data_dir}/{config['data']['temp_dir']}"
+        pipeline.data_dir = NFI4_DATABASE_DIR
+        pipeline.output_dir = FOREST_INVENTORY_PROCESSED_DIR
+        pipeline.temp_dir = FOREST_INVENTORY_PROCESSED_DIR / "tmp"
         pipeline.target_crs = config['output']['target_crs']
         
         # Show summary if requested

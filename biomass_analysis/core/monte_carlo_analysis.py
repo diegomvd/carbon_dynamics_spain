@@ -24,6 +24,7 @@ from typing import Dict, List, Optional, Tuple, Any, Union
 
 # Shared utilities
 from shared_utils import setup_logging, get_logger, load_config
+from shared_utils.central_data_paths_constants import *
 
 warnings.filterwarnings('ignore')
 
@@ -71,8 +72,7 @@ class MonteCarloAnalyzer:
         Returns:
             Complete file path
         """
-        base_dir = self.config['data']['base_dir']
-        biomass_maps_dir = self.config['data']['biomass_maps_dir']
+        biomass_maps_dir = BIOMASS_MAPS_FULL_COUNTRY_DIR / "mean"
         
         if file_type == 'mean':
             pattern = self.config['file_patterns']['biomass_mean']
@@ -356,8 +356,7 @@ class MonteCarloAnalyzer:
             return None
         
         # Get country boundary path
-        base_dir = self.config['data']['base_dir']
-        country_bounds_path = os.path.join(base_dir, self.config['data']['country_bounds_path'])
+        country_bounds_path = SPAIN_BOUNDARIES
         
         # Load raster files with country boundary masking
         mean_data, transform, crs, bounds = self.load_raster(mean_file, country_bounds_path)
@@ -444,8 +443,7 @@ class MonteCarloAnalyzer:
             Tuple of (summary_csv_path, samples_npz_path)
         """
         # Create output directory
-        base_dir = self.config['data']['base_dir']
-        output_dir = os.path.join(base_dir, self.config['output']['base_output_dir'])
+        output_dir = ANALYSIS_OUTPUTS_DIR
         os.makedirs(output_dir, exist_ok=True)
         
         # Save summary results

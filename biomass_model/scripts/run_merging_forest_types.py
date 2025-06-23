@@ -32,6 +32,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 # Shared utilities
 from shared_utils import setup_logging, CentralDataPaths
+from shared_utils.central_data_paths_constants import *
 
 
 def parse_arguments() -> argparse.Namespace:
@@ -210,18 +211,11 @@ class ForestTypeMergingRunner:
         self.args = args
         
         self.logger.info("ForestTypeMergingRunner initialized")
-        self.logger.info(f"Data root: {self.data_paths.data_root}")
     
     def _apply_path_overrides(self, args: argparse.Namespace) -> None:
         """Apply custom path arguments to override default paths."""
-        if args.biomass_input_dir or args.biomass_output_dir:
-            # Override biomass maps path
-            if args.biomass_input_dir:
-                self.data_paths.paths['biomass_maps'] = Path(args.biomass_input_dir).parent
-                self.logger.info(f"Path override: biomass_maps -> {args.biomass_input_dir}")
-            if args.biomass_output_dir:
-                self.data_paths.paths['biomass_maps'] = Path(args.biomass_output_dir).parent
-                self.logger.info(f"Path override: biomass_maps -> {args.biomass_output_dir}")
+        if args.biomass_input_dir or args.biomass_output_dir:            
+            continue
     
     def determine_input_output_dirs(self) -> tuple:
         """Determine input and output directories from arguments and defaults."""
@@ -232,7 +226,7 @@ class ForestTypeMergingRunner:
             input_dir = Path(self.args.biomass_input_dir)
         else:
             # Use default: biomass_maps/per_forest_type (masked, forest type specific)
-            input_dir = self.data_paths.get_biomass_maps_per_forest_type_dir()
+            input_dir = BIOMASS_MAPS_PER_FOREST_TYPE_DIR
         
         # Output directory priority: --output-dir > --biomass-output-dir > default
         if self.args.output_dir:
@@ -241,7 +235,7 @@ class ForestTypeMergingRunner:
             output_dir = Path(self.args.biomass_output_dir)
         else:
             # Use default: biomass_maps/full_country (merged country-wide)
-            output_dir = self.data_paths.get_biomass_maps_full_country_dir()
+            output_dir = BIOMASS_MAPS_FULL_COUNTRY_DIR
         
         return input_dir, output_dir
     

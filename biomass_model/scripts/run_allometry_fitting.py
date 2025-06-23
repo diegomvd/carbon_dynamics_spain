@@ -47,6 +47,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 # Shared utilities
 from shared_utils import setup_logging, load_config, log_pipeline_start, log_pipeline_end, CentralDataPaths
+from shared_utils.central_data_paths_constants import *
 
 # Component imports
 from biomass_model.core.allometry_fitting import run_allometry_fitting_pipeline, save_allometry_results
@@ -234,19 +235,6 @@ class AllometryFittingPipeline:
         # Setup centralized data paths
         self.data_paths = CentralDataPaths(args.data_root)
         
-        # Apply custom path overrides if provided
-        if args.height_10m_dir:
-            # Override 10m height maps directory
-            self.data_paths.paths['height_maps_10m'] = Path(args.height_10m_dir)
-        
-        if args.height_100m_dir:
-            # Override 100m height maps directory  
-            self.data_paths.paths['height_maps_100m'] = Path(args.height_100m_dir)
-        
-        if args.allometries_output_dir:
-            # Override allometries output directory
-            self.data_paths.paths['allometries'] = Path(args.allometries_output_dir)
-        
         # Create fitting configuration
         self.config = create_fitting_config(args)
         
@@ -262,7 +250,6 @@ class AllometryFittingPipeline:
         self.overwrite = args.overwrite
         
         self.logger.info("AllometryFittingPipeline initialized")
-        self.logger.info(f"Data root: {self.data_paths.data_root}")
         self.logger.info(f"Using {'10m' if self.config['use_10m_for_fitting'] else '100m'} height maps for fitting")
     
     def validate_prerequisites(self) -> bool:
@@ -277,21 +264,21 @@ class AllometryFittingPipeline:
         issues = []
         
         # Check NFI processed data directory
-        nfi_dir = self.data_paths.get_path('forest_inventory_processed')
+        nfi_dir = FOREST_INVENTORY_PROCESSED_DIR
         if not nfi_dir.exists():
             issues.append(f"NFI processed directory not found: {nfi_dir}")
         
         # Check forest types hierarchy file
-        forest_types_file = self.data_paths.get_path('forest_inventory') / "Forest_Types_Tiers.csv"
+        forest_types_file = FOREST_TYPES_TIERS_FILE
         if not forest_types_file.exists():
             issues.append(f"Forest types hierarchy file not found: {forest_types_file}")
         
         # Check height maps directory
         if self.config['use_10m_for_fitting']:
-            height_dir = self.data_paths.get_height_maps_10m_dir()
+            height_dir = HEIGHT_MAPS_10M_DIR
             resolution = "10m"
         else:
-            height_dir = self.data_paths.get_height_maps_100m_dir()
+            height_dir = HEIGHT_MAPS_100M_DIR
             resolution = "100m"
         
         if not height_dir.exists():

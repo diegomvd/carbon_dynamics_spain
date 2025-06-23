@@ -160,6 +160,8 @@ def main():
         analyzer.logger.info("  - Raw differences: year2 - year1 (Mg/ha)")
         analyzer.logger.info("  - Relative differences: 200*(year2-year1)/(year2+year1) (%)")
         
+
+        # TODO: this needs correction!!
         # Show output directories
         base_dir = analyzer.config['data']['base_dir']
         raw_dir = analyzer.config['interannual']['differences']['output_raw_dir']

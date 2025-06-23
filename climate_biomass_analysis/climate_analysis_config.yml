@@ -1,23 +1,6 @@
 # Climate-Biomass Analysis Component Configuration
 # Author: Diego Bengochea
 
-# Data paths and directories
-data:
-  # Climate data processing
-  climate_outputs: "climate_outputs"           # Raw climate GRIB/TIF files
-  harmonized_dir: "harmonized_climate"         # Harmonized raster outputs
-  bioclim_dir: "bioclimatic_variables"         # Bioclimatic variables (bio1-bio19)
-  anomaly_dir: "climate_anomalies"             # Climate anomaly outputs
-  
-  # Biomass integration
-  biomass_diff_dir: "interannual_biomass_differences_relative"  # Biomass difference maps
-  temp_resampled_dir: "temp_resampled_biomass"  # Temporary resampled biomass files
-  training_dataset: "ml_training_dataset.csv"   # Final ML training dataset
-  clustered_dataset: "ml_dataset_with_clusters.csv"  # Dataset with spatial clusters
-  
-  # Reference data
-  spain_boundary: "spain_boundary.shp"         # Spain boundary shapefile
-  
 # Time period definitions
 time_periods:
   # Reference period for calculating climatology
@@ -102,14 +85,6 @@ optimization:
 
 # SHAP Analysis configuration
 shap_analysis:
-  # Data paths for SHAP analysis
-  paths:
-    # Input paths
-    models_dir: "results/climate_biomass_analysis/models"  # Models directory
-    clustered_dataset: "results/climate_biomass_analysis/ml_dataset_with_clusters.csv"
-    
-    # Output paths
-    shap_analysis_dir: "results/climate_biomass_analysis/shap_analysis"
   
   # Model filtering parameters
   model_filtering:

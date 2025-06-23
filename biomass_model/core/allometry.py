@@ -16,6 +16,7 @@ import logging
 
 # Shared utilities
 from shared_utils import get_logger, validate_file_exists, CentralDataPaths
+from shared_utils.central_data_paths_constants import *
 
 
 class AllometryManager:
@@ -63,7 +64,7 @@ class AllometryManager:
         self.logger.info("Loading allometric data files...")
         
         # Load allometry relationships - UPDATED: Use CentralDataPaths
-        allometry_file = self.data_paths.get_fitted_parameters_file()
+        allometry_file = FITTED_PARAMETERS_FILE
         if allometry_file.exists():
             self.allometry_data = pd.read_csv(allometry_file)
             # Set forest_type as index for efficient lookup
@@ -75,7 +76,7 @@ class AllometryManager:
             self.allometry_data = pd.DataFrame()
         
         # Load forest type hierarchies - UPDATED: Use CentralDataPaths
-        forest_types_file = self.data_paths.get_path('forest_inventory') / "Forest_Types_Tiers.csv"
+        forest_types_file = FOREST_TYPES_TIERS_FILE
         if forest_types_file.exists():
             self.forest_types_data = pd.read_csv(forest_types_file)
             self.logger.info(f"Loaded {len(self.forest_types_data)} forest type mappings")
@@ -84,7 +85,7 @@ class AllometryManager:
             self.forest_types_data = pd.DataFrame()
         
         # Load BGB ratios - UPDATED: Use CentralDataPaths
-        bgb_file = self.data_paths.get_bgb_ratios_file()
+        bgb_file = BGB_RATIOS_FILE
         if bgb_file.exists():
             self.bgb_ratios_data = pd.read_csv(bgb_file)
             # Set forest_type as index for efficient lookup

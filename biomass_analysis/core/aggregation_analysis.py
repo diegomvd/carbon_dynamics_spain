@@ -22,6 +22,7 @@ from typing import Dict, List, Optional, Tuple, Any, Union
 
 # Shared utilities
 from shared_utils import setup_logging, get_logger, load_config
+from shared_utils.central_data_paths_constants import *
 
 
 class BiomassAggregator:
@@ -67,12 +68,10 @@ class BiomassAggregator:
             DataFrame with forest type mappings
         """
         self.logger.info("Loading forest type mappings...")
-        
-        base_dir = self.config['data']['base_dir']
-        
+                
         # Load CSV files
-        forest_types_path = os.path.join(base_dir, self.config['data']['forest_types_csv'])
-        forest_codes_path = os.path.join(base_dir, self.config['data']['forest_type_codes_csv'])
+        forest_types_path = FOREST_TYPE_CSV
+        forest_codes_path = FOREST_TYPE_CODES
         
         forest_types = pd.read_csv(forest_types_path)
         forest_codes = pd.read_csv(forest_codes_path)
@@ -126,8 +125,7 @@ class BiomassAggregator:
         Returns:
             List of forest type mask file paths
         """
-        base_dir = self.config['data']['base_dir']
-        mask_dir = os.path.join(base_dir, self.config['data']['forest_type_masks_dir'])
+        mask_dir = FOREST_TYPE_MASKS_DIR
         
         mask_files = glob(os.path.join(mask_dir, "forest_type_mask_100m_code*.tif"))
         
@@ -155,8 +153,7 @@ class BiomassAggregator:
         self.logger.info(f"Processing biomass for year {year}...")
         
         # Build biomass file path
-        base_dir = self.config['data']['base_dir']
-        biomass_dir = os.path.join(base_dir, self.config['data']['biomass_maps_dir'], 'mean')
+        biomass_dir = FOREST_TYPE_MAPS_DIR / "mean" # TODO: check this mean part!
         biomass_file = os.path.join(biomass_dir, f"TBD_S2_mean_{year}_100m_TBD_merged.tif")
         
         if not os.path.exists(biomass_file):
@@ -276,9 +273,8 @@ class BiomassAggregator:
         Returns:
             List of result dictionaries
         """
-        base_dir = self.config['data']['base_dir']
-        biomass_dir = os.path.join(base_dir, self.config['data']['biomass_maps_dir'], 'mean')
-        corine_raster_path = os.path.join(base_dir, self.config['data']['corine_raster_path'])
+        biomass_dir = BIOMASS_MAPS_DIR / "mean" # TODO: check subdir
+        corine_raster_path = CORINE_LAND_COVER_FILE
         
         # Get landcover groups from config
         landcover_groups = self.config['landcover']['groups']
@@ -389,9 +385,8 @@ class BiomassAggregator:
         Returns:
             bool: True if masks were created successfully, False otherwise
         """
-        base_dir = self.config['data']['base_dir']
-        height_dir = os.path.join(base_dir, self.config['data']['canopy_height_dir'])
-        mask_dir = os.path.join(base_dir, self.config['height_ranges']['mask_dir'])
+        height_dir = HEIGHT_MAPS_100M_DIR
+        mask_dir = HEIGHT_MAPS_BIN_MASKS_DIR
         
         # Get height ranges from config
         height_bins = self.config['height_ranges']['bins']
@@ -465,9 +460,8 @@ class BiomassAggregator:
         Returns:
             List of result dictionaries
         """
-        base_dir = self.config['data']['base_dir']
-        biomass_dir = os.path.join(base_dir, self.config['data']['biomass_maps_dir'], 'mean')
-        mask_dir = os.path.join(base_dir, self.config['height_ranges']['mask_dir'])
+        biomass_dir = BIOMASS_MAPS_DIR
+        mask_dir = HEIGHT_MAPS_BIN_MASKS_DIR
         height_labels = self.config['height_ranges']['labels']
         pixel_area_ha = self.config['analysis']['pixel_area_ha']
         
@@ -542,8 +536,7 @@ class BiomassAggregator:
         Returns:
             bool: True if all masks are available, False otherwise
         """
-        base_dir = self.config['data']['base_dir']
-        mask_dir = os.path.join(base_dir, self.config['height_ranges']['mask_dir'])
+        mask_dir = HEIGHT_MAPS_BIN_MASKS_DIR
         height_labels = self.config['height_ranges']['labels']
         
         all_masks_available = True
@@ -679,8 +672,8 @@ class BiomassAggregator:
         Returns:
             Path to main output file
         """
-        base_dir = self.config['data']['base_dir']
-        output_dir = os.path.join(base_dir, self.config['output']['base_output_dir'])
+        
+        output_dir = ANALYSIS_OUTPUTS_DIR
         os.makedirs(output_dir, exist_ok=True)
         
         if analysis_type == 'forest_type':

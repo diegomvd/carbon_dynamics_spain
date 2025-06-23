@@ -101,7 +101,7 @@ class MosaicProcessingPipeline:
             >>> print(f"Processing {len(pipeline.processing_list)} combinations")
         """
         self.processing_list = create_processing_list(
-            self.config['paths']['spain_polygon'],
+            SPAIN_BOUNDARIES,
             self.config['processing']['tile_size'],
             self.config['processing']['years']
         )
@@ -200,7 +200,7 @@ class MosaicProcessingPipeline:
         """
         # Generate output path using exact filename convention
         savepath = generate_output_filename(
-            tile, year, self.config['paths']['output_dir']
+            tile, year, SENTINEL2_MOSAICS_DIR
         )
         
         # Skip if already processed - PRESERVE exact file existence check
@@ -287,8 +287,8 @@ class MosaicProcessingPipeline:
                 self.create_processing_plan()
             
             # Create output directory using shared utilities
-            ensure_directory(self.config['paths']['output_dir'])
-            self.logger.info(f"Output directory ready: {self.config['paths']['output_dir']}")
+            ensure_directory(SENTINEL2_MOSAICS_DIR)
+            self.logger.info(f"Output directory ready: {str(SENTINEL2_MOSAICS_DIR)}")
             
             total_combinations = len(self.processing_list)
             self.logger.info(f"Processing {total_combinations} tile-year combinations")
@@ -371,7 +371,7 @@ class MosaicProcessingPipeline:
                 return False
         
         # Validate Spain polygon file exists
-        spain_polygon_path = Path(self.config['paths']['spain_polygon'])
+        spain_polygon_path = SPAIN_BOUNDARIES
         if not spain_polygon_path.exists():
             self.logger.error(f"Spain polygon file not found: {spain_polygon_path}")
             return False

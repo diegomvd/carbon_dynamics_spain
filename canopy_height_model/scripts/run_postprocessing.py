@@ -87,19 +87,6 @@ Examples:
         help='Path to configuration file'
     )
     
-    # Directory overrides (for individual steps)
-    parser.add_argument(
-        '--input-dir',
-        type=str,
-        help='Override input directory for current step'
-    )
-    
-    parser.add_argument(
-        '--output-dir',
-        type=str,
-        help='Override output directory for current step'
-    )
-    
     # Processing options
     parser.add_argument(
         '--num-workers',
@@ -222,11 +209,6 @@ def validate_arguments(args: argparse.Namespace) -> bool:
         print(f"Error: Config file not found: {args.config}")
         return False
     
-    # Validate directory overrides
-    if args.input_dir and not Path(args.input_dir).exists():
-        print(f"Error: Input directory not found: {args.input_dir}")
-        return False
-    
     # Validate numeric parameters
     if args.tile_size_km and args.tile_size_km <= 0:
         print("Error: Tile size must be positive")
@@ -291,20 +273,6 @@ def apply_argument_overrides(pipeline: PostProcessingPipeline, args: argparse.Na
         config['post_processing']['final_merge']['create_overview_pyramids'] = True
         pipeline.logger.info("Overview pyramid creation enabled")
     
-    # Directory overrides (only if single step being run)
-    if args.input_dir:
-        # Apply to all step configs - the specific step will use it
-        for step_config in ['merge', 'sanitize', 'final_merge']:
-            if step_config in config['post_processing']:
-                config['post_processing'][step_config]['input_dir'] = args.input_dir
-        pipeline.logger.info(f"Override input_dir: {args.input_dir}")
-    
-    if args.output_dir:
-        # Apply to all step configs
-        for step_config in ['merge', 'sanitize', 'final_merge']:
-            if step_config in config['post_processing']:
-                config['post_processing'][step_config]['output_dir'] = args.output_dir
-        pipeline.logger.info(f"Override output_dir: {args.output_dir}")
 
 
 def validate_pipeline_only(pipeline: PostProcessingPipeline, steps: List[PipelineStep]) -> bool:

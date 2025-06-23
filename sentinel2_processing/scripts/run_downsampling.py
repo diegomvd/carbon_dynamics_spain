@@ -209,16 +209,16 @@ def main() -> int:
         if args.downsample_only:
             logger.info("Running downsampling workflow only...")
             stats = processor.downsample_rasters(
-                config['paths']['output_dir'],
-                config['paths']['downsampled_dir']
+                SENTINEL2_PROCESSED_DIR,
+                SENTINEL2_DOWNSAMPLED_DIR
             )
             logger.info(f"Downsampling completed: {stats['successful']} successful, {stats['failed']} failed")
             
         elif args.merge_only:
             logger.info("Running merging workflow only...")
             stats = processor.merge_rasters_by_year(
-                config['paths']['downsampled_dir'],
-                config['paths']['merged_dir']
+                SENTINEL2_DOWNSAMPLED_DIR,
+                SENTINEL2_MERGED_DIR
             )
             logger.info(f"Merging completed: {stats['successful']} successful, {stats['failed']} failed")
             

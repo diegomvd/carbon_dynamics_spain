@@ -84,7 +84,6 @@ class BiomassFullPipelineOrchestrator:
         self.start_time = None
         
         self.logger.info("Initialized BiomassFullPipelineOrchestrator")
-        self.logger.info(f"Data root: {self.data_paths.data_root}")
     
     def _apply_path_overrides(self, args: argparse.Namespace) -> None:
         """Apply custom path arguments to override default paths."""
@@ -97,10 +96,7 @@ class BiomassFullPipelineOrchestrator:
             'forest_type_maps': args.forest_type_maps_dir
         }
         
-        for path_key, override_value in overrides.items():
-            if override_value:
-                self.data_paths.paths[path_key] = Path(override_value)
-                self.logger.info(f"Path override: {path_key} -> {override_value}")
+
     
     def run_stage(self, stage_name: str, stage_script: str, stage_args: List[str] = None) -> bool:
         """
@@ -177,28 +173,6 @@ class BiomassFullPipelineOrchestrator:
     def build_common_args(self) -> List[str]:
         """Build common arguments to pass to all stage scripts."""
         common_args = []
-        
-        # Add data root
-        common_args.extend(['--data-root', str(self.data_paths.data_root)])
-        
-        # Add custom path overrides
-        if self.args.height_100m_dir:
-            common_args.extend(['--height-100m-dir', self.args.height_100m_dir])
-        
-        if self.args.height_10m_dir:
-            common_args.extend(['--height-10m-dir', self.args.height_10m_dir])
-        
-        if self.args.allometries_output_dir:
-            common_args.extend(['--allometries-output-dir', self.args.allometries_output_dir])
-        
-        if self.args.biomass_output_dir:
-            common_args.extend(['--biomass-output-dir', self.args.biomass_output_dir])
-        
-        if self.args.nfi_processed_dir:
-            common_args.extend(['--nfi-processed-dir', self.args.nfi_processed_dir])
-        
-        if self.args.forest_type_maps_dir:
-            common_args.extend(['--forest-type-maps-dir', self.args.forest_type_maps_dir])
         
         # Add years if specified
         if self.args.years:
@@ -340,8 +314,8 @@ class BiomassFullPipelineOrchestrator:
         
         # Show output directories
         self.logger.info(f"\n📂 Output directories:")
-        self.logger.info(f"   Allometries: {self.data_paths.get_allometries_dir()}")
-        self.logger.info(f"   Biomass maps: {self.data_paths.get_path('biomass_maps')}")
+        self.logger.info(f"   Allometries: {str(FITTED_PARAMETERS_FILE)}")
+        self.logger.info(f"   Biomass maps: {str(BIOMASS_MAPS_FULL_COUNTRY_DIR)}")
 
 
 def parse_arguments() -> argparse.Namespace:

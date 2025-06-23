@@ -19,6 +19,7 @@ from lightning.pytorch.loggers import TensorBoardLogger
 # Shared utilities
 from shared_utils import setup_logging, get_logger, load_config, ensure_directory
 from shared_utils import log_pipeline_start, log_pipeline_end
+from shared_utils.central_data_paths_constants import SENTINEL2_MOSAICS_DIR, ALS_CANOPY_HEIGHT_PROCESSED_DIR, PRETRAINED_HEIGHT_MODELS_DIR
 
 # Component imports (these would reference existing modules)
 from .canopy_height_regression import CanopyHeightRegressionTask
@@ -77,9 +78,9 @@ class ModelTrainingPipeline:
         
         try:
             # Check required data directories
-            data_dir = Path(self.config['data']['data_dir'])
-            sentinel2_dir = data_dir / self.config['data']['sentinel2_dir']
-            lidar_dir = data_dir / self.config['data']['pnoa_lidar_dir']
+            data_dir = SENTINEL2_MOSAICS_DIR.parent
+            sentinel2_dir = SENTINEL2_MOSAICS_DIR
+            lidar_dir = ALS_CANOPY_HEIGHT_PROCESSED_DIR
             
             if not sentinel2_dir.exists():
                 self.logger.error(f"Sentinel-2 data directory not found: {sentinel2_dir}")
@@ -133,9 +134,9 @@ class ModelTrainingPipeline:
             
             # Create data module with configuration
             self.datamodule = S2PNOAVegetationDataModule(
-                data_dir=self.config['data']['data_dir'],
-                sentinel2_dir=self.config['data']['sentinel2_dir'],
-                lidar_dir=self.config['data']['pnoa_lidar_dir'],
+                data_dir=SENTINEL2_MOSAICS_DIR.parent,
+                sentinel2_dir=str(SENTINEL2_MOSAICS_DIR),
+                lidar_dir=str(ALS_CANOPY_HEIGHT_PROCESSED_DIR),
                 batch_size=self.config['training']['batch_size'],
                 num_workers=self.config['compute']['num_workers'],
                 val_split=self.config['training']['val_split'],
@@ -207,7 +208,7 @@ class ModelTrainingPipeline:
             self.logger.info("Setting up trainer...")
             
             # Setup checkpoint directory
-            checkpoint_dir = Path(self.config['data']['checkpoint_dir'])
+            checkpoint_dir = PRETRAINED_HEIGHT_MODELS_DIR
             ensure_directory(checkpoint_dir)
             
             # Setup callbacks

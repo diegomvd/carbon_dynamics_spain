@@ -559,7 +559,7 @@ class OptimizationPipeline:
         """Load the spatial dataset with cluster assignments."""
         # This method should load the clustered dataset
         # Implementation depends on where the data is stored
-        clustered_dataset_path = self.config['data']['clustered_dataset']
+        clustered_dataset_path = CLIMATE_BIOMASS_DATASET_CLUSTERS_FILE
         
         if not os.path.exists(clustered_dataset_path):
             raise FileNotFoundError(f"Clustered dataset not found: {clustered_dataset_path}")

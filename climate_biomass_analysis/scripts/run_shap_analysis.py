@@ -21,6 +21,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 from climate_biomass_analysis.core.shap_analysis import ShapAnalyzer
 from shared_utils import setup_logging
+from shared_utils.central_data_paths_constants import *
 
 
 def parse_arguments():
@@ -37,25 +38,7 @@ def parse_arguments():
         help='Path to configuration file (default: component config.yaml)'
     )
     
-    # Input paths (override config)
-    parser.add_argument(
-        '--models-dir',
-        type=str,
-        help='Directory containing trained models'
-    )
-    
-    parser.add_argument(
-        '--dataset',
-        type=str,
-        help='Path to clustered dataset CSV file'
-    )
-    
-    parser.add_argument(
-        '--output-dir',
-        type=str,
-        help='Output directory for SHAP analysis results'
-    )
-    
+
     # Model filtering options
     parser.add_argument(
         '--r2-threshold',
@@ -169,17 +152,17 @@ def validate_inputs(analyzer: ShapAnalyzer, args):
     logger = analyzer.logger
     
     # Check models directory
-    models_dir = args.models_dir or analyzer.shap_config['paths']['models_dir']
+    models_dir = args.models_dir or CLIMATE_BIOMASS_MODELS_DIR
     if not Path(models_dir).exists():
         raise FileNotFoundError(f"Models directory not found: {models_dir}")
     
     # Check dataset file
-    dataset_path = args.dataset or analyzer.shap_config['paths']['clustered_dataset']
+    dataset_path = args.dataset or CLIMATE_BIOMASS_DATASET_CLUSTERS_FILE
     if not Path(dataset_path).exists():
         raise FileNotFoundError(f"Dataset file not found: {dataset_path}")
     
     # Check if output directory is writable
-    output_dir = args.output_dir or analyzer.shap_config['paths']['shap_analysis_dir']
+    output_dir = args.output_dir or CLIMATE_BIOMASS_SHAP_OUTPUT_DIR
     output_path = Path(output_dir)
     output_path.mkdir(parents=True, exist_ok=True)
     
@@ -197,19 +180,6 @@ def validate_inputs(analyzer: ShapAnalyzer, args):
 def override_config(analyzer: ShapAnalyzer, args):
     """Override configuration with command line arguments."""
     config_changed = False
-    
-    # Path overrides
-    if args.models_dir:
-        analyzer.shap_config['paths']['models_dir'] = args.models_dir
-        config_changed = True
-    
-    if args.dataset:
-        analyzer.shap_config['paths']['clustered_dataset'] = args.dataset
-        config_changed = True
-    
-    if args.output_dir:
-        analyzer.shap_config['paths']['shap_analysis_dir'] = args.output_dir
-        config_changed = True
     
     # Model filtering overrides
     if args.r2_threshold:
@@ -270,9 +240,9 @@ def show_dry_run_info(analyzer: ShapAnalyzer):
     
     # Show paths
     logger.info("📁 Input/Output paths:")
-    logger.info(f"  Models directory: {analyzer.shap_config['paths']['models_dir']}")
-    logger.info(f"  Dataset file: {analyzer.shap_config['paths']['clustered_dataset']}")
-    logger.info(f"  Output directory: {analyzer.shap_config['paths']['shap_analysis_dir']}")
+    logger.info(f"  Models directory: {str(CLIMATE_BIOMASS_MODELS_DIR)}")
+    logger.info(f"  Dataset file: {str(CLIMATE_BIOMASS_DATASET_CLUSTERS_FILE)}")
+    logger.info(f"  Output directory: {str(CLIMATE_BIOMASS_SHAP_OUTPUT_DIR)}")
     
     # Show analysis parameters
     logger.info("⚙️ Analysis parameters:")
@@ -300,14 +270,13 @@ def save_effective_config(analyzer: ShapAnalyzer):
     import json
     from pathlib import Path
     
-    output_dir = Path(analyzer.shap_config['paths']['shap_analysis_dir'])
+    output_dir = CLIMATE_BIOMASS_SHAP_OUTPUT_DIR
     output_dir.mkdir(parents=True, exist_ok=True)
     
     config_file = output_dir / "effective_shap_config.json"
     
     # Create a clean config for saving
     effective_config = {
-        'paths': analyzer.shap_config['paths'],
         'model_filtering': analyzer.shap_config['model_filtering'],
         'analysis': analyzer.shap_config['analysis']
     }

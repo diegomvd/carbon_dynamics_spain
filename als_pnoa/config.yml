@@ -7,23 +7,6 @@ component:
   version: "1.0.0"
   description: "PNOA LiDAR processing for training data preparation"
 
-# Data paths and directories
-paths:
-  # Input data directories
-  sentinel2_dir: 'data/processed/sentinel2_mosaics/'
-  
-  # PNOA coverage polygon directories (one per UTM zone)
-  pnoa_coverage_dirs:
-    - 'data/raw/pnoa_coverage/Huso_29/'
-    - 'data/raw/pnoa_coverage/Huso_30/'
-    - 'data/raw/pnoa_coverage/Huso_31/'
-  
-  # PNOA LiDAR data directory (contains NDSM-VEGETACION tiles)
-  pnoa_data_dir: 'data/raw/pnoa_lidar/PNOA2_LIDAR_VEGETATION/'
-  
-  # Output directory for processed training tiles
-  output_dir: 'data/processed/training_data_sentinel2_pnoa/'
-
 # Processing parameters
 processing:
   # Target years for processing

@@ -29,6 +29,7 @@ from climate_biomass_analysis.core.biomass_integration import BiomassIntegrator
 from climate_biomass_analysis.core.spatial_analysis import SpatialAnalyzer
 from climate_biomass_analysis.core.optimization_pipeline import OptimizationPipeline
 from shared_utils import setup_logging, load_config
+from shared_utils.central_data_paths_constants import *
 
 
 class PipelineOrchestrator:
@@ -110,7 +111,7 @@ class PipelineOrchestrator:
         self.logger.info(f"{'='*60}")
         
         # Check if stage already completed
-        climate_outputs = self.config['data']['climate_outputs']
+        climate_outputs = CLIMATE_HARMONIZED_DIR
         check_paths = [climate_outputs]
         check_patterns = ["*.tif"]
         
@@ -156,8 +157,8 @@ class PipelineOrchestrator:
         self.logger.info(f"{'='*60}")
         
         # Check if stage already completed
-        bioclim_dir = self.config['data']['bioclim_dir']
-        anomaly_dir = self.config['data']['anomaly_dir']
+        bioclim_dir = BIOCLIM_VARIABLES_DIR
+        anomaly_dir = BIOCLIM_ANOMALIES_DIR
         check_paths = [bioclim_dir, anomaly_dir]
         check_patterns = ["bio*.tif", "anomalies_*"]
         
@@ -208,7 +209,7 @@ class PipelineOrchestrator:
         self.logger.info(f"{'='*60}")
         
         # Check if stage already completed
-        training_dataset = self.config['data']['training_dataset']
+        training_dataset = CLIMATE_BIOMASS_DATASET_FILE
         check_paths = [training_dataset]
         
         if self.check_stage_completion(stage_name, check_paths):
@@ -261,7 +262,7 @@ class PipelineOrchestrator:
         self.logger.info(f"{'='*60}")
         
         # Check if stage already completed
-        clustered_dataset = self.config['data']['clustered_dataset']
+        clustered_dataset = CLIMATE_BIOMASS_DATASET_CLUSTERS_FILE
         check_paths = [clustered_dataset]
         
         if self.check_stage_completion(stage_name, check_paths):

@@ -4,26 +4,8 @@
 component: "biomass_analysis"
 version: "1.0.0"
 
-# Base data directory and paths
-data:
-  base_dir: '/path/to/data'  # Update this path
-  
-  # Input data paths (relative to base_dir)
-  biomass_maps_dir: 'biomass_maps_merged_with_annual_crop_mask'
-  country_bounds_path: 'SpainPolygon/gadm41_ESP_0.shp'
-  
-  # Forest type mapping files (for forest type analysis)
-  forest_types_csv: 'stocks_NFI4/Forest_Types_Tiers.csv'  # ForestTypeMFE -> Species/Genus/Family/Clade
-  forest_type_codes_csv: 'result_processing/biomass_estimation/forest_type_cache.csv'  # code -> name mapping
-  forest_type_masks_dir: 'forest_type_masks/100m'  # forest type mask rasters
-  
-  # Other data sources
-  corine_raster_path: 'corine_land_cover/U2018_CLC2018_V2020_20u1.tif'
-  canopy_height_dir: 'canopy_height_predictions/with_annual_crop_mask'
-
 # Output settings
 output:
-  base_output_dir: 'analysis_results'  # relative to base_dir
   save_monte_carlo_samples: true
   save_intermediate_results: true
 
@@ -54,7 +36,6 @@ file_patterns:
 height_ranges:
   bins: [0, 2, 6, 10, 20]  # Creates ranges: 0-2m, 2-6m, 6-10m, 10-20m, 20m+
   labels: ['0_2m', '2_6m', '6_10m', '10_20m', '20m_plus']
-  mask_dir: 'canopy_height_predictions/height_range_masks'  # relative to base_dir
   # Height file naming pattern
   height_file_pattern: 'canopy_height_{year}_100m.tif'  # in canopy_height_dir
 
@@ -74,9 +55,6 @@ quality_control:
 interannual:
   # For raster difference maps
   differences:
-    input_biomass_dir: 'biomass_maps_merged_with_annual_crop_mask/mean'  # relative to base_dir
-    output_raw_dir: 'interannual_biomass_differences'                    # raw signed differences 
-    output_relative_dir: 'interannual_biomass_differences_relative'      # relative symmetric differences
     create_10km_resampled: false  # Whether to create 10km resampled versions
   
   # For transition analysis

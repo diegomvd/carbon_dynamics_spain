@@ -76,13 +76,7 @@ For more information, see the component documentation.
         type=str,
         help='Input directory with merged mosaic files (overrides config)'
     )
-    
-    parser.add_argument(
-        '--output-dir',
-        type=str,
-        help='Output directory for analysis results (overrides default)'
-    )
-    
+
     # Analysis parameters
     parser.add_argument(
         '--sample-size',
@@ -290,7 +284,7 @@ def main() -> int:
         analyzer = InterannualConsistencyAnalyzer(config)
         
         # Determine input directory
-        input_dir = args.input_dir or config['paths']['merged_dir']
+        input_dir = SENTINEL2_MERGED_DIR
         
         # Filter files if year criteria specified
         if args.years or args.exclude_years:
@@ -299,15 +293,6 @@ def main() -> int:
                 logger.error("No files found matching year criteria")
                 return 1
             logger.info(f"Analyzing {len(filtered_files)} files based on year criteria")
-        
-        # Set custom output directory if specified
-        if args.output_dir:
-            # Temporarily override the merged_dir to control output location
-            original_merged_dir = config['paths']['merged_dir']
-            # The analyzer uses merged_dir to create output subdirectory
-            # We'll need to modify the run method or create output dir manually
-            from shared_utils import ensure_directory
-            ensure_directory(args.output_dir)
         
         # Run analysis
         logger.info("Starting interannual consistency analysis...")

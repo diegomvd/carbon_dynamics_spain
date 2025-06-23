@@ -18,6 +18,7 @@ from dask.distributed import Client
 
 # Shared utilities
 from shared_utils import setup_logging, get_logger, load_config, ensure_directory, find_files, CentralDataPaths
+from shared_utils.central_data_paths_constants import *
 
 # Component imports
 from .allometry import AllometryManager
@@ -65,7 +66,6 @@ class BiomassEstimationPipeline:
         self.start_time = None
         
         self.logger.info(f"Initialized BiomassEstimationPipeline")
-        self.logger.info(f"Data root: {self.data_paths.data_root}")
     
     def setup_dask_cluster(self) -> None:
         """Setup Dask distributed computing cluster."""
@@ -89,7 +89,7 @@ class BiomassEstimationPipeline:
         self.logger.info("Validating input data...")
         
         # Check height maps directory - UPDATED: Use CentralDataPaths
-        height_maps_dir = self.data_paths.get_height_maps_100m_dir()
+        height_maps_dir = HEIGHT_MAPS_100M_DIR
         if not height_maps_dir.exists():
             self.logger.error(f"Height maps directory not found: {height_maps_dir}")
             return False
@@ -106,7 +106,7 @@ class BiomassEstimationPipeline:
             return False
         
         # Check forest type maps directory - UPDATED: Use CentralDataPaths
-        forest_masks_dir = self.data_paths.get_forest_type_maps_dir()
+        forest_masks_dir = FOREST_TYPE_MASKS_DIR
         if not forest_masks_dir.exists():
             self.logger.error(f"Forest type maps directory not found: {forest_masks_dir}")
             return False
@@ -128,8 +128,7 @@ class BiomassEstimationPipeline:
         """
         self.logger.info("Setting up output directories...")
         
-        # Use harmonized biomass maps structure - UPDATED: Use CentralDataPaths
-        base_dir = self.data_paths.get_biomass_maps_raw_dir()  # No LC masking initially
+        base_dir = BIOMASS_MAPS_RAW_DIR
         
         output_dirs = {}
         for biomass_type in self.config['output']['types']:
@@ -160,8 +159,7 @@ class BiomassEstimationPipeline:
         Returns:
             List of matching height raster files
         """
-        # UPDATED: Use CentralDataPaths
-        height_maps_dir = self.data_paths.get_height_maps_100m_dir()
+        height_maps_dir = HEIGHT_MAPS_100M_DIR
         year_dir = height_maps_dir / str(year)
         
         if not year_dir.exists():
@@ -179,8 +177,8 @@ class BiomassEstimationPipeline:
         Returns:
             List of forest type mask files
         """
-        # UPDATED: Use CentralDataPaths
-        masks_dir = self.data_paths.get_forest_type_maps_dir()
+       
+        masks_dir = FOREST_TYPE_MASKS_DIR
         
         if not masks_dir.exists():
             self.logger.warning(f"Forest masks directory not found: {masks_dir}")

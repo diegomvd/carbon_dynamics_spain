@@ -33,6 +33,7 @@ from torchgeo.datamodules import GeoDataModule
 
 # Shared utilities
 from shared_utils import load_config, get_logger
+from shared_utils.central_data_paths_constants import SENTINEL2_MOSAICS_DIR, ALS_CANOPY_HEIGHT_PROCESSED_DIR
 
 # Component imports (these would be additional modules in the same core/ directory)
 try:
@@ -94,7 +95,7 @@ class S2PNOAVegetationDataModule(GeoDataModule):
         self.logger = get_logger('canopy_height_dl.datamodule')
         
         # Use provided values or fall back to configuration
-        data_dir = data_dir or str(self.config['data']['data_dir'])
+        data_dir = data_dir or str(SENTINEL2_MOSAICS_DIR.parent)
         patch_size = patch_size or self.config['training'].get('patch_size', 512)
         batch_size = batch_size or self.config['training']['batch_size']
         length = length or self.config['training'].get('length', 1000)
@@ -198,7 +199,7 @@ class S2PNOAVegetationDataModule(GeoDataModule):
             self.logger.error("S2Mosaic dataset class not available - please copy datasets.py to core/")
             raise ImportError("Required dataset classes not available")
         
-        s2 = S2Mosaic(self.hparams['data_dir'])
+        s2 = S2Mosaic(self.hparams['data_dir'] + str(SENTINEL2_MOSAICS_DIR.name))
         
         if stage == 'predict':
             self._setup_predict(s2)
@@ -230,7 +231,7 @@ class S2PNOAVegetationDataModule(GeoDataModule):
             self.logger.error("Required dataset classes not available")
             raise ImportError("PNOAVegetation or KorniaIntersectionDataset not available")
         
-        pnoa_vegetation = PNOAVegetation(self.hparams['data_dir'])
+        pnoa_vegetation = PNOAVegetation(self.hparams['data_dir'] + str(ALS_CANOPY_HEIGHT_PROCESSED_DIR.name))
         dataset = KorniaIntersectionDataset(s2, pnoa_vegetation)
         
         # Split dataset using configuration

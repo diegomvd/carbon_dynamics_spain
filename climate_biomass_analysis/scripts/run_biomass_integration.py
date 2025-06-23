@@ -36,38 +36,6 @@ def parse_arguments():
         help='Path to configuration file (default: component config.yaml)'
     )
     
-    # Input directories
-    parser.add_argument(
-        '--biomass-dir',
-        type=str,
-        help='Directory containing biomass difference files (overrides config)'
-    )
-    
-    parser.add_argument(
-        '--anomaly-dir',
-        type=str,
-        help='Directory containing climate anomaly files (overrides config)'
-    )
-    
-    parser.add_argument(
-        '--temp-dir',
-        type=str,
-        help='Temporary directory for resampled files (overrides config)'
-    )
-    
-    # Output options
-    parser.add_argument(
-        '--output-dataset',
-        type=str,
-        help='Output path for training dataset CSV (overrides config)'
-    )
-    
-    parser.add_argument(
-        '--output-dir',
-        type=str,
-        help='Base output directory (sets temp and dataset paths)'
-    )
-    
     # Processing parameters
     parser.add_argument(
         '--biomass-pattern',
@@ -146,30 +114,6 @@ def override_config(integrator, args):
     """Override configuration with command line arguments."""
     config_changed = False
     
-    # Input directories
-    if args.biomass_dir:
-        integrator.config['data']['biomass_diff_dir'] = args.biomass_dir
-        config_changed = True
-    
-    if args.anomaly_dir:
-        integrator.config['data']['anomaly_dir'] = args.anomaly_dir
-        config_changed = True
-    
-    if args.temp_dir:
-        integrator.config['data']['temp_resampled_dir'] = args.temp_dir
-        config_changed = True
-    
-    # Output paths
-    if args.output_dataset:
-        integrator.config['data']['training_dataset'] = args.output_dataset
-        config_changed = True
-    
-    if args.output_dir:
-        output_dir = Path(args.output_dir)
-        integrator.config['data']['temp_resampled_dir'] = str(output_dir / 'temp_resampled')
-        integrator.config['data']['training_dataset'] = str(output_dir / 'training_dataset.csv')
-        config_changed = True
-    
     # Processing parameters
     if args.biomass_pattern:
         integrator.integration_config['pattern'] = args.biomass_pattern
@@ -207,7 +151,7 @@ def validate_inputs(integrator, args):
     logger = setup_logging()
     
     # Check biomass directory
-    biomass_dir = integrator.config['data']['biomass_diff_dir']
+    biomass_dir = BIOMASS_MAPS_RELDIFF_DIR
     if not Path(biomass_dir).exists():
         logger.error(f"Biomass directory not found: {biomass_dir}")
         return False
@@ -225,7 +169,7 @@ def validate_inputs(integrator, args):
     logger.info(f"✅ Found {len(biomass_files)} biomass difference files")
     
     # Check anomaly directory
-    anomaly_dir = integrator.config['data']['anomaly_dir']
+    anomaly_dir = BIOCLIM_ANOMALIES_DIR
     if not Path(anomaly_dir).exists():
         logger.error(f"Anomaly directory not found: {anomaly_dir}")
         logger.error("Please run bioclimatic calculation pipeline first")
@@ -259,7 +203,7 @@ def check_existing_outputs(integrator, args):
     """Check if output files already exist."""
     logger = setup_logging()
     
-    training_dataset = integrator.config['data']['training_dataset']
+    training_dataset = CLIMATE_BIOMASS_DATASET_FILE
     
     if Path(training_dataset).exists():
         if args.overwrite:
@@ -294,8 +238,8 @@ def main():
         
         # Log integration settings
         logger.info(f"Integration settings:")
-        logger.info(f"  - Biomass dir: {integrator.config['data']['biomass_diff_dir']}")
-        logger.info(f"  - Anomaly dir: {integrator.config['data']['anomaly_dir']}")
+        logger.info(f"  - Biomass dir: {str(BIOMASS_MAPS_RELDIFF_DIR)}")
+        logger.info(f"  - Anomaly dir: {str(BIOCLIM_ANOMALIES_DIR)}")
         logger.info(f"  - Pattern: {integrator.integration_config['pattern']}")
         logger.info(f"  - Resampling: {integrator.integration_config['resampling_method']}")
         logger.info(f"  - Max points: {integrator.integration_config['max_valid_pixels']:,}")
@@ -318,6 +262,7 @@ def main():
         
         # Create output directories
         from shared_utils import ensure_directory
+        # TODO: CHECK THIS
         ensure_directory(Path(integrator.config['data']['temp_resampled_dir']))
         ensure_directory(Path(integrator.config['data']['training_dataset']).parent)
         
@@ -347,7 +292,7 @@ def main():
                 logger.info(f"  - Climate variables: {len(climate_vars)} bioclimatic variables")
                 logger.info(f"    - Variables: {', '.join(sorted(climate_vars))}")
             
-            logger.info(f"📁 Output saved: {integrator.config['data']['training_dataset']}")
+            logger.info(f"📁 Output saved: {str(CLIMATE_BIOMASS_DATASET_FILE)}")
         
         else:
             logger.error("❌ Biomass-climate integration failed - no data points created")

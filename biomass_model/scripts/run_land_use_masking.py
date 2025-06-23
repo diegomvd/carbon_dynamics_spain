@@ -32,6 +32,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 # Shared utilities
 from shared_utils import setup_logging, CentralDataPaths
+from shared_utils.central_data_paths_constants import *
 
 
 def parse_arguments() -> argparse.Namespace:
@@ -220,7 +221,6 @@ class AnnualCroplandMaskingRunner:
         self.args = args
         
         self.logger.info("AnnualCroplandMaskingRunner initialized")
-        self.logger.info(f"Data root: {self.data_paths.data_root}")
     
     def _apply_path_overrides(self, args: argparse.Namespace) -> None:
         """Apply custom path arguments to override default paths."""
@@ -228,15 +228,6 @@ class AnnualCroplandMaskingRunner:
             'biomass_maps': args.biomass_input_dir or args.biomass_output_dir,
             'land_cover': args.land_cover_file
         }
-        
-        for path_key, override_value in overrides.items():
-            if override_value:
-                if path_key == 'land_cover':
-                    # For single file, update the parent directory path
-                    self.data_paths.paths['land_cover'] = Path(override_value).parent
-                else:
-                    self.data_paths.paths[path_key] = Path(override_value)
-                self.logger.info(f"Path override: {path_key} -> {override_value}")
     
     def determine_input_output_dirs(self) -> tuple:
         """Determine input and output directories from arguments and defaults."""
@@ -247,7 +238,7 @@ class AnnualCroplandMaskingRunner:
             input_dir = Path(self.args.biomass_input_dir)
         else:
             # Use default: biomass_maps/raw (before masking)
-            input_dir = self.data_paths.get_biomass_maps_raw_dir()
+            input_dir = BIOMASS_MAPS_DIR
         
         # Output directory priority: --output-dir > --biomass-output-dir > default
         if self.args.output_dir:
@@ -256,16 +247,13 @@ class AnnualCroplandMaskingRunner:
             output_dir = Path(self.args.biomass_output_dir)
         else:
             # Use default: biomass_maps/per_forest_type (after masking)
-            output_dir = self.data_paths.get_biomass_maps_per_forest_type_dir()
+            output_dir = BIOMASS_MAPS_PER_FOREST_TYPE_DIR
         
         return input_dir, output_dir
     
     def get_land_cover_file(self) -> Path:
         """Get land cover file path from arguments or default."""
-        if self.args.land_cover_file:
-            return Path(self.args.land_cover_file)
-        else:
-            return self.data_paths.get_corine_land_cover_file()
+        return CORINE_LAND_COVER_FILE
     
     def run_masking(self) -> bool:
         """

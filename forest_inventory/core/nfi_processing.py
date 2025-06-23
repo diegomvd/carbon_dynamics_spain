@@ -24,6 +24,8 @@ from typing import Dict, Optional, Union, Any
 
 # Shared utilities
 from shared_utils import setup_logging, get_logger, load_config, log_pipeline_start, log_pipeline_end, log_section
+from shared_utils.central_data_paths_constants import *
+
 
 # Component imports
 from .nfi_utils import (
@@ -58,9 +60,9 @@ class NFIProcessingPipeline:
         )
         
         # Extract configuration values
-        self.data_dir = self.config['data']['base_dir']
-        self.output_dir = self.config['output']['base_dir']
-        self.temp_dir = f"{self.data_dir}/{self.config['data']['temp_dir']}"
+        self.data_dir = NFI4_DATABASE_DIR
+        self.output_dir = FOREST_INVENTORY_PROCESSED_DIR
+        self.temp_dir = NFI4_DATABASE_DIR / "tmp"
         self.target_crs = self.config['output']['target_crs']
         
         # Initialize reference databases
@@ -120,7 +122,7 @@ class NFIProcessingPipeline:
             Path(self.temp_dir).mkdir(parents=True)
 
         # Get file lists using configuration patterns
-        data_path = Path(f"{self.data_dir}/{self.config['data']['ifn4_dir']}")
+        data_path = NFI4_DATABASE_DIR
         ifn4_files = list(data_path.glob(self.config['file_patterns']['ifn4_files']))
         sig_files = list(data_path.glob(self.config['file_patterns']['sig_files']))
 
@@ -309,7 +311,7 @@ class NFIProcessingPipeline:
         Returns:
             dict: Updated UTM GeoDataFrames with forest type information
         """
-        mfe_dir = f"{self.data_dir}/{self.config['data']['mfe_dir']}"
+        mfe_dir = FOREST_TYPE_MAPS_DIR
         enhanced_gdfs = {}
         
         for utm, plots in utm_gdfs.items():
@@ -443,8 +445,8 @@ class NFIProcessingPipeline:
         
         # Check required directories
         required_dirs = [
-            self.config['data']['ifn4_dir'],
-            self.config['data']['mfe_dir']
+            NFI4_DATABASE_DIR,
+            FOREST_TYPE_MAPS_DIR
         ]
         
         for dir_name in required_dirs:
@@ -455,8 +457,8 @@ class NFIProcessingPipeline:
         
         # Check required files
         required_files = [
-            self.config['data']['wood_density_file'],
-            self.config['data']['species_codes_file']
+            WOOD_DENSITY_FILE,
+            NFI4_SPECIES_CODE_FILE
         ]
         
         for file_name in required_files:

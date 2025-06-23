@@ -33,6 +33,7 @@ warnings.filterwarnings('ignore')
 import sys
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 from shared_utils import setup_logging, load_config, ensure_directory
+from shared_utils.central_data_paths_constants import *
 
 
 class ShapAnalyzer:
@@ -65,9 +66,7 @@ class ShapAnalyzer:
         )
         
         # Extract configuration sections
-        self.shap_config = self.config['shap_analysis']
-        self.paths_config = self.config['data']
-        
+        self.shap_config = self.config['shap_analysis']        
         self.logger.info("Initialized ShapAnalyzer")
     
     def load_models(self, models_dir: str) -> Dict[str, Any]:
@@ -532,9 +531,9 @@ class ShapAnalyzer:
         
         try:
             # Extract configuration
-            models_dir = self.shap_config['paths']['models_dir']
-            dataset_path = self.shap_config['paths']['clustered_dataset']
-            output_dir = self.shap_config['paths']['shap_analysis_dir']
+            models_dir = CLIMATE_BIOMASS_MODELS_DIR
+            dataset_path = CLIMATE_BIOMASS_DATASET_CLUSTERS_FILE
+            output_dir = CLIMATE_BIOMASS_SHAP_OUTPUT_DIR
             
             # Analysis parameters
             r2_threshold = self.shap_config['model_filtering']['r2_threshold']

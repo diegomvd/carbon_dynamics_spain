@@ -21,6 +21,7 @@ import lightning as L
 # Shared utilities
 from shared_utils import setup_logging, get_logger, load_config, ensure_directory
 from shared_utils import find_files, validate_file_exists, log_pipeline_start, log_pipeline_end
+from shared_utils.central_data_paths_constants import HEIGHT_MODEL_CHECKPOINT_FILE
 
 # Component imports
 from .canopy_height_regression import CanopyHeightRegressionTask
@@ -305,7 +306,7 @@ class ModelPredictionPipeline:
                 
                 # Add metadata
                 dst.update_tags(
-                    MODEL_CHECKPOINT=str(self.config['data']['checkpoint_path']),
+                    MODEL_CHECKPOINT=str(HEIGHT_MODEL_CHECKPOINT_FILE),
                     TILE_SIZE=str(tile_size),
                     OVERLAP=str(overlap),
                     PROCESSED_TILES=str(successful_tiles),

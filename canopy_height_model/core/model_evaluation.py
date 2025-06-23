@@ -33,6 +33,7 @@ from lightning.pytorch import Trainer
 
 # Shared utilities
 from shared_utils import load_config, get_logger, ensure_directory
+from shared_utils.central_data_paths_constants import PRETRAINED_HEIGHT_MODELS_DIR, SENTINEL2_MOSAICS_DIR
 
 # Component imports
 from .s2_pnoa_vegetation_datamodule import S2PNOAVegetationDataModule
@@ -130,7 +131,7 @@ class ModelEvaluationPipeline:
     def _setup_datamodule(self) -> None:
         """Initialize the data module."""
         self.datamodule = S2PNOAVegetationDataModule(
-            data_dir=str(self.config['data']['data_dir']),
+            data_dir=str(SENTINEL2_MOSAICS_DIR.parent),
             config_path=None  # Will use component default
         )
         self.logger.info("Datamodule initialized for evaluation")
@@ -447,7 +448,7 @@ class ModelEvaluationPipeline:
         
         # Setup output directory
         if output_dir is None:
-            output_dir = Path(self.config['data']['checkpoint_dir']).parent / 'evaluation_results'
+            output_dir = PRETRAINED_HEIGHT_MODELS_DIR.parent / 'evaluation_results'
         else:
             output_dir = Path(output_dir)
         

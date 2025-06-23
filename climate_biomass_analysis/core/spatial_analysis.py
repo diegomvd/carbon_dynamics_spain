@@ -631,7 +631,7 @@ class SpatialAnalyzer:
         """
         import glob
         
-        base_dir = self.config['data'].get('biomass_diff_dir', 'biomass_differences')
+        base_dir = BIOMASS_MAPS_RELDIFF_DIR
         
         # Look for relative difference files (they have more interesting spatial patterns)
         pattern = os.path.join(base_dir, "*_rel_change_*.tif")
@@ -1039,7 +1039,7 @@ class SpatialAnalyzer:
                     self.logger.info(f"  {r['year']}: {r['autocorr_length_km']:.1f} km")
         
         # Step 4: Create spatial clusters using the ML dataset
-        training_dataset_path = self.config['data']['training_dataset']
+        training_dataset_path = CLIMATE_BIOMASS_DATASET_FILE
         
         if not os.path.exists(training_dataset_path):
             self.logger.error(f"Training dataset not found: {training_dataset_path}")
@@ -1062,7 +1062,7 @@ class SpatialAnalyzer:
         df_clustered = self.create_spatial_clusters_advanced(df, k, autocorr_lengths_m)
         
         # Save clustered dataset
-        clustered_dataset_path = self.config['data']['clustered_dataset']
+        clustered_dataset_path = CLIMATE_BIOMASS_DATASET_CLUSTERS_FILE
         ensure_directory(Path(clustered_dataset_path).parent)
         df_clustered.to_csv(clustered_dataset_path, index=False)
         self.logger.info(f"Saved clustered dataset to {clustered_dataset_path}")

@@ -19,6 +19,7 @@ from rasterio.enums import Resampling
 
 # Shared utilities
 from shared_utils import setup_logging, get_logger, load_config, ensure_directory
+from shared_utils.central_data_paths_constants import *
 
 
 class BiomassIntegrator:
@@ -48,7 +49,6 @@ class BiomassIntegrator:
         
         # Extract configuration
         self.integration_config = self.config.get('biomass_integration', {})
-        self.data_paths = self.config['data']
         
         self.logger.info("Initialized BiomassIntegrator")
     
@@ -409,10 +409,10 @@ class BiomassIntegrator:
         self.logger.info("Starting biomass-climate integration pipeline...")
         
         # Extract config parameters
-        biomass_diff_dir = self.data_paths['biomass_diff_dir']
-        anomaly_dir = self.data_paths['anomaly_dir']
-        output_dir = self.data_paths['temp_resampled_dir']
-        training_dataset_path = self.data_paths['training_dataset']
+        biomass_diff_dir = BIOMASS_MAPS_RELDIFF_DIR
+        anomaly_dir = BIOCLIM_ANOMALIES_DIR
+        output_dir = "" # TODO: I am not sure what should go here.
+        training_dataset_path = CLIMATE_BIOMASS_DATASET_FILE
         biomass_pattern = self.integration_config.get('pattern', "*_rel_change_*.tif")
         
         # Get reference raster from first available anomaly file

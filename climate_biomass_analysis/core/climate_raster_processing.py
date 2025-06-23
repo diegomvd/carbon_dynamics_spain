@@ -170,7 +170,7 @@ class ClimateProcessor:
             Spain boundary GeoDataFrame
         """
         if boundary_path is None:
-            boundary_path = self.config['data']['spain_boundary']
+            boundary_path = SPAIN_BOUNDARIES
         
         if not Path(boundary_path).exists():
             self.logger.warning(f"Spain boundary file not found: {boundary_path}")

@@ -37,19 +37,6 @@ def parse_arguments():
         help='Path to configuration file (default: component config.yaml)'
     )
     
-    # Input/Output paths
-    parser.add_argument(
-        '--input-dir',
-        type=str,
-        help='Input directory containing GRIB files'
-    )
-    
-    parser.add_argument(
-        '--output-dir', 
-        type=str,
-        help='Output directory for GeoTIFF files'
-    )
-    
     parser.add_argument(
         '--pattern',
         type=str,
@@ -128,35 +115,28 @@ def main():
             processor.target_crs = args.target_crs
             logger.info(f"Using command line target CRS: {args.target_crs}")
         
-        # Determine input and output directories
-        if args.input_dir and args.output_dir:
-            # Process directory mode
-            logger.info(f"Processing directory: {args.input_dir}")
-            logger.info(f"Output directory: {args.output_dir}")
-            
-            results = processor.process_directory(
-                input_dir=args.input_dir,
-                output_dir=args.output_dir,
-                pattern=args.pattern,
-                reference_grid=args.reference_grid,
-                clip_to_spain=not args.no_clip
-            )
-            
-            # Report results
-            successful = sum(results.values())
-            total = len(results)
-            logger.info(f"Processing completed: {successful}/{total} files successful")
-            
-            if successful < total:
-                failed_files = [f for f, success in results.items() if not success]
-                logger.warning(f"Failed files: {failed_files}")
         
-        else:
-            # Use configuration file paths
-            logger.info("Using configuration file for input/output paths")
-            logger.info("Note: Directory processing requires --input-dir and --output-dir arguments")
-            logger.info("For configuration-based processing, implement additional logic here")
+        # Process directory mode
+        logger.info(f"Processing directory: {str(CLIMATE_RAW_DIR)}")
+        logger.info(f"Output directory: {str(CLIMATE_HARMONIZED_DIR)}")
         
+        results = processor.process_directory(
+            input_dir=str(CLIMATE_RAW_DIR),
+            output_dir=str(CLIMATE_HARMONIZED_DIR),
+            pattern=args.pattern,
+            reference_grid=args.reference_grid,
+            clip_to_spain=not args.no_clip
+        )
+        
+        # Report results
+        successful = sum(results.values())
+        total = len(results)
+        logger.info(f"Processing completed: {successful}/{total} files successful")
+        
+        if successful < total:
+            failed_files = [f for f, success in results.items() if not success]
+            logger.warning(f"Failed files: {failed_files}")
+    
         # Validate outputs if requested
         if args.validate_outputs and args.output_dir:
             logger.info("Validating output files...")

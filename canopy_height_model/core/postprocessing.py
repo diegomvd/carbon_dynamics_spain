@@ -9,6 +9,8 @@ Complete multi-step post-processing pipeline for canopy height predictions inclu
 Contains the complete refactored logic from the original merge_predictions.py,
 sanitize_predictions.py, and downsample_merge.py implementations.
 
+TODO: still some issue with output data paths in the sanitization!!
+
 Author: Diego Bengochea
 """
 
@@ -42,6 +44,7 @@ from tqdm import tqdm
 # Shared utilities
 from shared_utils import setup_logging, get_logger, load_config, ensure_directory
 from shared_utils import find_files, log_pipeline_start, log_pipeline_end, log_section
+from shared_utils.central_data_paths_constants import HEIGHT_MAPS_TMP_RAW_DIR, HEIGHT_MAPS_TMP_120KM_DIR, HEIGHT_MAPS_10M_DIR, HEIGHT_MAPS_100M_DIR
 
 
 class PipelineStep(Enum):
@@ -67,7 +70,7 @@ class PredictionMerger:
         self.merge_config = config['post_processing']['merge']
         
         # Create output directory
-        ensure_directory(Path(self.merge_config['output_dir']))
+        ensure_directory(HEIGHT_MAPS_TMP_120KM_DIR)
         
         # Load Spain boundaries for masking
         self._load_spain_boundaries()
@@ -122,11 +125,11 @@ class PredictionMerger:
         abs_lon = abs(lon)
         
         filename = f"canopy_height_{year}_{lat_dir}{abs_lat:.1f}_{lon_dir}{abs_lon:.1f}.tif"
-        return str(Path(self.merge_config['output_dir']) / filename)
+        return str(HEIGHT_MAPS_TMP_120KM_DIR / filename)
     
     def _find_intersecting_files(self, tile_box, year: int) -> List[str]:
         """Find prediction files that intersect with the tile."""
-        input_dir = Path(self.merge_config['input_dir'])
+        input_dir = HEIGHT_MAPS_TMP_RAW_DIR
         
         # Find all prediction files for the year
         pattern = f"*{year}*.tif"
@@ -327,6 +330,7 @@ class HeightSanitizer:
     years when reliable data is available.
     """
     
+    # TODO: this logic of output dirs is much more complex than previously thought!!!!! Careful oversimplification here.
     def __init__(self, config: Dict[str, Any], logger):
         """Initialize the height sanitizer."""
         self.config = config
@@ -535,7 +539,7 @@ class HeightSanitizer:
             self.logger.info("Starting height sanitization pipeline...")
             
             # Step 1: Find and process all raster files
-            input_dir = Path(self.sanitize_config.get('input_dir', 'input'))
+            input_dir = HEIGHT_MAPS_TMP_120KM_DIR
             raster_files = list(input_dir.glob("*.tif"))
             
             if not raster_files:
@@ -618,10 +622,10 @@ class FinalMerger:
         self.merge_config = config['post_processing']['final_merge']
         
         # Create output directory
-        ensure_directory(Path(self.merge_config['output_dir']))
+        ensure_directory(HEIGHT_MAPS_100M_DIR)
         
         # Create temporary directory for processing
-        self.temp_dir = Path(self.merge_config['output_dir']) / 'temp'
+        self.temp_dir = HEIGHT_MAPS_100M_DIR / 'temp'
         ensure_directory(self.temp_dir)
         
         # Map resampling method string to enum
@@ -632,7 +636,7 @@ class FinalMerger:
     
     def find_rasters_by_year(self) -> Dict[str, List[str]]:
         """Group raster files by year."""
-        input_dir = Path(self.merge_config['input_dir'])
+        input_dir = HEIGHT_MAPS_10M_DIR
         file_pattern = self.merge_config.get('file_pattern', '*.tif')
         
         files = list(input_dir.glob(file_pattern))
@@ -734,7 +738,7 @@ class FinalMerger:
         # Check if final output already exists
         output_pattern = self.merge_config.get('output_pattern', 'canopy_height_{year}_100m.tif')
         final_output_name = output_pattern.format(year=year)
-        final_output_path = Path(self.merge_config['output_dir']) / final_output_name
+        final_output_path = Path(HEIGHT_MAPS_100M_DIR) / final_output_name
         
         if final_output_path.exists():
             self.logger.info(f"Final output already exists for year {year}: {final_output_path}")
@@ -856,7 +860,7 @@ class PostProcessingPipeline:
             if step in [PipelineStep.MERGE, PipelineStep.ALL]:
                 # Check if prediction files exist
                 merge_config = self.config['post_processing']['merge']
-                input_dir = Path(merge_config['input_dir'])
+                input_dir = HEIGHT_MAPS_TMP_RAW_DIR
                 
                 if not input_dir.exists():
                     self.logger.error(f"Merge input directory does not exist: {input_dir}")
@@ -873,7 +877,7 @@ class PostProcessingPipeline:
             if step in [PipelineStep.SANITIZE, PipelineStep.ALL]:
                 # Check if merged tiles exist
                 sanitize_config = self.config['post_processing']['sanitize']
-                input_dir = Path(sanitize_config['input_dir'])
+                input_dir = HEIGHT_MAPS_TMP_120KM_DIR
                 
                 if not input_dir.exists():
                     self.logger.error(f"Sanitize input directory does not exist: {input_dir}")
@@ -889,7 +893,7 @@ class PostProcessingPipeline:
             if step in [PipelineStep.FINAL_MERGE, PipelineStep.ALL]:
                 # Check if sanitized/interpolated tiles exist
                 final_config = self.config['post_processing']['final_merge']
-                input_dir = Path(final_config['input_dir'])
+                input_dir = HEIGHT_MAPS_10M_DIR
                 
                 if not input_dir.exists():
                     self.logger.error(f"Final merge input directory does not exist: {input_dir}")

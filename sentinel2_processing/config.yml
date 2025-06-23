@@ -26,13 +26,6 @@ data:
 scl:
   valid_classes: [4, 5, 6, 11]    # Valid SCL classes: vegetation, bare soil, water, snow/ice
 
-# Paths Configuration - UPDATE THESE TO YOUR SPECIFIC PATHS
-paths:
-  spain_polygon: "/path/to/spain/polygon.shp"                    # Spain territory boundary shapefile
-  output_dir: "/path/to/sentinel2/mosaics/output/"               # Main output directory for raw mosaics
-  downsampled_dir: "/path/to/sentinel2/mosaics/downsampled/"     # Directory for downsampled mosaics
-  merged_dir: "/path/to/sentinel2/mosaics/merged/"               # Directory for yearly merged mosaics
-  
 # Compute Resources Configuration
 compute:
   n_workers: 8                    # Number of dask workers

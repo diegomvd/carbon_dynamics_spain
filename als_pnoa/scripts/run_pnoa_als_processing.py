@@ -73,12 +73,6 @@ This script processes PNOA LiDAR tiles by:
     )
     
     parser.add_argument(
-        '--output-dir',
-        type=str,
-        help='Custom output directory for processed tiles'
-    )
-    
-    parser.add_argument(
         '--validate-only',
         action='store_true',
         help='Only validate input data without processing'
@@ -214,9 +208,6 @@ def main():
         # Apply command line overrides
         if args.years:
             config['processing']['target_years'] = args.years
-        
-        if args.output_dir:
-            config['paths']['output_dir'] = args.output_dir
         
         # Initialize processor
         processor = PNOAProcessor(config)

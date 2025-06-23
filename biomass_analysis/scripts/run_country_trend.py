@@ -53,13 +53,6 @@ def parse_arguments():
         help='Specific years to process (default: all from config)'
     )
     
-    # Output control
-    parser.add_argument(
-        '--output-dir',
-        type=str,
-        help='Override output directory from config'
-    )
-    
     parser.add_argument(
         '--no-samples',
         action='store_true',
@@ -107,11 +100,6 @@ def override_config(analyzer, args):
     
     if args.workers:
         analyzer.config['monte_carlo']['parallel_processing']['num_workers'] = args.workers
-        config_changed = True
-    
-    # Override output settings
-    if args.output_dir:
-        analyzer.config['output']['base_output_dir'] = args.output_dir
         config_changed = True
     
     if args.no_samples:

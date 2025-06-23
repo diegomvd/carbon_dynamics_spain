@@ -175,7 +175,7 @@ class BiomassFullPipelineOrchestrator:
         stage_name = "Allometry Fitting"
         
         # Check if allometries already exist
-        allometries_file = self.config['data'].get('allometries_file')
+        allometries_file = FITTED_PARAMETERS_FILE
         if allometries_file and Path(allometries_file).exists() and not overwrite:
             self.logger.info(f"✅ {stage_name} - Using existing allometries: {allometries_file}")
             self.stage_results[stage_name] = {
@@ -196,7 +196,7 @@ class BiomassFullPipelineOrchestrator:
         stage_name = "Biomass Estimation"
         
         # Check if estimation already completed
-        output_dir = Path(self.config['data']['output_base_dir']) / self.config['data']['biomass_no_masking_dir']
+        output_dir = BIOMASS_MAPS_RAW_DIR # TODO_check this
         check_paths = [str(output_dir)]
         check_patterns = ["*.tif"]
         
@@ -230,7 +230,7 @@ class BiomassFullPipelineOrchestrator:
         stage_name = "Annual Cropland Masking"
         
         # Check if masking already completed
-        output_dir = Path(self.config['data']['output_base_dir']) / self.config['data']['biomass_with_mask_dir']
+        output_dir = BIOMASS_MAPS_PER_FOREST_TYPE_DIR
         check_paths = [str(output_dir)]
         check_patterns = ["*.tif"]
         
@@ -243,8 +243,8 @@ class BiomassFullPipelineOrchestrator:
             old_argv = sys.argv.copy()
             try:
                 # Prepare arguments for masking
-                input_dir = Path(self.config['data']['output_base_dir']) / self.config['data']['biomass_no_masking_dir']
-                output_dir = Path(self.config['data']['output_base_dir']) / self.config['data']['biomass_with_mask_dir']
+                input_dir = BIOMASS_MAPS_RAW_DIR
+                output_dir = BIOMASS_MAPS_PER_FOREST_TYPE_DIR
                 
                 sys.argv = [
                     'run_masking.py',
@@ -265,7 +265,7 @@ class BiomassFullPipelineOrchestrator:
         stage_name = "Forest Type Merging"
         
         # Check if merging already completed
-        output_dir = Path(self.config['data']['output_base_dir']) / "biomass_maps_merged"
+        output_dir = BIOMASS_MAPS_FULL_COUNTRY_DIR
         check_paths = [str(output_dir)]
         check_patterns = ["*_merged.tif"]
         
@@ -278,8 +278,8 @@ class BiomassFullPipelineOrchestrator:
             old_argv = sys.argv.copy()
             try:
                 # Prepare arguments for merging
-                input_dir = Path(self.config['data']['output_base_dir']) / self.config['data']['biomass_with_mask_dir']
-                output_dir = Path(self.config['data']['output_base_dir']) / "biomass_maps_merged"
+                input_dir = BIOMASS_MAPS_PER_FOREST_TYPE_DIR
+                output_dir = BIOMASS_MAPS_FULL_COUNTRY_DIR
                 
                 sys.argv = [
                     'run_merging.py',

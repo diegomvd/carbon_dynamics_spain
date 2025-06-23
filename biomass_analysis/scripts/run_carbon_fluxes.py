@@ -57,13 +57,6 @@ def parse_arguments():
         help='Biomass to carbon conversion factor (override config)'
     )
     
-    # Output control
-    parser.add_argument(
-        '--output-dir',
-        type=str,
-        help='Override output directory from config'
-    )
-    
     parser.add_argument(
         '--no-plots',
         action='store_true',
@@ -104,11 +97,6 @@ def override_config(analyzer, args):
     
     if args.biomass_to_carbon:
         analyzer.config['interannual']['carbon_fluxes']['biomass_to_carbon'] = args.biomass_to_carbon
-        config_changed = True
-    
-    # Override output settings
-    if args.output_dir:
-        analyzer.config['output']['base_output_dir'] = args.output_dir
         config_changed = True
     
     if args.no_plots:

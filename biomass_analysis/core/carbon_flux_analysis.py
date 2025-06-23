@@ -22,6 +22,7 @@ from typing import Dict, List, Optional, Tuple, Any, Union
 
 # Shared utilities
 from shared_utils import setup_logging, get_logger, load_config
+from shared_utils.central_data_paths_constants import *
 
 warnings.filterwarnings('ignore')
 
@@ -72,8 +73,7 @@ class CarbonFluxAnalyzer:
             return mc_file_path
         
         # Look for MC samples in output directory
-        base_dir = self.config['data']['base_dir']
-        output_dir = os.path.join(base_dir, self.config['output']['base_output_dir'])
+        output_dir = ANALYSIS_OUTPUTS_DIR
         
         # Find the most recent MC samples file
         pattern = os.path.join(output_dir, "country_biomass_mc_samples_*.npz")
@@ -339,8 +339,7 @@ class CarbonFluxAnalyzer:
             plt.tight_layout()
             
             # Save plot
-            base_dir = self.config['data']['base_dir']
-            output_dir = os.path.join(base_dir, self.config['output']['base_output_dir'])
+            output_dir = ANALYSIS_OUTPUTS_DIR
             os.makedirs(output_dir, exist_ok=True)
             
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -414,8 +413,7 @@ class CarbonFluxAnalyzer:
         Returns:
             Path to main output file
         """
-        base_dir = self.config['data']['base_dir']
-        output_dir = os.path.join(base_dir, self.config['output']['base_output_dir'])
+        output_dir = ANALYSIS_OUTPUTS_DIR
         os.makedirs(output_dir, exist_ok=True)
         
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")

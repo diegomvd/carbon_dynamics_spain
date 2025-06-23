@@ -22,6 +22,7 @@ from rasterio.enums import Resampling
 
 # Shared utilities
 from shared_utils import get_logger, find_files, validate_file_exists, CentralDataPaths
+from shared_utils.central_data_paths_constants import *
 
 
 class RasterManager:
@@ -63,9 +64,9 @@ class RasterManager:
         """
         # UPDATED: Use CentralDataPaths instead of config
         if resolution == '10m':
-            height_maps_dir = self.data_paths.get_height_maps_10m_dir()
+            height_maps_dir = HEIGHT_MAPS_10M_DIR
         else:
-            height_maps_dir = self.data_paths.get_height_maps_100m_dir()
+            height_maps_dir = HEIGHT_MAPS_100M_DIR
         
         year_dir = height_maps_dir / str(year)
         
@@ -91,7 +92,7 @@ class RasterManager:
             List of matching mask files
         """
         # UPDATED: Use CentralDataPaths instead of config
-        masks_dir = self.data_paths.get_forest_type_maps_dir()
+        masks_dir = FOREST_TYPE_MASKS_DIR
         
         if not masks_dir.exists():
             self.logger.warning(f"Forest type maps directory not found: {masks_dir}")

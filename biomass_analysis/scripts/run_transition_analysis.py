@@ -58,13 +58,6 @@ def parse_arguments():
         help='Override input biomass directory from config'
     )
     
-    # Output control
-    parser.add_argument(
-        '--output-dir',
-        type=str,
-        help='Override output directory from config'
-    )
-    
     # Quality control
     parser.add_argument(
         '--max-biomass',
@@ -96,11 +89,6 @@ def override_config(analyzer, args):
     # Override input directory
     if args.input_dir:
         analyzer.config['interannual']['differences']['input_biomass_dir'] = args.input_dir
-        config_changed = True
-    
-    # Override output directory
-    if args.output_dir:
-        analyzer.config['output']['base_output_dir'] = args.output_dir
         config_changed = True
     
     # Override quality control threshold

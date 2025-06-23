@@ -27,6 +27,7 @@ import warnings
 
 # Shared utilities
 from shared_utils import get_logger, CentralDataPaths
+from shared_utils.central_data_paths_constants import *
 
 # Component imports
 from .allometry_utils import (
@@ -401,7 +402,7 @@ def run_allometry_fitting_pipeline(data_paths: CentralDataPaths, config: dict) -
     
     try:
         # Load forest types hierarchy
-        forest_types_file = data_paths.get_path('forest_inventory') / "Forest_Types_Tiers.csv"
+        forest_types_file = FOREST_TYPES_TIERS_FILE
         if not forest_types_file.exists():
             raise FileNotFoundError(f"Forest types hierarchy file not found: {forest_types_file}")
         
@@ -448,7 +449,7 @@ def save_allometry_results(allometry_df: pd.DataFrame, ratio_df: pd.DataFrame,
     
     # Save allometry results
     if len(allometry_df) > 0:
-        allometry_path = data_paths.get_fitted_parameters_file()
+        allometry_path = FITTED_PARAMETERS_FILE
         create_output_directory(allometry_path)
         allometry_df.to_csv(allometry_path, index=False)
         output_files['fitted_parameters'] = allometry_path
@@ -464,7 +465,7 @@ def save_allometry_results(allometry_df: pd.DataFrame, ratio_df: pd.DataFrame,
     
     # Save BGB ratio results
     if len(ratio_df) > 0:
-        ratio_path = data_paths.get_bgb_ratios_file()
+        ratio_path = BGB_RATIOS_FILE
         create_output_directory(ratio_path)
         ratio_df.to_csv(ratio_path, index=False)
         output_files['bgb_ratios'] = ratio_path
@@ -478,7 +479,7 @@ def save_allometry_results(allometry_df: pd.DataFrame, ratio_df: pd.DataFrame,
         logger.error("No valid BGB ratios to save!")
     
     # Save fitting summary
-    summary_path = data_paths.get_allometries_dir() / "fitting_summary.csv"
+    summary_path = ALLOMETRIES_DIR / "fitting_summary.csv"
     summary_data = {
         'metric': ['n_allometries', 'n_bgb_ratios', 'mean_r2', 'mean_rmse', 'mean_bgb_ratio'],
         'value': [
