@@ -5,24 +5,25 @@ Recipe: Data Preparation
 Reproduces the data preparation pipeline including:
 1. Forest inventory processing (NFI data to biomass shapefiles)
 2. Sentinel-2 mosaic creation (summer mosaics from STAC catalog)
+3. ALS PNOA processing (LiDAR tiles to training data, optional)
 
 This recipe prepares the foundational datasets used throughout the analysis.
 
 Usage:
-    python reproduce_data_preparation.py [OPTIONS]
+    python 0_data_preparation_recipe.py [OPTIONS]
 
 Examples:
     # Run complete data preparation
-    python reproduce_data_preparation.py
+    python 0_data_preparation_recipe.py
     
     # Specific years for Sentinel-2 mosaics
-    python reproduce_data_preparation.py --years 2020 2021 2022
+    python 0_data_preparation_recipe.py --years 2020 2021 2022
     
     # Skip forest inventory processing
-    python reproduce_data_preparation.py --skip-forest-inventory
+    python 0_data_preparation_recipe.py --skip-forest-inventory
     
     # Custom processing extent
-    python reproduce_data_preparation.py --bbox 40.0 -10.0 44.0 -6.0
+    python 0_data_preparation_recipe.py --bbox 40.0 -10.0 44.0 -6.0
 
 Author: Diego Bengochea
 """
@@ -37,7 +38,7 @@ from typing import Optional, List, Tuple
 sys.path.insert(0, str(Path(__file__).parent))
 
 # Import utilities
-from shared_utils.data_paths import CentralDataPaths
+from shared_utils.central_data_paths import CentralDataPaths
 from shared_utils.config_utils import load_config
 from shared_utils.logging_utils import setup_logging
 
@@ -87,88 +88,93 @@ class DataPreparationRecipe:
         """
         self.logger.info("Validating prerequisites for data preparation...")
         
-        # Check for forest inventory raw data
-        forest_inventory_dir = self.data_paths.get_path('forest_inventory')
-        if not forest_inventory_dir.exists():
-            self.logger.error(f"Forest inventory directory not found: {forest_inventory_dir}")
-            self.logger.error("Please place NFI4 data in data/raw/forest_inventory/")
+        # Check for NFI4 database files - UPDATED PATH
+        nfi4_dir = self.data_paths.get_nfi4_database_dir()
+        if not nfi4_dir.exists():
+            self.logger.error(f"NFI4 database directory not found: {nfi4_dir}")
+            self.logger.error("Expected structure: data/raw/forest_inventory/nfi4/*.accdb")
             return False
         
-        # Check for NFI database files
-        nfi_files = list(forest_inventory_dir.glob("IFN_4_SP/*.accdb"))
-        if not nfi_files:
-            self.logger.error("No NFI4 database files (.accdb) found")
-            self.logger.error("Please ensure IFN_4_SP/ directory contains NFI4 Access databases")
+        nfi4_files = list(nfi4_dir.glob("*.accdb"))
+        if not nfi4_files:
+            self.logger.error(f"No NFI4 database files found in: {nfi4_dir}")
             return False
         
-        self.logger.info(f"✅ Found {len(nfi_files)} NFI4 database files")
+        self.logger.info(f"✅ Found {len(nfi4_files)} NFI4 database files")
         
-        # Check for MFE forest map data
-        mfe_files = list(forest_inventory_dir.glob("MFESpain/*.shp"))
+        # Check for forest type maps (MFE) - UPDATED PATH
+        forest_type_maps_dir = self.data_paths.get_forest_type_maps_dir()
+        if not forest_type_maps_dir.exists():
+            self.logger.error(f"Forest type maps directory not found: {forest_type_maps_dir}")
+            self.logger.error("Expected structure: data/raw/forest_type_maps/*.shp")
+            return False
+        
+        mfe_files = list(forest_type_maps_dir.glob("*.shp"))
         if not mfe_files:
-            self.logger.warning("No MFE forest map files found")
-            self.logger.warning("Forest type integration may not work properly")
+            self.logger.error(f"No forest type map files found in: {forest_type_maps_dir}")
+            return False
+        
+        self.logger.info(f"✅ Found {len(mfe_files)} forest type map files")
+        
+        # Check for Spain boundary - UPDATED PATH (now in forest_type_maps)
+        spain_boundaries = [f for f in mfe_files if 'spain' in f.name.lower() or 'gadm' in f.name.lower()]
+        if not spain_boundaries:
+            self.logger.warning("No Spain boundary shapefile found in forest_type_maps")
+            self.logger.warning("Processing may fail without country boundaries")
         else:
-            self.logger.info(f"✅ Found {len(mfe_files)} MFE forest map files")
+            self.logger.info(f"✅ Found Spain boundary: {spain_boundaries[0].name}")
         
-        # Check for reference data files
-        required_ref_files = [
-            "GlobalWoodDensityDatabase.xls",
-            "CODIGOS_IFN.csv"
-        ]
-        
-        missing_ref_files = []
-        for filename in required_ref_files:
-            file_path = forest_inventory_dir / filename
-            if not file_path.exists():
-                missing_ref_files.append(filename)
-        
-        if missing_ref_files:
-            self.logger.error(f"Missing reference files: {missing_ref_files}")
+        # Check for NFI4 codes file - UPDATED PATH
+        nfi4_codes_file = self.data_paths.get_forest_inventory_codes_file()
+        if not nfi4_codes_file.exists():
+            self.logger.error(f"NFI4 codes file not found: {nfi4_codes_file}")
             return False
         
-        self.logger.info("✅ Reference data files validation passed")
+        self.logger.info(f"✅ NFI4 codes file found")
         
-        # Check for Spain boundary for Sentinel-2 processing
-        spain_polygon = self.data_paths.get_path('reference_data') / "SpainPolygon" / "gadm41_ESP_0.shp"
-        if not spain_polygon.exists():
-            self.logger.error(f"Spain boundary shapefile not found: {spain_polygon}")
-            self.logger.error("Please provide Spain boundary in data/raw/reference_data/SpainPolygon/")
+        # Check for forest types CSV
+        forest_types_file = (self.data_paths.get_path('forest_inventory') / 
+                           self.data_paths.subdirs['forest_inventory']['types'])
+        if not forest_types_file.exists():
+            self.logger.error(f"Forest types file not found: {forest_types_file}")
             return False
         
-        self.logger.info("✅ Spain boundary shapefile found")
+        self.logger.info(f"✅ Forest types file found")
         
-        # Check internet connectivity for STAC catalog access
-        try:
-            import socket
-            socket.create_connection(("earth-search.aws.element84.com", 443), timeout=10)
-            self.logger.info("✅ Internet connectivity for STAC catalog confirmed")
-        except Exception:
-            self.logger.warning("⚠️  Cannot verify internet connectivity for STAC catalog")
-            self.logger.warning("Sentinel-2 processing may fail if no internet access")
+        # Check for wood density database - UPDATED PATH
+        wood_density_file = self.data_paths.get_wood_density_file()
+        if not wood_density_file.exists():
+            self.logger.error(f"Wood density database not found: {wood_density_file}")
+            return False
         
-        # Check for PNOA LiDAR data (for ALS processing)
-        pnoa_data_dir = self.data_paths.get_path('raw') / "pnoa_lidar" / "PNOA2_LIDAR_VEGETATION"
-        if not pnoa_data_dir.exists():
-            self.logger.warning(f"PNOA LiDAR data directory not found: {pnoa_data_dir}")
+        self.logger.info(f"✅ Wood density database found")
+        
+        # Check for internet connectivity (for Sentinel-2)
+        self.logger.info("ℹ️  Sentinel-2 processing requires internet access for STAC catalog")
+        self.logger.warning("Sentinel-2 processing may fail if no internet access")
+        
+        # Check for ALS canopy height data - UPDATED PATH
+        als_data_dir = self.data_paths.get_als_data_dir()
+        if not als_data_dir.exists():
+            self.logger.warning(f"ALS canopy height data directory not found: {als_data_dir}")
             self.logger.warning("ALS PNOA processing will be skipped")
         else:
-            pnoa_files = list(pnoa_data_dir.glob("NDSM-VEGETACION-*.tif"))
-            if pnoa_files:
-                self.logger.info(f"✅ Found {len(pnoa_files)} PNOA LiDAR files")
+            als_files = list(als_data_dir.glob("NDSM-VEGETACION-*.tif"))
+            if als_files:
+                self.logger.info(f"✅ Found {len(als_files)} ALS canopy height files")
             else:
-                self.logger.warning("PNOA LiDAR directory exists but no NDSM files found")
+                self.logger.warning("ALS data directory exists but no NDSM files found")
         
-        # Check for PNOA coverage polygons
-        pnoa_coverage_dir = self.data_paths.get_path('raw') / "pnoa_coverage"
-        if not pnoa_coverage_dir.exists():
-            self.logger.warning(f"PNOA coverage directory not found: {pnoa_coverage_dir}")
+        # Check for ALS tile metadata - UPDATED PATH
+        als_metadata_dir = self.data_paths.get_als_metadata_dir()
+        if not als_metadata_dir.exists():
+            self.logger.warning(f"ALS tile metadata directory not found: {als_metadata_dir}")
         else:
-            coverage_files = list(pnoa_coverage_dir.rglob("*.shp"))
-            if coverage_files:
-                self.logger.info(f"✅ Found {len(coverage_files)} PNOA coverage files")
+            metadata_files = list(als_metadata_dir.rglob("*.shp"))
+            if metadata_files:
+                self.logger.info(f"✅ Found {len(metadata_files)} ALS metadata files")
             else:
-                self.logger.warning("PNOA coverage directory exists but no shapefiles found")
+                self.logger.warning("ALS metadata directory exists but no shapefiles found")
         
         return True
     
@@ -178,18 +184,11 @@ class DataPreparationRecipe:
         
         # Create main data directories
         self.data_paths.create_directories([
-            'forest_inventory',
-            'sentinel2_mosaics', 
-            'reference_data'
+            'forest_inventory_processed',
+            'sentinel2_processed',
+            'als_canopy_height_processed',
+            'sentinel2_mosaics'
         ])
-        
-        # Create forest inventory output subdirectories
-        forest_out_dir = self.data_paths.get_path('forest_inventory') / "processed"
-        forest_out_dir.mkdir(parents=True, exist_ok=True)
-        
-        # Create ALS PNOA output directory
-        als_output_dir = self.data_paths.get_path('processed') / "training_data_sentinel2_pnoa"
-        als_output_dir.mkdir(parents=True, exist_ok=True)
         
         self.logger.info("✅ Output directory structure created")
     
@@ -208,8 +207,8 @@ class DataPreparationRecipe:
         stage_start = time.time()
         
         try:
-            # Check if already completed
-            forest_out_dir = self.data_paths.get_path('forest_inventory') / "processed"
+            # Check if already completed - UPDATED PATH
+            forest_out_dir = self.data_paths.get_path('forest_inventory_processed')
             existing_shapefiles = list(forest_out_dir.glob("*.shp"))
             
             if existing_shapefiles:
@@ -221,23 +220,111 @@ class DataPreparationRecipe:
                 }
                 return True
             
-            # Prepare config overrides for centralized paths
-            config_overrides = self.data_paths.get_component_config_overrides('forest_inventory')
-            
-            # Run forest inventory processing
-            # Note: This is a simplified approach - in production you'd want proper config injection
+            # Run forest inventory processing with new paths
             import sys
             old_argv = sys.argv.copy()
             
             try:
-                # Prepare arguments for NFI processing
+                # Prepare arguments for NFI processing with new paths
                 sys.argv = [
                     'run_nfi_processing.py',
+                    '--nfi4-dir', str(self.data_paths.get_nfi4_database_dir()),
+                    '--forest-types-dir', str(self.data_paths.get_forest_type_maps_dir()),
+                    '--codes-file', str(self.data_paths.get_forest_inventory_codes_file()),
+                    '--wood-density-file', str(self.data_paths.get_wood_density_file()),
+                    '--output-dir', str(forest_out_dir),
                     '--log-level', 'INFO'
                 ]
                 
                 # Run the processing
                 result = run_nfi_processing_main()
+                
+                stage_time = time.time() - stage_start
+                success = result if result is not None else True
+                
+                self.stage_results[stage_name] = {
+                    'success': success,
+                    'duration_minutes': stage_time / 60,
+                    'result': result
+                }
+                
+                if success:
+                    self.logger.info(f"✅ {stage_name} completed successfully in {stage_time/60:.2f} minutes")
+                else:
+                    self.logger.error(f"❌ {stage_name} failed after {stage_time/60:.2f} minutes")
+                
+                return success
+                
+            finally:
+                sys.argv = old_argv
+        
+        except Exception as e:
+            stage_time = time.time() - stage_start
+            
+            self.stage_results[stage_name] = {
+                'success': False,
+                'duration_minutes': stage_time / 60,
+                'error': str(e)
+            }
+            
+            self.logger.error(f"❌ {stage_name} failed with error: {str(e)}")
+            return False
+    
+    def run_sentinel2_processing(self, 
+                                years: Optional[List[int]] = None,
+                                bbox: Optional[Tuple[float, float, float, float]] = None) -> bool:
+        """
+        Run Sentinel-2 mosaic processing.
+        
+        Args:
+            years: Specific years to process
+            bbox: Bounding box (south, west, north, east)
+            
+        Returns:
+            bool: True if successful
+        """
+        stage_name = "Sentinel-2 Processing"
+        self.logger.info(f"\n{'='*60}")
+        self.logger.info(f"Starting {stage_name}")
+        self.logger.info(f"{'='*60}")
+        
+        stage_start = time.time()
+        
+        try:
+            # Check if already completed
+            mosaic_dir = self.data_paths.get_path('sentinel2_mosaics')
+            existing_mosaics = list(mosaic_dir.glob("*.tif"))
+            
+            if existing_mosaics and len(existing_mosaics) >= 5:  # Expect multiple years
+                self.logger.info(f"✅ {stage_name} - Found existing outputs: {len(existing_mosaics)} mosaics")
+                self.stage_results[stage_name] = {
+                    'success': True,
+                    'duration_minutes': 0,
+                    'result': 'existing_outputs_used'
+                }
+                return True
+            
+            # Run Sentinel-2 processing
+            import sys
+            old_argv = sys.argv.copy()
+            
+            try:
+                # Prepare arguments for Sentinel-2 processing with new paths
+                sys.argv = [
+                    'run_postprocessing.py',
+                    '--output-dir', str(mosaic_dir),
+                    '--boundary-file', str(self.data_paths.get_forest_type_maps_dir() / "gadm41_ESP_0.shp"),
+                    '--log-level', 'INFO'
+                ]
+                
+                if years:
+                    sys.argv.extend(['--years'] + [str(y) for y in years])
+                
+                if bbox:
+                    sys.argv.extend(['--bbox'] + [str(coord) for coord in bbox])
+                
+                # Run the processing
+                result = run_sentinel2_postprocessing_main()
                 
                 stage_time = time.time() - stage_start
                 success = result if result is not None else True
@@ -282,28 +369,26 @@ class DataPreparationRecipe:
         self.logger.info(f"Starting {stage_name}")
         self.logger.info(f"{'='*60}")
         
+        # Check if ALS data is available - UPDATED PATH
+        als_data_dir = self.data_paths.get_als_data_dir()
+        if not als_data_dir.exists():
+            self.logger.info(f"ℹ️  Skipping {stage_name} - no ALS data found")
+            self.stage_results[stage_name] = {
+                'success': True,
+                'duration_minutes': 0,
+                'result': 'skipped_no_data'
+            }
+            return True
+        
         stage_start = time.time()
         
         try:
-            # Check if PNOA data is available
-            pnoa_data_dir = self.data_paths.get_path('raw') / "pnoa_lidar" / "PNOA2_LIDAR_VEGETATION"
-            pnoa_coverage_dir = self.data_paths.get_path('raw') / "pnoa_coverage"
+            # Check if already completed - UPDATED PATH
+            als_output_dir = self.data_paths.get_path('als_canopy_height_processed')
+            existing_outputs = list(als_output_dir.glob("PNOA_*.tif"))
             
-            if not pnoa_data_dir.exists() or not pnoa_coverage_dir.exists():
-                self.logger.warning(f"⚠️  {stage_name} - PNOA data not available, skipping")
-                self.stage_results[stage_name] = {
-                    'success': True,
-                    'duration_minutes': 0,
-                    'result': 'skipped_no_pnoa_data'
-                }
-                return True
-            
-            # Check if already completed
-            als_output_dir = self.data_paths.get_path('processed') / "training_data_sentinel2_pnoa"
-            existing_pnoa = list(als_output_dir.glob("PNOA_*.tif")) if als_output_dir.exists() else []
-            
-            if existing_pnoa:
-                self.logger.info(f"✅ {stage_name} - Found existing outputs: {len(existing_pnoa)} PNOA files")
+            if existing_outputs:
+                self.logger.info(f"✅ {stage_name} - Found existing outputs: {len(existing_outputs)} files")
                 self.stage_results[stage_name] = {
                     'success': True,
                     'duration_minutes': 0,
@@ -311,27 +396,18 @@ class DataPreparationRecipe:
                 }
                 return True
             
-            # Check that Sentinel-2 mosaics exist (prerequisite)
-            mosaic_dir = self.data_paths.get_path('sentinel2_mosaics')
-            mosaic_files = list(mosaic_dir.glob("*.tif")) if mosaic_dir.exists() else []
-            
-            if not mosaic_files:
-                self.logger.error(f"❌ {stage_name} - No Sentinel-2 mosaics found, cannot proceed")
-                self.stage_results[stage_name] = {
-                    'success': False,
-                    'duration_minutes': 0,
-                    'error': 'missing_sentinel2_mosaics'
-                }
-                return False
-            
-            # Run ALS PNOA processing
+            # Run ALS processing with new paths
             import sys
             old_argv = sys.argv.copy()
             
             try:
-                # Prepare arguments for ALS PNOA processing
+                # Prepare arguments for ALS processing with new paths
                 sys.argv = [
                     'run_pnoa_processing.py',
+                    '--als-data-dir', str(self.data_paths.get_als_data_dir()),
+                    '--metadata-dir', str(self.data_paths.get_als_metadata_dir()),
+                    '--sentinel2-dir', str(self.data_paths.get_path('sentinel2_processed')),
+                    '--output-dir', str(als_output_dir),
                     '--log-level', 'INFO'
                 ]
                 
@@ -369,104 +445,17 @@ class DataPreparationRecipe:
             self.logger.error(f"❌ {stage_name} failed with error: {str(e)}")
             return False
     
-    def run_sentinel2_processing(self, years: Optional[List[int]] = None,
-                                bbox: Optional[Tuple[float, float, float, float]] = None) -> bool:
-        """
-        Run Sentinel-2 mosaic processing.
-        
-        Args:
-            years: Specific years to process
-            bbox: Optional bounding box (south, west, north, east)
-            
-        Returns:
-            bool: True if successful
-        """
-        stage_name = "Sentinel-2 Mosaic Processing"
-        self.logger.info(f"\n{'='*60}")
-        self.logger.info(f"Starting {stage_name}")
-        self.logger.info(f"{'='*60}")
-        
-        stage_start = time.time()
-        
-        try:
-            # Check if already completed
-            mosaic_dir = self.data_paths.get_path('sentinel2_mosaics')
-            existing_mosaics = list(mosaic_dir.glob("*.tif"))
-            
-            if existing_mosaics:
-                self.logger.info(f"✅ {stage_name} - Found existing outputs: {len(existing_mosaics)} mosaic files")
-                self.stage_results[stage_name] = {
-                    'success': True,
-                    'duration_minutes': 0,
-                    'result': 'existing_outputs_used'
-                }
-                return True
-            
-            # Prepare config overrides for centralized paths
-            config_overrides = self.data_paths.get_component_config_overrides('sentinel2_processing')
-            
-            # Run Sentinel-2 processing
-            import sys
-            old_argv = sys.argv.copy()
-            
-            try:
-                # Prepare arguments for Sentinel-2 processing
-                sys.argv = ['run_postprocessing.py']
-                
-                if years:
-                    # Note: This assumes the postprocessing script accepts years argument
-                    # You may need to adjust based on actual script interface
-                    sys.argv.extend(['--years'] + [str(y) for y in years])
-                
-                if bbox:
-                    # Note: Adjust argument format based on actual script interface
-                    sys.argv.extend(['--bbox'] + [str(x) for x in bbox])
-                
-                # Run the processing
-                result = run_sentinel2_postprocessing_main()
-                
-                stage_time = time.time() - stage_start
-                success = result if result is not None else True
-                
-                self.stage_results[stage_name] = {
-                    'success': success,
-                    'duration_minutes': stage_time / 60,
-                    'result': result
-                }
-                
-                if success:
-                    self.logger.info(f"✅ {stage_name} completed successfully in {stage_time/60:.2f} minutes")
-                else:
-                    self.logger.error(f"❌ {stage_name} failed after {stage_time/60:.2f} minutes")
-                
-                return success
-                
-            finally:
-                sys.argv = old_argv
-        
-        except Exception as e:
-            stage_time = time.time() - stage_start
-            
-            self.stage_results[stage_name] = {
-                'success': False,
-                'duration_minutes': stage_time / 60,
-                'error': str(e)
-            }
-            
-            self.logger.error(f"❌ {stage_name} failed with error: {str(e)}")
-            return False
-    
     def validate_outputs(self) -> bool:
         """
-        Validate that expected outputs were created.
+        Validate that outputs were created successfully.
         
         Returns:
             bool: True if outputs are valid
         """
         self.logger.info("Validating data preparation outputs...")
         
-        # Check forest inventory outputs
-        forest_out_dir = self.data_paths.get_path('forest_inventory') / "processed"
+        # Check forest inventory outputs - UPDATED PATH
+        forest_out_dir = self.data_paths.get_path('forest_inventory_processed')
         forest_shapefiles = list(forest_out_dir.glob("*.shp"))
         
         if not forest_shapefiles:
@@ -485,16 +474,16 @@ class DataPreparationRecipe:
         
         self.logger.info(f"✅ Found {len(mosaic_files)} Sentinel-2 mosaic files")
         
-        # Check ALS PNOA outputs (optional)
-        als_output_dir = self.data_paths.get_path('processed') / "training_data_sentinel2_pnoa"
+        # Check ALS PNOA outputs (optional) - UPDATED PATH
+        als_output_dir = self.data_paths.get_path('als_canopy_height_processed')
         if als_output_dir.exists():
-            pnoa_files = list(als_output_dir.glob("PNOA_*.tif"))
-            if pnoa_files:
-                self.logger.info(f"✅ Found {len(pnoa_files)} ALS PNOA training files")
+            als_files = list(als_output_dir.glob("PNOA_*.tif"))
+            if als_files:
+                self.logger.info(f"✅ Found {len(als_files)} ALS canopy height files")
             else:
-                self.logger.info("ℹ️  No ALS PNOA files found (optional)")
+                self.logger.info("ℹ️  No ALS canopy height files found (optional)")
         else:
-            self.logger.info("ℹ️  ALS PNOA output directory not found (optional)")
+            self.logger.info("ℹ️  ALS output directory not found (optional)")
         
         # Basic file size validation
         for file_path in (forest_shapefiles[:2] + mosaic_files[:2]):
@@ -515,8 +504,8 @@ class DataPreparationRecipe:
             duration = results['duration_minutes']
             self.logger.info(f"  {status} {stage_name}: {duration:.2f} min")
         
-        # Check output directories
-        forest_out_dir = self.data_paths.get_path('forest_inventory') / "processed"
+        # Check output directories - UPDATED PATHS
+        forest_out_dir = self.data_paths.get_path('forest_inventory_processed')
         mosaic_dir = self.data_paths.get_path('sentinel2_mosaics')
         
         if forest_out_dir.exists():
@@ -527,34 +516,39 @@ class DataPreparationRecipe:
             mosaic_files = list(mosaic_dir.glob("*.tif"))
             self.logger.info(f"📁 Sentinel-2 mosaics: {len(mosaic_files)} files in {mosaic_dir}")
         
-        # Check ALS PNOA outputs
-        als_output_dir = self.data_paths.get_path('processed') / "training_data_sentinel2_pnoa"
+        # Check ALS PNOA outputs - UPDATED PATH
+        als_output_dir = self.data_paths.get_path('als_canopy_height_processed')
         if als_output_dir.exists():
-            pnoa_files = list(als_output_dir.glob("PNOA_*.tif"))
-            self.logger.info(f"📁 ALS PNOA training data: {len(pnoa_files)} files in {als_output_dir}")
+            als_files = list(als_output_dir.glob("PNOA_*.tif"))
+            self.logger.info(f"📁 ALS canopy height data: {len(als_files)} files in {als_output_dir}")
         
-        # Show data structure
+        # Show NEW data structure
         self.logger.info(f"📂 Data structure created in: {self.data_paths.data_root}")
         self.logger.info(f"   ├── raw/")
-        self.logger.info(f"   │   ├── forest_inventory/")
-        self.logger.info(f"   │   ├── pnoa_lidar/ (optional)")
-        self.logger.info(f"   │   └── reference_data/")
+        self.logger.info(f"   │   ├── forest_inventory/nfi4/           # NFI4 databases")
+        self.logger.info(f"   │   ├── forest_type_maps/                # MFE shapefiles + boundaries")
+        self.logger.info(f"   │   ├── wood_density/                    # Wood density database")
+        self.logger.info(f"   │   └── als_canopy_height/               # ALS LiDAR data")
+        self.logger.info(f"   │       ├── data/                        # NDSM files")
+        self.logger.info(f"   │       └── tile_metadata/utm_XX/        # Coverage metadata")
         self.logger.info(f"   └── processed/")
-        self.logger.info(f"       ├── sentinel2_mosaics/")
-        self.logger.info(f"       └── training_data_sentinel2_pnoa/ (optional)")
+        self.logger.info(f"       ├── forest_inventory/                # Processed NFI outputs")
+        self.logger.info(f"       ├── sentinel2_mosaics/               # Summer mosaics")
+        self.logger.info(f"       ├── sentinel2/                       # S2 intermediate data")
+        self.logger.info(f"       └── als_canopy_height/               # ALS training data")
         
         self.logger.info(f"\n🎯 Next steps:")
-        self.logger.info(f"   1. Run 'reproduce_height_modeling.py' to generate height predictions")
+        self.logger.info(f"   1. Run '1_canopy_height_prediction_recipe.py' to generate height predictions")
         self.logger.info(f"   2. Check data quality in processed directories")
         self.logger.info(f"   3. Verify Sentinel-2 mosaics cover your area of interest")
         if als_output_dir.exists() and list(als_output_dir.glob("PNOA_*.tif")):
-            self.logger.info(f"   4. ALS PNOA training data ready for height model training")
+            self.logger.info(f"   4. ALS canopy height training data ready for model training")
 
 
 def parse_arguments() -> argparse.Namespace:
     """Parse command line arguments."""
     parser = argparse.ArgumentParser(
-        description="Recipe: Data Preparation (Forest Inventory + Sentinel-2 Mosaics)",
+        description="Recipe: Data Preparation (Forest Inventory + Sentinel-2 Mosaics + ALS)",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 This recipe prepares foundational datasets by executing:
@@ -562,20 +556,28 @@ This recipe prepares foundational datasets by executing:
 2. Sentinel-2 mosaic creation (STAC catalog → summer mosaics)
 3. ALS PNOA processing (LiDAR tiles → training data, optional)
 
+NEW DATA STRUCTURE:
+  data/raw/forest_inventory/nfi4/          # NFI4 databases (was IFN_4_SP)
+  data/raw/forest_type_maps/               # MFE + boundaries (was separate)
+  data/raw/wood_density/                   # Wood density database
+  data/raw/als_canopy_height/data/         # ALS data (was pnoa_lidar)
+  data/raw/als_canopy_height/tile_metadata/utm_XX/  # Metadata (was pnoa_coverage)
+
 Examples:
   %(prog)s                              # Run complete data preparation
   %(prog)s --years 2020 2021 2022       # Specific years for S2 mosaics
   %(prog)s --skip-forest-inventory      # Skip NFI processing
-  %(prog)s --skip-als-pnoa              # Skip ALS PNOA processing
+  %(prog)s --skip-als-pnoa              # Skip ALS processing
   %(prog)s --bbox 40.0 -10.0 44.0 -6.0  # Custom processing extent
   %(prog)s --data-root /path/to/data    # Custom data directory
 
-Requirements:
-  - NFI4 database files in data/raw/forest_inventory/IFN_4_SP/
-  - MFE forest maps in data/raw/forest_inventory/MFESpain/
-  - Spain boundary in data/raw/reference_data/SpainPolygon/
+Requirements (NEW PATHS):
+  - NFI4 database files in data/raw/forest_inventory/nfi4/*.accdb
+  - nfi4_codes.csv in data/raw/forest_inventory/
+  - MFE forest maps + Spain boundaries in data/raw/forest_type_maps/*.shp
+  - Wood density DB in data/raw/wood_density/GlobalWoodDensityDatabase.xls
   - Internet connectivity for Sentinel-2 STAC catalog access
-  - PNOA LiDAR data in data/raw/pnoa_lidar/ (optional, for training data)
+  - ALS LiDAR data in data/raw/als_canopy_height/data/ (optional)
         """
     )
     
@@ -667,7 +669,7 @@ def main():
         # Validate prerequisites
         if not recipe.validate_prerequisites():
             recipe.logger.error("❌ Prerequisites validation failed")
-            recipe.logger.error("Please ensure required input data is available")
+            recipe.logger.error("Please ensure required input data is available in the NEW structure")
             sys.exit(1)
         
         if args.validate_only:
