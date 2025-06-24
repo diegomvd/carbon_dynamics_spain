@@ -24,7 +24,7 @@ from sklearn.covariance import EllipticEnvelope
 import warnings
 
 # Shared utilities
-from shared_utils import get_logger, setup_logging, load_config, CentralDataPaths
+from shared_utils import get_logger, setup_logging, load_config
 from shared_utils.central_data_paths_constants import *
 
 @dataclass
@@ -363,7 +363,7 @@ def sample_height_at_points(height_maps_dir: Path, points_gdf: gpd.GeoDataFrame)
     return height_values
 
 
-def create_training_dataset(data_paths: CentralDataPaths, config: dict) -> pd.DataFrame:
+def create_training_dataset(config: dict) -> pd.DataFrame:
     """
     Create training dataset by combining NFI data with sampled height values.
     
@@ -371,7 +371,6 @@ def create_training_dataset(data_paths: CentralDataPaths, config: dict) -> pd.Da
     both 10m and 100m height maps as specified in config.
     
     Args:
-        data_paths (CentralDataPaths): Centralized data path manager
         config (dict): Configuration dictionary
         
     Returns:

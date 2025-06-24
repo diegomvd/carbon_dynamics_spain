@@ -137,9 +137,7 @@ class MonteCarloAnalyzer:
     def create_spatial_blocks(self, data_shape: Tuple[int, int], block_size: int) -> Tuple[np.ndarray, int]:
         """
         Create spatial block indices for Monte Carlo correlation.
-        
-        CRITICAL: This algorithm must be preserved exactly as in original.
-        
+                
         Args:
             data_shape: Shape of the data array (rows, cols)
             block_size: Size of spatial blocks
@@ -173,9 +171,7 @@ class MonteCarloAnalyzer:
     def process_monte_carlo_batch(self, batch_params: Tuple) -> np.ndarray:
         """
         Process a batch of Monte Carlo simulations for parallel execution.
-        
-        CRITICAL: This algorithm must be preserved exactly as in original.
-        
+                
         Args:
             batch_params: Tuple containing simulation parameters
         
@@ -221,9 +217,7 @@ class MonteCarloAnalyzer:
     def monte_carlo_uncertainty(self, mean_data: np.ndarray, uncertainty_data: np.ndarray, n_workers: Optional[int] = None) -> Tuple[float, float, float, np.ndarray]:
         """
         Perform Monte Carlo simulation with spatial blocks to estimate uncertainty.
-        
-        CRITICAL: This algorithm must be preserved exactly as in original.
-        
+                
         Args:
             mean_data: Array of mean values
             uncertainty_data: Array of uncertainty values (half-width of 95% CI = 1.96*std)
@@ -356,7 +350,7 @@ class MonteCarloAnalyzer:
             return None
         
         # Get country boundary path
-        country_bounds_path = SPAIN_BOUNDARIES
+        country_bounds_path = SPAIN_BOUNDARIES_FILE
         
         # Load raster files with country boundary masking
         mean_data, transform, crs, bounds = self.load_raster(mean_file, country_bounds_path)
@@ -442,15 +436,16 @@ class MonteCarloAnalyzer:
         Returns:
             Tuple of (summary_csv_path, samples_npz_path)
         """
-        # Create output directory
-        output_dir = ANALYSIS_OUTPUTS_DIR
-        os.makedirs(output_dir, exist_ok=True)
         
         # Save summary results
         if results:
+
+            output_dir = BIOMASS_COUNTRY_TIMESERIES_DIR
+            os.makedirs(output_dir, exist_ok=True)  
+
             df = pd.DataFrame(results)
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            summary_file = os.path.join(output_dir, f"country_biomass_timeseries_{timestamp}.csv")
+            summary_file = output_dir / f"country_biomass_timeseries_{timestamp}.csv"
             df.to_csv(summary_file, index=False)
             self.logger.info(f"Summary results saved to: {summary_file}")
         else:
@@ -460,8 +455,11 @@ class MonteCarloAnalyzer:
         # Save Monte Carlo samples if requested
         samples_file = None
         if self.config['output']['save_monte_carlo_samples'] and year_samples:
+            output_dir = BIOMASS_MC_SAMPLES_DIR
+            os.makedirs(output_dir, exist_ok=True)
+            
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            samples_file = os.path.join(output_dir, f"country_biomass_mc_samples_{timestamp}.npz")
+            samples_file = output_dir / f"country_biomass_mc_samples_{timestamp}.npz"
             np.savez_compressed(samples_file, **year_samples)
             self.logger.info(f"Monte Carlo samples saved to: {samples_file}")
         

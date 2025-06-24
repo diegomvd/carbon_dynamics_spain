@@ -70,6 +70,7 @@ class BiomassAggregator:
         self.logger.info("Loading forest type mappings...")
                 
         # Load CSV files
+        # TODO: VERIFIY EXACTLY WHAT THESE FILES ARE
         forest_types_path = FOREST_TYPE_CSV
         forest_codes_path = FOREST_TYPE_CODES
         
@@ -139,9 +140,7 @@ class BiomassAggregator:
     def calculate_biomass_by_forest_type(self, year: int, forest_type_masks: List[str], forest_type_df: pd.DataFrame) -> Optional[pd.DataFrame]:
         """
         Calculate total biomass by forest type for a specific year.
-        
-        CRITICAL: This algorithm must be preserved exactly as in original.
-        
+                
         Args:
             year: Year to process
             forest_type_masks: List of forest type mask file paths
@@ -153,7 +152,7 @@ class BiomassAggregator:
         self.logger.info(f"Processing biomass for year {year}...")
         
         # Build biomass file path
-        biomass_dir = FOREST_TYPE_MAPS_DIR / "mean" # TODO: check this mean part!
+        biomass_dir = BIOMASS_MAPS_FULL_COUNTRY_DIR / "mean" 
         biomass_file = os.path.join(biomass_dir, f"TBD_S2_mean_{year}_100m_TBD_merged.tif")
         
         if not os.path.exists(biomass_file):
@@ -232,9 +231,7 @@ class BiomassAggregator:
     def aggregate_results(self, all_forest_type_results: pd.DataFrame) -> Tuple[pd.DataFrame, pd.DataFrame]:
         """
         Create aggregated results by genus and clade.
-        
-        CRITICAL: This algorithm must be preserved exactly as in original.
-        
+                
         Args:
             all_forest_type_results: DataFrame with all forest type results
             
@@ -264,16 +261,14 @@ class BiomassAggregator:
     def calculate_biomass_by_landcover(self, target_years: List[int]) -> List[Dict[str, Any]]:
         """
         Calculate total biomass for each landcover group and year.
-        
-        CRITICAL: This algorithm must be preserved exactly as in original.
-        
+                
         Args:
             target_years: List of years to process
             
         Returns:
             List of result dictionaries
         """
-        biomass_dir = BIOMASS_MAPS_DIR / "mean" # TODO: check subdir
+        biomass_dir = BIOMASS_MAPS_FULL_COUNTRY_DIR / "mean" 
         corine_raster_path = CORINE_LAND_COVER_FILE
         
         # Get landcover groups from config
@@ -377,8 +372,6 @@ class BiomassAggregator:
         """
         Creates binary masks for different vegetation height ranges for a specific year.
         
-        CRITICAL: This algorithm must be preserved exactly as in original.
-        
         Args:
             year: Year to process
             
@@ -451,16 +444,14 @@ class BiomassAggregator:
     def calculate_biomass_by_height_ranges(self, target_years: List[int]) -> List[Dict[str, Any]]:
         """
         Calculate total biomass for each height range and year.
-        
-        CRITICAL: This algorithm must be preserved exactly as in original.
-        
+                
         Args:
             target_years: List of years to process
             
         Returns:
             List of result dictionaries
         """
-        biomass_dir = BIOMASS_MAPS_DIR
+        biomass_dir = BIOMASS_MAPS_FULL_COUNTRY_DIR
         mask_dir = HEIGHT_MAPS_BIN_MASKS_DIR
         height_labels = self.config['height_ranges']['labels']
         pixel_area_ha = self.config['analysis']['pixel_area_ha']
@@ -672,35 +663,43 @@ class BiomassAggregator:
         Returns:
             Path to main output file
         """
-        
-        output_dir = ANALYSIS_OUTPUTS_DIR
+
+        output_dir = BIOMASS_STOCKS_DIR
         os.makedirs(output_dir, exist_ok=True)
-        
+
         if analysis_type == 'forest_type':
+            
+            output_dir = BIOMASS_PER_FOREST_TYPE_DIR
+            os.makedirs(output_dir, exist_ok=True)
+
             forest_type_df = results_data['forest_type']
             genus_df = results_data['genus']
             clade_df = results_data['clade']
             
             # Save forest type level results
-            forest_type_file = os.path.join(output_dir, "biomass_by_forest_type_year.csv")
+            forest_type_file = BIOMASS_PER_FOREST_TYPE_FILE
             forest_type_df.to_csv(forest_type_file, index=False)
             self.logger.info(f"Forest type results exported to {forest_type_file}")
             
             # Save genus level results (matching original naming)
-            genus_file = os.path.join(output_dir, "biomass_by_genus_year.csv")
+            genus_file = BIOMASS_PER_GENUS_FILE
             genus_df.to_csv(genus_file, index=False)
             self.logger.info(f"Genus results exported to {genus_file}")
             
             # Save clade level results (matching original naming)
-            clade_file = os.path.join(output_dir, "biomass_by_clade_year.csv")
+            clade_file = BIOMASS_PER_CLADE_FILE
             clade_df.to_csv(clade_file, index=False)
             self.logger.info(f"Clade results exported to {clade_file}")
             
             return forest_type_file
             
         elif analysis_type == 'landcover':
+
+            output_dir = BIOMASS_PER_LAND_COVER_DIR
+            os.makedirs(output_dir, exist_ok=True)
+
             results = results_data['results']
-            output_csv = os.path.join(output_dir, "biomass_by_landcover_year.csv")
+            output_csv = BIOMASS_PER_LAND_COVER_FILE
             
             # Write results to CSV
             with open(output_csv, 'w', newline='') as csvfile:
@@ -714,8 +713,12 @@ class BiomassAggregator:
             return output_csv
             
         elif analysis_type == 'height_bin':
+
+            output_dir = BIOMASS_PER_HEIGHT_BIN_DIR
+            os.makedirs(output_dir, exist_ok=True)
+
             results = results_data['results']
-            output_csv = os.path.join(output_dir, "biomass_by_height_year.csv")
+            output_csv = BIOMASS_PER_HEIGHT_BIN_FILE
             
             # Write results to CSV
             with open(output_csv, 'w', newline='') as csvfile:

@@ -21,7 +21,7 @@ from rasterio.windows import Window
 from rasterio.enums import Resampling
 
 # Shared utilities
-from shared_utils import get_logger, find_files, validate_file_exists, CentralDataPaths
+from shared_utils import get_logger, find_files, validate_file_exists
 from shared_utils.central_data_paths_constants import *
 
 
@@ -33,16 +33,14 @@ class RasterManager:
     with support for chunking and distributed processing.
     """
     
-    def __init__(self, config: Dict[str, Any], data_paths: CentralDataPaths):
+    def __init__(self, config: Dict[str, Any]):
         """
         Initialize the raster manager.
         
         Args:
             config: Configuration dictionary (processing parameters only)
-            data_paths: Centralized data path manager
         """
         self.config = config
-        self.data_paths = data_paths
         self.logger = get_logger('biomass_estimation.io')
         
         # Processing parameters
@@ -53,7 +51,7 @@ class RasterManager:
     
     def find_height_rasters_for_year(self, year: int, resolution: str = '100m') -> List[Path]:
         """
-        Find height raster files for a specific year using CentralDataPaths.
+        Find height raster files for a specific year.
         
         Args:
             year: Year to search for

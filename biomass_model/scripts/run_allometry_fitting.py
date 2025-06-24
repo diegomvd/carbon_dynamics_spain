@@ -46,7 +46,7 @@ from typing import List, Optional
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 # Shared utilities
-from shared_utils import setup_logging, load_config, log_pipeline_start, log_pipeline_end, CentralDataPaths
+from shared_utils import setup_logging, load_config, log_pipeline_start, log_pipeline_end
 from shared_utils.central_data_paths_constants import *
 
 # Component imports
@@ -232,8 +232,6 @@ class AllometryFittingPipeline:
     
     def __init__(self, args: argparse.Namespace):
         """Initialize fitting pipeline."""
-        # Setup centralized data paths
-        self.data_paths = CentralDataPaths(args.data_root)
         
         # Create fitting configuration
         self.config = create_fitting_config(args)
@@ -318,13 +316,11 @@ class AllometryFittingPipeline:
             start_time = time.time()
             
             # Run the fitting pipeline
-            allometry_df, ratio_df = run_allometry_fitting_pipeline(
-                self.data_paths, self.config
-            )
+            allometry_df, ratio_df = run_allometry_fitting_pipeline(self.config)
             
             # Save results to harmonized output locations
             output_files = save_allometry_results(
-                allometry_df, ratio_df, self.data_paths
+                allometry_df, ratio_df
             )
             
             # Log summary

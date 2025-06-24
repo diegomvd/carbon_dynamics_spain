@@ -26,7 +26,7 @@ from typing import Dict, List, Optional, Tuple
 import warnings
 
 # Shared utilities
-from shared_utils import get_logger, CentralDataPaths
+from shared_utils import get_logger
 from shared_utils.central_data_paths_constants import *
 
 # Component imports
@@ -382,12 +382,11 @@ def process_hierarchical_allometries(training_df: pd.DataFrame, forest_types_df:
     return allometry_df, ratio_df
 
 
-def run_allometry_fitting_pipeline(data_paths: CentralDataPaths, config: dict) -> Tuple[pd.DataFrame, pd.DataFrame]:
+def run_allometry_fitting_pipeline(config: dict) -> Tuple[pd.DataFrame, pd.DataFrame]:
     """
     Main allometry fitting pipeline execution.
     
     Args:
-        data_paths (CentralDataPaths): Centralized data path manager
         config (dict): Configuration dictionary
         
     Returns:
@@ -410,7 +409,7 @@ def run_allometry_fitting_pipeline(data_paths: CentralDataPaths, config: dict) -
         logger.info(f"Loaded forest types hierarchy with {len(forest_types_df)} entries")
         
         # Create training dataset by sampling height maps at NFI locations
-        training_df = create_training_dataset(data_paths, config)
+        training_df = create_training_dataset(config)
         logger.info(f"Created training dataset with {len(training_df)} samples")
         
         # Process hierarchical allometries and ratios
@@ -430,15 +429,13 @@ def run_allometry_fitting_pipeline(data_paths: CentralDataPaths, config: dict) -
         raise
 
 
-def save_allometry_results(allometry_df: pd.DataFrame, ratio_df: pd.DataFrame, 
-                          data_paths: CentralDataPaths) -> Dict[str, Path]:
+def save_allometry_results(allometry_df: pd.DataFrame, ratio_df: pd.DataFrame) -> Dict[str, Path]:
     """
     Save allometry fitting results to harmonized output locations.
     
     Args:
         allometry_df (pd.DataFrame): Height-AGB allometry results
         ratio_df (pd.DataFrame): BGB ratio results  
-        data_paths (CentralDataPaths): Centralized data path manager
         
     Returns:
         Dict[str, Path]: Dictionary of output file paths

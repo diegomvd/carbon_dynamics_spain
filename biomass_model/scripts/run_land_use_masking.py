@@ -31,7 +31,7 @@ from typing import List, Optional
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 # Shared utilities
-from shared_utils import setup_logging, CentralDataPaths
+from shared_utils import setup_logging
 from shared_utils.central_data_paths_constants import *
 
 
@@ -204,9 +204,6 @@ class AnnualCroplandMaskingRunner:
     
     def __init__(self, args: argparse.Namespace):
         """Initialize masking runner."""
-        # Setup centralized data paths
-        self.data_paths = CentralDataPaths(args.data_root)
-        
         # Apply custom path overrides from recipe arguments
         self._apply_path_overrides(args)
         

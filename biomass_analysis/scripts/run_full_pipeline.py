@@ -196,7 +196,7 @@ class BiomassFullPipelineOrchestrator:
         stage_name = "Biomass Estimation"
         
         # Check if estimation already completed
-        output_dir = BIOMASS_MAPS_RAW_DIR # TODO_check this
+        output_dir = BIOMASS_MAPS_RAW_DIR 
         check_paths = [str(output_dir)]
         check_patterns = ["*.tif"]
         

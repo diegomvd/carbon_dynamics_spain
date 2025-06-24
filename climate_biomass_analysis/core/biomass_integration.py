@@ -411,7 +411,7 @@ class BiomassIntegrator:
         # Extract config parameters
         biomass_diff_dir = BIOMASS_MAPS_RELDIFF_DIR
         anomaly_dir = BIOCLIM_ANOMALIES_DIR
-        output_dir = "" # TODO: I am not sure what should go here.
+        output_dir = CLIMATE_BIOMASS_TEMP_RESAMPLED_DIR 
         training_dataset_path = CLIMATE_BIOMASS_DATASET_FILE
         biomass_pattern = self.integration_config.get('pattern', "*_rel_change_*.tif")
         

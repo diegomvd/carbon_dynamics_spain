@@ -60,9 +60,7 @@ class CarbonFluxAnalyzer:
     def find_mc_samples_file(self, mc_file_path: Optional[str] = None) -> Optional[str]:
         """
         Find Monte Carlo samples file automatically or use provided path.
-        
-        CRITICAL: This algorithm must be preserved exactly as in original.
-        
+                
         Args:
             mc_file_path: Optional specific path to MC samples file
             
@@ -73,10 +71,10 @@ class CarbonFluxAnalyzer:
             return mc_file_path
         
         # Look for MC samples in output directory
-        output_dir = ANALYSIS_OUTPUTS_DIR
+        mc_samples_dir = BIOMASS_MC_SAMPLES_DIR
         
         # Find the most recent MC samples file
-        pattern = os.path.join(output_dir, "country_biomass_mc_samples_*.npz")
+        pattern = BIOMASS_MC_SAMPLES_DIR / "country_biomass_mc_samples_*.npz"
         mc_files = glob(pattern)
         
         if mc_files:
@@ -86,15 +84,13 @@ class CarbonFluxAnalyzer:
             self.logger.info(f"Found MC samples file: {latest_file}")
             return latest_file
         else:
-            self.logger.error(f"No MC samples files found in {output_dir}")
+            self.logger.error(f"No MC samples files found in {BIOMASS_MC_SAMPLES_DIR}")
             return None
 
     def load_mc_samples(self, npz_file: str) -> Optional[Dict[str, np.ndarray]]:
         """
         Load Monte Carlo samples from NPZ file.
-        
-        CRITICAL: This algorithm must be preserved exactly as in original.
-        
+                
         Args:
             npz_file: Path to NPZ file containing MC samples
             
@@ -129,9 +125,7 @@ class CarbonFluxAnalyzer:
     def calculate_interannual_flux(self, mc_samples: Dict[str, np.ndarray]) -> Tuple[pd.DataFrame, Dict[str, np.ndarray]]:
         """
         Calculate interannual carbon flux from Monte Carlo samples.
-        
-        CRITICAL: This algorithm must be preserved exactly as in original.
-        
+                
         Args:
             mc_samples: Dictionary with biomass type_year keys and sample arrays
             
@@ -243,9 +237,7 @@ class CarbonFluxAnalyzer:
     def create_diagnostic_plots(self, flux_samples: Dict[str, np.ndarray]) -> None:
         """
         Create diagnostic plots for carbon flux distributions.
-        
-        CRITICAL: This algorithm must be preserved exactly as in original.
-        
+                
         Args:
             flux_samples: Dictionary with year pair keys and flux sample arrays
         """
@@ -339,7 +331,7 @@ class CarbonFluxAnalyzer:
             plt.tight_layout()
             
             # Save plot
-            output_dir = ANALYSIS_OUTPUTS_DIR
+            output_dir = CARBON_CHANGES_DIR
             os.makedirs(output_dir, exist_ok=True)
             
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -413,7 +405,7 @@ class CarbonFluxAnalyzer:
         Returns:
             Path to main output file
         """
-        output_dir = ANALYSIS_OUTPUTS_DIR
+        output_dir = CARBON_CHANGES_DIR
         os.makedirs(output_dir, exist_ok=True)
         
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")

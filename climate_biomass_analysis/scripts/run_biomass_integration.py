@@ -262,9 +262,8 @@ def main():
         
         # Create output directories
         from shared_utils import ensure_directory
-        # TODO: CHECK THIS
-        ensure_directory(Path(integrator.config['data']['temp_resampled_dir']))
-        ensure_directory(Path(integrator.config['data']['training_dataset']).parent)
+        ensure_directory(CLIMATE_BIOMASS_TEMP_RESAMPLED_DIR)
+        ensure_directory(CLIMATE_BIOMASS_DATA_DIR)
         
         # Run integration pipeline
         logger.info("🚀 Starting biomass-climate integration...")

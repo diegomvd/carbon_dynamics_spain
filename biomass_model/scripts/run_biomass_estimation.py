@@ -263,8 +263,6 @@ class BiomassEstimationRunner:
     
     def __init__(self, args: argparse.Namespace):
         """Initialize pipeline runner."""
-        # Setup centralized data paths
-        self.data_paths = CentralDataPaths(args.data_root)
         
         # Apply custom path overrides from recipe arguments
         self._apply_path_overrides(args)
@@ -324,7 +322,7 @@ class BiomassEstimationRunner:
             # Create pipeline configuration
             config = self.create_pipeline_config()
             
-            pipeline = BiomassEstimationPipeline(config, self.data_paths)
+            pipeline = BiomassEstimationPipeline(config)
             
             # Validate inputs
             if not pipeline.validate_inputs():

@@ -15,7 +15,7 @@ from typing import Dict, Optional, Tuple, List, Any
 import logging
 
 # Shared utilities
-from shared_utils import get_logger, validate_file_exists, CentralDataPaths
+from shared_utils import get_logger, validate_file_exists
 from shared_utils.central_data_paths_constants import *
 
 
@@ -27,16 +27,14 @@ class AllometryManager:
     forest types with hierarchical fallback system.
     """
     
-    def __init__(self, config: Dict[str, Any], data_paths: CentralDataPaths):
+    def __init__(self, config: Dict[str, Any]):
         """
         Initialize the allometry manager.
         
         Args:
             config: Configuration dictionary (processing parameters only)
-            data_paths: Centralized data path manager
         """
         self.config = config
-        self.data_paths = data_paths
         self.logger = get_logger('biomass_estimation.allometry')
         
         # Data containers

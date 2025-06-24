@@ -17,7 +17,7 @@ import dask
 from dask.distributed import Client
 
 # Shared utilities
-from shared_utils import setup_logging, get_logger, load_config, ensure_directory, find_files, CentralDataPaths
+from shared_utils import setup_logging, get_logger, load_config, ensure_directory, find_files
 from shared_utils.central_data_paths_constants import *
 
 # Component imports
@@ -36,17 +36,15 @@ class BiomassEstimationPipeline:
     Supports forest type specific processing and distributed computing.
     """
     
-    def __init__(self, config: Dict[str, Any], data_paths: CentralDataPaths):
+    def __init__(self, config: Dict[str, Any]):
         """
         Initialize the biomass estimation pipeline.
         
         Args:
             config: Configuration dictionary (processing parameters only)
-            data_paths: Centralized data path manager
         """
         # Store configuration and data paths
         self.config = config
-        self.data_paths = data_paths
         
         # Setup logging
         self.logger = setup_logging(
@@ -55,10 +53,9 @@ class BiomassEstimationPipeline:
             log_file=self.config['logging'].get('log_file')
         )
         
-        # Initialize managers - UPDATED: Pass data_paths to all managers
-        self.allometry_manager = AllometryManager(self.config, self.data_paths)
-        self.monte_carlo = MonteCarloEstimator(self.config, self.data_paths)
-        self.raster_manager = RasterManager(self.config, self.data_paths)
+        self.allometry_manager = AllometryManager(self.config)
+        self.monte_carlo = MonteCarloEstimator(self.config)
+        self.raster_manager = RasterManager(self.config)
         self.dask_manager = DaskClusterManager(self.config)
         
         # Pipeline state

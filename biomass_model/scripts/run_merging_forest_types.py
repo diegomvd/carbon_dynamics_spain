@@ -194,8 +194,6 @@ class ForestTypeMergingRunner:
     
     def __init__(self, args: argparse.Namespace):
         """Initialize merging runner."""
-        # Setup centralized data paths
-        self.data_paths = CentralDataPaths(args.data_root)
         
         # Apply custom path overrides from recipe arguments
         self._apply_path_overrides(args)

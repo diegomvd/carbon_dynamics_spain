@@ -70,7 +70,6 @@ SENTINEL2_MERGED_DIR = SENTINEL2_PROCESSED_DIR / "merged"
 PRETRAINED_HEIGHT_MODELS_DIR = DATA_ROOT / "pretrained_height_models"
 HEIGHT_MODEL_CHECKPOINT_FILE = PRETRAINED_HEIGHT_MODELS_DIR / "height_model_checkpoint.pkl"
 
-
 # Height maps 
 HEIGHT_MAPS_DIR = PROCESSED_DIR / "height_maps"
 HEIGHT_MAPS_10M_DIR = HEIGHT_MAPS_DIR / "10m"
@@ -104,6 +103,28 @@ BIOMASS_CHANGE_MAPS_DIR = PROCESSED_DIR / "biomass_change_maps"
 BIOMASS_CHANGE_MAPS_DIFF_DIR = BIOMASS_CHANGE_MAPS_DIR / "difference"
 BIOMASS_CHANGE_MAPS_REL_DIFF_DIR = BIOMASS_CHANGE_MAPS_DIR / "relative_difference"
 
+# Biomass stocks results
+BIOMASS_STOCKS_DIR = RESULTS_DIR / "biomass_stocks"
+BIOMASS_PER_FOREST_TYPE_DIR = BIOMASS_STOCKS_DIR / "per_forest_type"
+BIOMASS_PER_LAND_COVER_DIR = BIOMASS_STOCKS_DIR / "per_land_cover"
+BIOMASS_PER_HEIGHT_BIN_DIR = BIOMASS_STOCKS_DIR / "per_height_bin"
+
+BIOMASS_PER_FOREST_TYPE_FILE = BIOMASS_MAPS_PER_FOREST_TYPE_DIR / "biomass_by_forest_type_year.csv"
+BIOMASS_PER_GENUS_FILE = BIOMASS_MAPS_PER_FOREST_TYPE_DIR / "biomass_by_genus_year.csv"
+BIOMASS_PER_CLADE_FILE = BIOMASS_MAPS_PER_FOREST_TYPE_DIR / "biomass_by_clade_year.csv"
+BIOMASS_PER_LAND_COVER_FILE = BIOMASS_PER_LAND_COVER_DIR / "biomass_by_landcover_year.csv"
+BIOMASS_PER_HEIGHT_BIN_FILE = BIOMASS_PER_HEIGHT_BIN_DIR / "biomass_by_height_year.csv"
+
+BIOMASS_COUNTRY_TIMESERIES_DIR = BIOMASS_STOCKS_DIR / "country_time_series"
+
+BIOMASS_MC_SAMPLES_DIR = PROCESSED_DIR / "biomass_stocks"
+
+# Biomass transitions
+BIOMASS_TRANSITIONS_DIR = RESULTS_DIR / "biomass_transitions"
+
+# Carbon changes stats
+CARBON_CHANGES_DIR = RESULTS_DIR / "carbon_changes"
+
 # Climate processing
 CLIMATE_DIR = PROCESSED_DIR / "climate"
 CLIMATE_HARMONIZED_DIR = CLIMATE_DIR / "harmonized"
@@ -115,13 +136,12 @@ CLIMATE_BIOMASS_DATA_DIR = PROCESSED_DIR / "climate_biomass"
 CLIMATE_BIOMASS_DATASET_FILE = CLIMATE_BIOMASS_DATA_DIR / "climate_biomass_ml_dataset.csv"
 CLIMATE_BIOMASS_DATASET_CLUSTERS_FILE = CLIMATE_BIOMASS_DATA_DIR / "climate_biomass_ml_dataset_spatial_folds.csv"
 
+CLIMATE_BIOMASS_TEMP_DIR = CLIMATE_BIOMASS_DATA_DIR / "tmp"
+CLIMATE_BIOMASS_TEMP_RESAMPLED_DIR = CLIMATE_BIOMASS_TEMP_DIR / "resampled"
+
 CLIMATE_BIOMASS_RESULTS_DIR = RESULTS_DIR / "climate_biomass"
-CLIMATE_BIOMASS_MODELS_DIR = CLIMATE_BIOMASS_DIR / "optimal_models"
-CLIMATE_BIOMASS_SHAP_OUTPUT_DIR = CLIMATE_BIOMASS_DIR / "shap_interpretation"
-
-
-
-HEIGHT_MAPS_BIN_MASKS_DIR = ""
+CLIMATE_BIOMASS_MODELS_DIR = CLIMATE_BIOMASS_RESULTS_DIR / "optimal_models"
+CLIMATE_BIOMASS_SHAP_OUTPUT_DIR = CLIMATE_BIOMASS_RESULTS_DIR / "shap_interpretation"
 
 ANALYSIS_OUTPUTS_DIR = RESULTS_DIR / "analysis_outputs"
 TABLES_DIR = RESULTS_DIR / "tables"
@@ -164,7 +184,6 @@ def create_all_directories():
         
         # Model directories
         PRETRAINED_HEIGHT_MODELS_DIR,
-        ML_MODELS_DIR,
     ]
     
     for directory in directories:

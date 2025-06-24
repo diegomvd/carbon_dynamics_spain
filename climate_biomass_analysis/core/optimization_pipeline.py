@@ -530,7 +530,7 @@ class OptimizationPipeline:
         summary = self.analyze_optimization_results(all_results)
         
         # Save detailed results
-        output_dir = Path("optimization_results")
+        output_dir = CLIMATE_BIOMASS_MODELS_DIR
         ensure_directory(output_dir)
         
         # Save individual run results
