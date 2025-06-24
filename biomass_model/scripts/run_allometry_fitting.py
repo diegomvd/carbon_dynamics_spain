@@ -15,7 +15,7 @@ Features:
 - Integration with harmonized data paths
 
 Usage:
-    python run_allometry_fitting.py [OPTIONS]
+    python run_allometry_fitting.py 
     
 Examples:
     # Fit allometries with default config
@@ -23,15 +23,6 @@ Examples:
     
     # Custom configuration
     python run_allometry_fitting.py --config fitting_config.yaml
-    
-    # Specific years only
-    python run_allometry_fitting.py --years 2020 2021
-    
-    # Use 100m height maps instead of 10m
-    python run_allometry_fitting.py --use-100m
-    
-    # Validation only
-    python run_allometry_fitting.py --validate-only
 
 Author: Diego Bengochea
 """
@@ -56,95 +47,16 @@ from biomass_model.core.allometry import AllometryManager
 
 def parse_arguments() -> argparse.Namespace:
     """Parse command line arguments."""
+    
     parser = argparse.ArgumentParser(
         description="Allometric Relationship Fitting Pipeline",
         formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog="""
-Examples:
-  %(prog)s                              # Fit all allometries using 10m height maps
-  %(prog)s --config custom.yaml         # Custom configuration
-  %(prog)s --years 2020 2021           # Specific years only
-  %(prog)s --use-100m                  # Use 100m height maps instead of 10m
-  %(prog)s --validate-only             # Validate data only
-  %(prog)s --data-root ./my_data       # Custom data root directory
-  %(prog)s --height-10m-dir ./heights  # Custom 10m height maps directory
-        """
-    )
+        )
     
     parser.add_argument(
         '--config',
         type=str,
         help='Path to configuration file'
-    )
-    
-    parser.add_argument(
-        '--years',
-        type=int,
-        nargs='+',
-        help='Specific years to include in fitting'
-    )
-    
-    parser.add_argument(
-        '--data-root',
-        type=str,
-        default='data',
-        help='Root directory for data storage (default: data)'
-    )
-    
-    parser.add_argument(
-        '--height-10m-dir', 
-        type=str,
-        help='Custom directory for 10m height maps (overrides default)'
-    )
-    
-    parser.add_argument(
-        '--height-100m-dir',
-        type=str, 
-        help='Custom directory for 100m height maps (overrides default)'
-    )
-    
-    parser.add_argument(
-        '--allometries-output-dir',
-        type=str,
-        help='Custom output directory for fitted allometries (overrides default)'
-    )
-    
-    parser.add_argument(
-        '--use-100m',
-        action='store_true',
-        help='Use 100m height maps instead of 10m for fitting'
-    )
-    
-    parser.add_argument(
-        '--validate-only',
-        action='store_true',
-        help='Only validate input data without fitting'
-    )
-    
-    parser.add_argument(
-        '--forest-types',
-        type=str,
-        nargs='+',
-        help='Specific forest types to fit (default: all available)'
-    )
-    
-    parser.add_argument(
-        '--log-level',
-        choices=['DEBUG', 'INFO', 'WARNING', 'ERROR'],
-        default='INFO',
-        help='Logging level'
-    )
-    
-    parser.add_argument(
-        '--overwrite',
-        action='store_true',
-        help='Overwrite existing output files'
-    )
-    
-    parser.add_argument(
-        '--continue-on-error',
-        action='store_true',
-        help='Continue processing even if some stages fail'
     )
     
     return parser.parse_args()
@@ -155,12 +67,6 @@ def validate_arguments(args: argparse.Namespace) -> bool:
     # Validate config file if provided
     if args.config and not Path(args.config).exists():
         print(f"Error: Config file not found: {args.config}")
-        return False
-    
-    # Validate data root directory
-    data_root = Path(args.data_root)
-    if not data_root.exists():
-        print(f"Error: Data root directory not found: {args.data_root}")
         return False
     
     return True
@@ -238,14 +144,9 @@ class AllometryFittingPipeline:
         
         # Setup logging
         self.logger = setup_logging(
-            level=args.log_level,
+            level="INFO",
             component_name='allometry_fitting'
         )
-        
-        # Pipeline settings
-        self.continue_on_error = args.continue_on_error
-        self.validate_only = args.validate_only
-        self.overwrite = args.overwrite
         
         self.logger.info("AllometryFittingPipeline initialized")
         self.logger.info(f"Using {'10m' if self.config['use_10m_for_fitting'] else '100m'} height maps for fitting")

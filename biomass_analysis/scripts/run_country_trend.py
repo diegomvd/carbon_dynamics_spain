@@ -37,79 +37,7 @@ def parse_arguments():
         help='Path to configuration file (default: component config.yaml)'
     )
     
-    # Analysis parameters
-    parser.add_argument(
-        '--biomass-types',
-        nargs='+',
-        default=None,
-        help='Specific biomass types to process (default: all from config)'
-    )
-    
-    parser.add_argument(
-        '--years',
-        nargs='+',
-        type=int,
-        default=None,
-        help='Specific years to process (default: all from config)'
-    )
-    
-    parser.add_argument(
-        '--no-samples',
-        action='store_true',
-        help='Skip saving Monte Carlo samples (save only summary)'
-    )
-    
-    # Processing control
-    parser.add_argument(
-        '--parallel',
-        action='store_true',
-        help='Enable parallel processing'
-    )
-    
-    parser.add_argument(
-        '--workers',
-        type=int,
-        help='Number of parallel workers (default: from config)'
-    )
-    
-    # Logging
-    parser.add_argument(
-        '--log-level',
-        choices=['DEBUG', 'INFO', 'WARNING', 'ERROR'],
-        default='INFO',
-        help='Logging level'
-    )
-    
-    parser.add_argument(
-        '--quiet',
-        action='store_true',
-        help='Suppress all output except errors'
-    )
-    
     return parser.parse_args()
-
-
-def override_config(analyzer, args):
-    """Override configuration with command line arguments."""
-    config_changed = False
-    
-    # Override parallel processing settings
-    if args.parallel:
-        analyzer.config['monte_carlo']['parallel_processing']['enabled'] = True
-        config_changed = True
-    
-    if args.workers:
-        analyzer.config['monte_carlo']['parallel_processing']['num_workers'] = args.workers
-        config_changed = True
-    
-    if args.no_samples:
-        analyzer.config['output']['save_monte_carlo_samples'] = False
-        config_changed = True
-    
-    if config_changed:
-        analyzer.logger.info("Configuration overridden with command line arguments")
-    
-    return config_changed
 
 
 def main():
@@ -123,32 +51,10 @@ def main():
         print(f"Error initializing analyzer: {e}")
         sys.exit(1)
     
-    # Override config with command line arguments
-    override_config(analyzer, args)
     
-    # Set logging level
-    if args.quiet:
-        analyzer.logger.setLevel('ERROR')
-    else:
-        analyzer.logger.setLevel(args.log_level)
-    
+    analyzer.logger.setLevel('INFO')
+
     analyzer.logger.info("Starting country-level biomass time series analysis...")
-    
-    # Determine biomass types and years to process
-    biomass_types = args.biomass_types
-    years = args.years
-    
-    if biomass_types:
-        analyzer.logger.info(f"Processing specified biomass types: {biomass_types}")
-    else:
-        biomass_types = analyzer.config['file_patterns']['biomass_types']
-        analyzer.logger.info(f"Processing all configured biomass types: {biomass_types}")
-    
-    if years:
-        analyzer.logger.info(f"Processing specified years: {years}")
-    else:
-        years = analyzer.config['analysis']['target_years']
-        analyzer.logger.info(f"Processing all configured years: {years}")
     
     # Run analysis
     try:

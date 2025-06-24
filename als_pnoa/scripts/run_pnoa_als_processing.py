@@ -14,12 +14,6 @@ Examples:
     
     # Custom configuration
     python run_pnoa_processing.py --config custom_config.yaml
-    
-    # Specific years only
-    python run_pnoa_processing.py --years 2020 2021
-    
-    # Validate inputs only
-    python run_pnoa_processing.py --validate-only
 
 Author: Diego Bengochea
 """
@@ -41,68 +35,16 @@ from shared_utils import setup_logging, load_config
 def parse_arguments() -> argparse.Namespace:
     """Parse command line arguments."""
     parser = argparse.ArgumentParser(
-        description="PNOA LiDAR Processing for Training Data Preparation",
-        formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog="""
-Examples:
-  %(prog)s                              # Process all years with default config
-  %(prog)s --years 2020 2021 2022       # Process specific years only
-  %(prog)s --config custom.yaml         # Use custom configuration
-  %(prog)s --validate-only              # Validate inputs without processing
-  %(prog)s --summary                    # Show processing summary
-  %(prog)s --output-dir ./processed     # Custom output directory
-
-This script processes PNOA LiDAR tiles by:
-1. Finding tiles that intersect with Sentinel-2 mosaics
-2. Filtering by target years
-3. Standardizing naming and format for ML training
-        """
+        description="Selects relevant PNOA tiles and reprojects them to UTM30",
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter
     )
-    
+
     parser.add_argument(
         '--config',
         type=str,
         help='Path to configuration file'
     )
-    
-    parser.add_argument(
-        '--years',
-        type=int,
-        nargs='+',
-        help='Specific years to process (default: all configured years)'
-    )
-    
-    parser.add_argument(
-        '--validate-only',
-        action='store_true',
-        help='Only validate input data without processing'
-    )
-    
-    parser.add_argument(
-        '--summary',
-        action='store_true',
-        help='Show processing summary without executing'
-    )
-    
-    parser.add_argument(
-        '--overwrite',
-        action='store_true',
-        help='Overwrite existing output files'
-    )
-    
-    parser.add_argument(
-        '--log-level',
-        choices=['DEBUG', 'INFO', 'WARNING', 'ERROR'],
-        default='INFO',
-        help='Logging level'
-    )
-    
-    parser.add_argument(
-        '--quiet',
-        action='store_true',
-        help='Suppress non-error output'
-    )
-    
+
     return parser.parse_args()
 
 
@@ -111,20 +53,6 @@ def validate_arguments(args: argparse.Namespace) -> bool:
     if args.config and not Path(args.config).exists():
         print(f"Error: Config file not found: {args.config}")
         return False
-    
-    if args.output_dir:
-        output_path = Path(args.output_dir)
-        try:
-            output_path.mkdir(parents=True, exist_ok=True)
-        except Exception as e:
-            print(f"Error: Cannot create output directory {args.output_dir}: {e}")
-            return False
-    
-    if args.years:
-        for year in args.years:
-            if year < 2010 or year > 2030:
-                print(f"Warning: Year {year} seems outside reasonable range")
-    
     return True
 
 
@@ -193,7 +121,7 @@ def main():
         sys.exit(1)
     
     # Set logging level
-    log_level = 'ERROR' if args.quiet else args.log_level
+    log_level = 'INFO'
     
     # Setup logging
     logger = setup_logging(
@@ -202,13 +130,8 @@ def main():
     )
     
     try:
-        # Load configuration
         config = load_config(args.config, component_name="als_pnoa")
-        
-        # Apply command line overrides
-        if args.years:
-            config['processing']['target_years'] = args.years
-        
+
         # Initialize processor
         processor = PNOAProcessor(config)
         
@@ -218,16 +141,6 @@ def main():
         if not processor.validate_inputs():
             logger.error("Input validation failed")
             sys.exit(1)
-        
-        # Show summary if requested
-        if args.summary:
-            print_processing_summary(processor)
-            return
-        
-        # Exit if validation only
-        if args.validate_only:
-            logger.info("✅ Input validation passed - exiting")
-            return
         
         # Process tiles
         logger.info("Processing PNOA tiles...")

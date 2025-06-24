@@ -38,6 +38,7 @@ from shared_utils import setup_logging, get_logger, load_config
 
 # Component imports
 from sentinel2_processing.core.postprocessing import DownsamplingMergingProcessor
+from shared_utils.central_data_paths_constants import *
 
 
 def parse_arguments() -> argparse.Namespace:
@@ -50,17 +51,6 @@ def parse_arguments() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Sentinel-2 Downsampling and Merging Pipeline",
         formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog="""
-Examples:
-  %(prog)s                                    # Run complete workflow
-  %(prog)s --scale-factor 5                  # Use 5x downsampling
-  %(prog)s --downsample-only                 # Only downsample
-  %(prog)s --merge-only                      # Only merge
-  %(prog)s --config custom.yaml              # Custom configuration
-  %(prog)s --input-dir /input --output-dir /out # Override directories
-
-For more information, see the component documentation.
-        """
     )
     
     # Configuration options
@@ -68,59 +58,6 @@ For more information, see the component documentation.
         '--config', '-c',
         type=str,
         help='Path to configuration file (default: config.yaml)'
-    )
-    
-    # Directory options
-    parser.add_argument(
-        '--input-dir',
-        type=str,
-        help='Input directory containing raw mosaics (overrides config)'
-    )
-    
-    parser.add_argument(
-        '--downsampled-dir',
-        type=str,
-        help='Output directory for downsampled files (overrides config)'
-    )
-    
-    parser.add_argument(
-        '--merged-dir',
-        type=str,
-        help='Output directory for merged files (overrides config)'
-    )
-    
-    # Processing parameters
-    parser.add_argument(
-        '--scale-factor',
-        type=int,
-        help='Downsampling scale factor (overrides config)'
-    )
-    
-    # Execution options
-    parser.add_argument(
-        '--downsample-only',
-        action='store_true',
-        help='Only run downsampling step'
-    )
-    
-    parser.add_argument(
-        '--merge-only',
-        action='store_true',
-        help='Only run merging step'
-    )
-    
-    # Logging options
-    parser.add_argument(
-        '--log-level',
-        choices=['DEBUG', 'INFO', 'WARNING', 'ERROR'],
-        default='INFO',
-        help='Logging level (default: INFO)'
-    )
-    
-    parser.add_argument(
-        '--log-file',
-        type=str,
-        help='Log file path (default: console only)'
     )
     
     return parser.parse_args()
@@ -140,46 +77,7 @@ def validate_arguments(args: argparse.Namespace) -> bool:
         print(f"Error: Configuration file does not exist: {args.config}")
         return False
     
-    if args.input_dir and not Path(args.input_dir).exists():
-        print(f"Error: Input directory does not exist: {args.input_dir}")
-        return False
-    
-    if args.downsample_only and args.merge_only:
-        print("Error: Cannot specify both --downsample-only and --merge-only")
-        return False
-    
-    if args.log_file and not Path(args.log_file).parent.exists():
-        print(f"Error: Log file directory does not exist: {Path(args.log_file).parent}")
-        return False
-    
     return True
-
-
-def apply_config_overrides(config: dict, args: argparse.Namespace) -> dict:
-    """
-    Apply command-line argument overrides to configuration.
-    
-    Args:
-        config: Configuration dictionary
-        args: Parsed arguments
-        
-    Returns:
-        dict: Updated configuration
-    """
-    if args.input_dir:
-        config.setdefault('paths', {})['output_dir'] = args.input_dir
-    
-    if args.downsampled_dir:
-        config.setdefault('paths', {})['downsampled_dir'] = args.downsampled_dir
-    
-    if args.merged_dir:
-        config.setdefault('paths', {})['merged_dir'] = args.merged_dir
-    
-    if args.scale_factor:
-        config.setdefault('postprocessing', {}).setdefault('downsample', {})['scale_factor'] = args.scale_factor
-    
-    return config
-
 
 def main() -> int:
     """
@@ -196,43 +94,25 @@ def main() -> int:
     
     try:
         # Setup logging
-        setup_logging(level=args.log_level, log_file=args.log_file)
+        setup_logging(level='INFO', log_file='sentinel2_downsampling_and_merging')
         logger = get_logger('sentinel2_processing')
         
         # Load and override configuration
         config = load_config(args.config)
-        config = apply_config_overrides(config, args)
         
         # Initialize processor
         processor = DownsamplingMergingProcessor(config)
+
+        logger.info("Running complete downsampling and merging workflow...")
+        results = processor.run_complete_workflow()
         
-        if args.downsample_only:
-            logger.info("Running downsampling workflow only...")
-            stats = processor.downsample_rasters(
-                SENTINEL2_PROCESSED_DIR,
-                SENTINEL2_DOWNSAMPLED_DIR
-            )
-            logger.info(f"Downsampling completed: {stats['successful']} successful, {stats['failed']} failed")
-            
-        elif args.merge_only:
-            logger.info("Running merging workflow only...")
-            stats = processor.merge_rasters_by_year(
-                SENTINEL2_DOWNSAMPLED_DIR,
-                SENTINEL2_MERGED_DIR
-            )
-            logger.info(f"Merging completed: {stats['successful']} successful, {stats['failed']} failed")
-            
+        if results['success']:
+            logger.info("Complete workflow successful!")
+            logger.info(f"Downsampling: {results['downsampling']['successful']} successful, {results['downsampling']['failed']} failed")
+            logger.info(f"Merging: {results['merging']['successful']} successful, {results['merging']['failed']} failed")
         else:
-            logger.info("Running complete downsampling and merging workflow...")
-            results = processor.run_complete_workflow()
-            
-            if results['success']:
-                logger.info("Complete workflow successful!")
-                logger.info(f"Downsampling: {results['downsampling']['successful']} successful, {results['downsampling']['failed']} failed")
-                logger.info(f"Merging: {results['merging']['successful']} successful, {results['merging']['failed']} failed")
-            else:
-                logger.error(f"Workflow failed: {results.get('error', 'Unknown error')}")
-                return 1
+            logger.error(f"Workflow failed: {results.get('error', 'Unknown error')}")
+            return 1
         
         return 0
         

@@ -35,83 +35,7 @@ def parse_arguments():
         type=str,
         help='Path to configuration file (default: component config.yaml)'
     )
-    
-    # Input file
-    parser.add_argument(
-        '--mc-samples',
-        type=str,
-        default=None,
-        help='Path to Monte Carlo samples NPZ file (auto-detect if not provided)'
-    )
-    
-    # Analysis parameters
-    parser.add_argument(
-        '--n-combinations',
-        type=int,
-        help='Number of random combinations for flux calculations (override config)'
-    )
-    
-    parser.add_argument(
-        '--biomass-to-carbon',
-        type=float,
-        help='Biomass to carbon conversion factor (override config)'
-    )
-    
-    parser.add_argument(
-        '--no-plots',
-        action='store_true',
-        help='Skip diagnostic plot creation'
-    )
-    
-    parser.add_argument(
-        '--save-samples',
-        action='store_true',
-        help='Force saving of raw flux samples'
-    )
-    
-    # Logging
-    parser.add_argument(
-        '--log-level',
-        choices=['DEBUG', 'INFO', 'WARNING', 'ERROR'],
-        default='INFO',
-        help='Logging level'
-    )
-    
-    parser.add_argument(
-        '--quiet',
-        action='store_true',
-        help='Suppress all output except errors'
-    )
-    
     return parser.parse_args()
-
-
-def override_config(analyzer, args):
-    """Override configuration with command line arguments."""
-    config_changed = False
-    
-    # Override analysis parameters
-    if args.n_combinations:
-        analyzer.config['interannual']['carbon_fluxes']['n_combinations'] = args.n_combinations
-        config_changed = True
-    
-    if args.biomass_to_carbon:
-        analyzer.config['interannual']['carbon_fluxes']['biomass_to_carbon'] = args.biomass_to_carbon
-        config_changed = True
-    
-    if args.no_plots:
-        analyzer.config['interannual']['carbon_fluxes']['create_diagnostics'] = False
-        config_changed = True
-    
-    if args.save_samples:
-        analyzer.config['output']['save_intermediate_results'] = True
-        config_changed = True
-    
-    if config_changed:
-        analyzer.logger.info("Configuration overridden with command line arguments")
-    
-    return config_changed
-
 
 def main():
     """Main entry point for carbon flux analysis script."""
@@ -123,16 +47,9 @@ def main():
     except Exception as e:
         print(f"Error initializing analyzer: {e}")
         sys.exit(1)
-    
-    # Override config with command line arguments
-    override_config(analyzer, args)
-    
-    # Set logging level
-    if args.quiet:
-        analyzer.logger.setLevel('ERROR')
-    else:
-        analyzer.logger.setLevel(args.log_level)
-    
+ 
+    analyzer.logger.setLevel('INFO')
+  
     analyzer.logger.info("Starting interannual carbon flux analysis...")
     
     # Log configuration parameters
@@ -145,16 +62,11 @@ def main():
     analyzer.logger.info(f"  Biomass to carbon factor: {biomass_to_carbon}")
     analyzer.logger.info(f"  Create diagnostic plots: {create_diagnostics}")
     
-    if args.mc_samples:
-        analyzer.logger.info(f"  Using MC samples file: {args.mc_samples}")
-    else:
-        analyzer.logger.info("  Auto-detecting most recent MC samples file")
     
     # Run carbon flux analysis
     try:
         flux_df, flux_samples = analyzer.run_carbon_flux_analysis(
-            mc_file_path=args.mc_samples,
-            create_diagnostics=not args.no_plots
+            create_diagnostics = False
         )
         
         if flux_df is None or flux_df.empty:
@@ -177,10 +89,7 @@ def main():
         analyzer.logger.info(f"  Number of year pairs: {len(flux_df)}")
         analyzer.logger.info(f"  Random combinations per pair: {n_combinations:,}")
         analyzer.logger.info(f"  Results saved to: {output_file}")
-        
-        if create_diagnostics and not args.no_plots:
-            analyzer.logger.info("  Diagnostic plots created")
-        
+            
         # Interpretation note
         analyzer.logger.info(f"\nInterpretation:")
         analyzer.logger.info(f"  Positive flux = carbon source (biomass loss)")

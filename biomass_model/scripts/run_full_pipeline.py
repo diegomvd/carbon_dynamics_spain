@@ -8,9 +8,6 @@ Complete biomass estimation pipeline that orchestrates all processing steps:
 3. Annual cropland masking 
 4. Forest type merging (country-wide maps)
 
-Updated with recipe integration arguments for harmonized path management
-and seamless integration with the recipe-based execution system.
-
 Usage:
     python run_full_pipeline.py [OPTIONS]
 
@@ -26,9 +23,6 @@ Examples:
     
     # Continue on errors
     python run_full_pipeline.py --continue-on-error
-    
-    # Recipe integration with custom paths
-    python run_full_pipeline.py --allometries-output-dir ./allometries --height-100m-dir ./heights
 
 Author: Diego Bengochea
 """
@@ -36,46 +30,46 @@ Author: Diego Bengochea
 import argparse
 import sys
 import time
-import subprocess
 from pathlib import Path
 from typing import Dict, List, Optional
 
 # Add repo root to path for absolute imports
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
+# Component imports
+from biomass_model.scripts.run_allometry_fitting import AllometryFittingPipeline
+from biomass_model.scripts.run_biomass_estimation import main as run_biomass_estimation_main
+from biomass_model.scripts.run_masking import main as run_masking_main  
+from biomass_model.scripts.run_merging import main as run_merging_main
+
 # Shared utilities
-from shared_utils import setup_logging, load_config, CentralDataPaths
+from shared_utils import setup_logging, load_config, log_pipeline_start, log_pipeline_end
 
 
 class BiomassFullPipelineOrchestrator:
     """
     Complete biomass estimation pipeline orchestrator.
     
-    Manages execution of all pipeline stages with progress monitoring,
-    error recovery, and recipe integration support.
+    Manages execution of all pipeline stages with progress monitoring
+    and error recovery.
     """
     
-    def __init__(self, args: argparse.Namespace):
+    def __init__(self, config_path: Optional[str] = None, log_level: str = "INFO"):
         """
         Initialize pipeline orchestrator.
         
         Args:
-            args: Parsed command line arguments
+            config_path: Path to configuration file
+            log_level: Logging level
         """
-        
-        # Apply custom path overrides from recipe arguments
-        self._apply_path_overrides(args)
-        
         # Setup logging
-        log_level = 'ERROR' if args.quiet else args.log_level
         self.logger = setup_logging(
             level=log_level,
             component_name='biomass_full_pipeline'
         )
         
-        # Store arguments and settings
-        self.args = args
-        self.continue_on_error = args.continue_on_error
+        # Load configuration
+        self.config = load_config(config_path, component_name="biomass_estimation")
         
         # Pipeline state tracking
         self.stage_results = {}
@@ -83,212 +77,287 @@ class BiomassFullPipelineOrchestrator:
         
         self.logger.info("Initialized BiomassFullPipelineOrchestrator")
     
-    def _apply_path_overrides(self, args: argparse.Namespace) -> None:
-        """Apply custom path arguments to override default paths."""
-        overrides = {
-            'height_maps_100m': args.height_100m_dir,
-            'height_maps_10m': args.height_10m_dir,
-            'allometries': args.allometries_output_dir,
-            'biomass_maps': args.biomass_output_dir,
-            'forest_inventory_processed': args.nfi_processed_dir,
-            'forest_type_maps': args.forest_type_maps_dir
-        }
-        
-
-    
-    def run_stage(self, stage_name: str, stage_script: str, stage_args: List[str] = None) -> bool:
+    def run_stage(self, stage_name: str, stage_func, *args, **kwargs) -> bool:
         """
         Run a pipeline stage with error handling and timing.
         
         Args:
-            stage_name: Name of the stage for logging
-            stage_script: Path to the stage script
-            stage_args: Additional arguments for the stage script
+            stage_name: Name of the stage
+            stage_func: Function to execute
+            *args, **kwargs: Arguments for stage function
             
         Returns:
-            bool: True if stage succeeded
+            bool: True if stage completed successfully
         """
-        self.logger.info(f"Starting stage: {stage_name}")
-        stage_start_time = time.time()
+        stage_start = time.time()
+        self.logger.info(f"\n{'='*60}")
+        self.logger.info(f"Starting {stage_name}")
+        self.logger.info(f"{'='*60}")
         
         try:
-            # Build command
-            cmd = [sys.executable, stage_script]
-            if stage_args:
-                cmd.extend(stage_args)
+            # Execute stage
+            result = stage_func(*args, **kwargs)
+            stage_time = time.time() - stage_start
             
-            # Run stage
-            result = subprocess.run(
-                cmd,
-                capture_output=True,
-                text=True,
-                cwd=Path(__file__).parent
-            )
+            # Determine success based on result type
+            if isinstance(result, bool):
+                success = result
+            elif result is None:
+                success = True  # Assume success if no return value
+            else:
+                success = True  # Assume success for other return types
             
-            # Calculate duration
-            duration_minutes = (time.time() - stage_start_time) / 60
-            
-            # Check result
-            success = result.returncode == 0
-            
-            # Store results
+            # Record results
             self.stage_results[stage_name] = {
                 'success': success,
-                'duration_minutes': duration_minutes,
-                'returncode': result.returncode,
-                'stdout': result.stdout,
-                'stderr': result.stderr
+                'duration_minutes': stage_time / 60,
+                'result': result
             }
             
             if success:
-                self.logger.info(f"✅ {stage_name} completed in {duration_minutes:.2f} minutes")
+                self.logger.info(f"✅ {stage_name} completed successfully in {stage_time/60:.2f} minutes")
             else:
-                self.logger.error(f"❌ {stage_name} failed in {duration_minutes:.2f} minutes")
-                self.logger.error(f"Return code: {result.returncode}")
-                if result.stderr:
-                    self.logger.error(f"Error output:\n{result.stderr}")
-                
-                if not self.continue_on_error:
-                    raise RuntimeError(f"Stage {stage_name} failed")
+                self.logger.error(f"❌ {stage_name} failed after {stage_time/60:.2f} minutes")
             
             return success
             
         except Exception as e:
-            duration_minutes = (time.time() - stage_start_time) / 60
+            stage_time = time.time() - stage_start
+            
             self.stage_results[stage_name] = {
                 'success': False,
-                'duration_minutes': duration_minutes,
+                'duration_minutes': stage_time / 60,
                 'error': str(e)
             }
             
-            self.logger.error(f"❌ {stage_name} failed with exception in {duration_minutes:.2f} minutes: {str(e)}")
-            
-            if not self.continue_on_error:
-                raise
-            
+            self.logger.error(f"❌ {stage_name} failed with error after {stage_time/60:.2f} minutes: {str(e)}")
             return False
     
-    def build_common_args(self) -> List[str]:
-        """Build common arguments to pass to all stage scripts."""
-        common_args = []
+    def check_stage_completion(self, stage_name: str, check_paths: List[str], 
+                              check_patterns: List[str] = None) -> bool:
+        """
+        Check if a stage has already been completed.
         
-        # Add years if specified
-        if self.args.years:
-            common_args.extend(['--years'] + [str(y) for y in self.args.years])
-        
-        # Add logging level
-        if not self.args.quiet:
-            common_args.extend(['--log-level', self.args.log_level])
-        
-        # Add error handling
-        if self.args.continue_on_error:
-            common_args.append('--continue-on-error')
-        
-        if self.args.overwrite:
-            common_args.append('--overwrite')
-        
-        return common_args
+        Args:
+            stage_name: Name of the stage
+            check_paths: List of paths to check for existence
+            check_patterns: Optional file patterns to check within paths
+            
+        Returns:
+            bool: True if stage appears to be completed
+        """
+        try:
+            # Check if all paths exist
+            all_exist = all(Path(path).exists() for path in check_paths)
+            
+            if not all_exist:
+                return False
+            
+            # Check for specific patterns if provided
+            if check_patterns:
+                for path in check_paths:
+                    path_obj = Path(path)
+                    if path_obj.is_dir():
+                        for pattern in check_patterns:
+                            if not any(path_obj.glob(pattern)):
+                                return False
+            
+            self.logger.info(f"✅ {stage_name} appears to be already completed")
+            return True
+            
+        except Exception as e:
+            self.logger.debug(f"Error checking stage completion for {stage_name}: {e}")
+            return False
     
-    def run_allometry_fitting_stage(self) -> bool:
+    def run_allometry_fitting(self, years: Optional[List[int]] = None, 
+                            overwrite: bool = False) -> bool:
         """Run allometry fitting stage."""
-        if self.args.skip_allometry:
-            self.logger.info("⏭️ Skipping allometry fitting stage")
+        stage_name = "Allometry Fitting"
+        
+        # Check if allometries already exist
+        allometries_file = FITTED_PARAMETERS_FILE
+        if allometries_file and Path(allometries_file).exists() and not overwrite:
+            self.logger.info(f"✅ {stage_name} - Using existing allometries: {allometries_file}")
+            self.stage_results[stage_name] = {
+                'success': True,
+                'duration_minutes': 0,
+                'result': 'existing_allometries_used'
+            }
             return True
         
-        stage_args = self.build_common_args()
+        def _run():
+            pipeline = AllometryFittingPipeline(config_path=None)
+            return pipeline.fit_allometries(years=years)
         
-        # Add allometry-specific arguments
-        if self.args.use_100m_for_fitting:
-            stage_args.append('--use-100m')
-        
-        return self.run_stage(
-            'Allometry Fitting',
-            'run_allometry_fitting.py',
-            stage_args
-        )
+        return self.run_stage(stage_name, _run)
     
-    def run_biomass_estimation_stage(self) -> bool:
+    def run_biomass_estimation(self, years: Optional[List[int]] = None) -> bool:
         """Run biomass estimation stage."""
-        stage_args = self.build_common_args()
+        stage_name = "Biomass Estimation"
         
-        # Skip allometry fitting in biomass estimation if we already did it
-        if not self.args.skip_allometry:
-            stage_args.append('--skip-allometry-fitting')
+        # Check if estimation already completed
+        output_dir = BIOMASS_MAPS_RAW_DIR 
+        check_paths = [str(output_dir)]
+        check_patterns = ["*.tif"]
         
-        return self.run_stage(
-            'Biomass Estimation',
-            'run_biomass_estimation.py',
-            stage_args
-        )
+        if self.check_stage_completion(stage_name, check_paths, check_patterns):
+            return True
+        
+        def _run():
+            # Import here to avoid circular imports
+            import sys
+            from io import StringIO
+            
+            # Capture run_biomass_estimation_main output
+            old_argv = sys.argv.copy()
+            try:
+                # Prepare arguments for biomass estimation
+                sys.argv = ['run_biomass_estimation.py']
+                if years:
+                    sys.argv.extend(['--years'] + [str(y) for y in years])
+                
+                # Run biomass estimation
+                result = run_biomass_estimation_main()
+                return result if result is not None else True
+                
+            finally:
+                sys.argv = old_argv
+        
+        return self.run_stage(stage_name, _run)
     
-    def run_masking_stage(self) -> bool:
+    def run_masking(self) -> bool:
         """Run annual cropland masking stage."""
-        stage_args = self.build_common_args()
+        stage_name = "Annual Cropland Masking"
         
-        # Add masking-specific arguments
-        if self.args.biomass_output_dir:
-            stage_args.extend(['--input-dir', self.args.biomass_output_dir])
+        # Check if masking already completed
+        output_dir = BIOMASS_MAPS_PER_FOREST_TYPE_DIR
+        check_paths = [str(output_dir)]
+        check_patterns = ["*.tif"]
         
-        return self.run_stage(
-            'Annual Cropland Masking',
-            'run_masking.py', 
-            stage_args
-        )
+        if self.check_stage_completion(stage_name, check_paths, check_patterns):
+            return True
+        
+        def _run():
+            import sys
+            
+            old_argv = sys.argv.copy()
+            try:
+                # Prepare arguments for masking
+                input_dir = BIOMASS_MAPS_RAW_DIR
+                output_dir = BIOMASS_MAPS_PER_FOREST_TYPE_DIR
+                
+                sys.argv = [
+                    'run_masking.py',
+                    '--input-dir', str(input_dir),
+                    '--output-dir', str(output_dir)
+                ]
+                
+                result = run_masking_main()
+                return result if result is not None else True
+                
+            finally:
+                sys.argv = old_argv
+        
+        return self.run_stage(stage_name, _run)
     
-    def run_merging_stage(self) -> bool:
+    def run_merging(self) -> bool:
         """Run forest type merging stage."""
-        stage_args = self.build_common_args()
+        stage_name = "Forest Type Merging"
         
-        return self.run_stage(
-            'Forest Type Merging',
-            'run_merging.py',
-            stage_args
-        )
+        # Check if merging already completed
+        output_dir = BIOMASS_MAPS_FULL_COUNTRY_DIR
+        check_paths = [str(output_dir)]
+        check_patterns = ["*_merged.tif"]
+        
+        if self.check_stage_completion(stage_name, check_paths, check_patterns):
+            return True
+        
+        def _run():
+            import sys
+            
+            old_argv = sys.argv.copy()
+            try:
+                # Prepare arguments for merging
+                input_dir = BIOMASS_MAPS_PER_FOREST_TYPE_DIR
+                output_dir = BIOMASS_MAPS_FULL_COUNTRY_DIR
+                
+                sys.argv = [
+                    'run_merging.py',
+                    '--input-dir', str(input_dir),
+                    '--output-dir', str(output_dir)
+                ]
+                
+                result = run_merging_main()
+                return result if result is not None else True
+                
+            finally:
+                sys.argv = old_argv
+        
+        return self.run_stage(stage_name, _run)
     
-    def run_full_pipeline(self) -> bool:
+    def run_full_pipeline(self, stages: Optional[List[str]] = None,
+                         skip_allometry: bool = False,
+                         continue_on_error: bool = False,
+                         years: Optional[List[int]] = None,
+                         overwrite_allometry: bool = False) -> Dict:
         """
-        Execute the complete biomass estimation pipeline.
+        Run the complete biomass estimation pipeline.
         
+        Args:
+            stages: Optional list of specific stages to run
+            skip_allometry: Skip allometry fitting stage
+            continue_on_error: Continue if a stage fails
+            years: Specific years to process
+            overwrite_allometry: Overwrite existing allometries
+            
         Returns:
-            bool: True if pipeline completed successfully
+            dict: Pipeline execution results
         """
-        self.logger.info("🚀 Starting complete biomass estimation pipeline...")
         self.start_time = time.time()
         
-        # Define pipeline stages
-        stages = [
-            ('allometry_fitting', self.run_allometry_fitting_stage),
-            ('biomass_estimation', self.run_biomass_estimation_stage), 
-            ('masking', self.run_masking_stage),
-            ('merging', self.run_merging_stage)
+        # Define all available stages
+        all_stages = [
+            'allometry_fitting',
+            'biomass_estimation', 
+            'masking',
+            'merging'
         ]
         
-        # Filter stages if specific stages requested
-        if self.args.stages:
-            stages = [(name, func) for name, func in stages if name in self.args.stages]
+        # Filter stages based on options
+        if skip_allometry:
+            all_stages = [s for s in all_stages if s != 'allometry_fitting']
         
-        # Run stages
-        overall_success = True
-        for stage_name, stage_func in stages:
-            try:
-                stage_success = stage_func()
-                if not stage_success:
-                    overall_success = False
-                    if not self.continue_on_error:
-                        break
-            except Exception as e:
-                self.logger.error(f"Stage {stage_name} failed with exception: {str(e)}")
-                overall_success = False
-                if not self.continue_on_error:
-                    break
+        # Use specified stages or filtered stages
+        stages_to_run = stages if stages else all_stages
         
-        # Log summary
-        self._log_pipeline_summary()
+        self.logger.info(f"Starting biomass estimation pipeline")
+        self.logger.info(f"Stages to run: {', '.join(stages_to_run)}")
+        self.logger.info(f"Continue on error: {continue_on_error}")
+        if years:
+            self.logger.info(f"Processing years: {years}")
         
-        return overall_success
+        # Run each stage
+        for stage in stages_to_run:
+            if stage == 'allometry_fitting':
+                success = self.run_allometry_fitting(years=years, overwrite=overwrite_allometry)
+            elif stage == 'biomass_estimation':
+                success = self.run_biomass_estimation(years=years)
+            elif stage == 'masking':
+                success = self.run_masking()
+            elif stage == 'merging':
+                success = self.run_merging()
+            else:
+                self.logger.warning(f"Unknown stage: {stage}")
+                continue
+            
+            if not success and not continue_on_error:
+                self.logger.error(f"Pipeline stopped due to failure in {stage}")
+                break
+        
+        return self.stage_results
     
-    def _log_pipeline_summary(self) -> None:
-        """Log pipeline execution summary."""
+    def print_pipeline_summary(self):
+        """Print a summary of pipeline execution."""
         if not self.stage_results:
             self.logger.info("No pipeline results to summarize")
             return
@@ -309,11 +378,6 @@ class BiomassFullPipelineOrchestrator:
             status = "✅" if results['success'] else "❌"
             duration = results['duration_minutes']
             self.logger.info(f"  {status} {stage_name}: {duration:.2f} min")
-        
-        # Show output directories
-        self.logger.info(f"\n📂 Output directories:")
-        self.logger.info(f"   Allometries: {str(FITTED_PARAMETERS_FILE)}")
-        self.logger.info(f"   Biomass maps: {str(BIOMASS_MAPS_FULL_COUNTRY_DIR)}")
 
 
 def parse_arguments() -> argparse.Namespace:
@@ -323,34 +387,20 @@ def parse_arguments() -> argparse.Namespace:
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  %(prog)s                                    # Run complete pipeline
-  %(prog)s --skip-allometry                   # Skip allometry fitting
-  %(prog)s --years 2020 2021 2022             # Specific years only
-  %(prog)s --continue-on-error                # Continue despite failures
-  %(prog)s --stages estimation masking        # Run specific stages only
-  
-Recipe Integration:
-  %(prog)s --allometries-output-dir ./allom   # Custom allometries output
-  %(prog)s --height-100m-dir ./heights        # Custom height maps directory
-  %(prog)s --biomass-output-dir ./biomass     # Custom biomass output
+  %(prog)s                              # Run complete pipeline
+  %(prog)s --skip-allometry             # Skip allometry fitting
+  %(prog)s --years 2020 2021 2022       # Specific years only
+  %(prog)s --continue-on-error          # Continue despite failures
+  %(prog)s --stages estimation masking  # Run specific stages only
         """
     )
     
-    # Core configuration
     parser.add_argument(
         '--config',
         type=str,
         help='Path to configuration file'
     )
     
-    parser.add_argument(
-        '--data-root',
-        type=str,
-        default='data',
-        help='Root directory for data storage (default: data)'
-    )
-    
-    # Pipeline control
     parser.add_argument(
         '--stages',
         nargs='+',
@@ -365,13 +415,6 @@ Recipe Integration:
     )
     
     parser.add_argument(
-        '--use-100m-for-fitting',
-        action='store_true',
-        help='Use 100m height maps for allometry fitting instead of 10m'
-    )
-    
-    # Processing parameters
-    parser.add_argument(
         '--years',
         type=int,
         nargs='+',
@@ -385,49 +428,11 @@ Recipe Integration:
     )
     
     parser.add_argument(
-        '--overwrite',
+        '--overwrite-allometry',
         action='store_true',
-        help='Overwrite existing output files'
+        help='Overwrite existing allometry files'
     )
     
-    # **NEW: Recipe integration arguments**
-    parser.add_argument(
-        '--height-100m-dir',
-        type=str,
-        help='Custom directory for 100m height maps (overrides default)'
-    )
-    
-    parser.add_argument(
-        '--height-10m-dir',
-        type=str,
-        help='Custom directory for 10m height maps (overrides default)'
-    )
-    
-    parser.add_argument(
-        '--allometries-output-dir',
-        type=str,
-        help='Custom directory for allometries output (overrides default)'
-    )
-    
-    parser.add_argument(
-        '--biomass-output-dir',
-        type=str,
-        help='Custom directory for biomass maps output (overrides default)'
-    )
-    
-    parser.add_argument(
-        '--nfi-processed-dir',
-        type=str,
-        help='Custom directory for processed NFI data (overrides default)'
-    )
-    
-    parser.add_argument(
-        '--forest-type-maps-dir',
-        type=str,
-        help='Custom directory for forest type maps (overrides default)'
-    )
-    
-    # Logging and output
     parser.add_argument(
         '--log-level',
         choices=['DEBUG', 'INFO', 'WARNING', 'ERROR'],
@@ -444,65 +449,65 @@ Recipe Integration:
     return parser.parse_args()
 
 
-def validate_arguments(args: argparse.Namespace) -> bool:
-    """Validate command line arguments."""
-    # Validate config file if provided
-    if args.config and not Path(args.config).exists():
-        print(f"Error: Config file not found: {args.config}")
-        return False
-    
-    # Validate data root directory
-    data_root = Path(args.data_root)
-    if not data_root.exists():
-        print(f"Error: Data root directory not found: {args.data_root}")
-        return False
-    
-    # Validate custom path arguments if provided
-    path_args = [
-        ('height-100m-dir', args.height_100m_dir),
-        ('height-10m-dir', args.height_10m_dir),
-        ('nfi-processed-dir', args.nfi_processed_dir),
-        ('forest-type-maps-dir', args.forest_type_maps_dir)
-    ]
-    
-    for arg_name, arg_value in path_args:
-        if arg_value and not Path(arg_value).exists():
-            print(f"Error: {arg_name} directory not found: {arg_value}")
-            return False
-    
-    return True
-
-
 def main():
     """Main entry point for biomass full pipeline."""
+    start_time = time.time()
+    
     # Parse arguments
     args = parse_arguments()
     
-    # Validate arguments
-    if not validate_arguments(args):
-        return False
+    # Set logging level
+    log_level = 'ERROR' if args.quiet else args.log_level
+    
+    # Initialize pipeline orchestrator
+    try:
+        orchestrator = BiomassFullPipelineOrchestrator(args.config, log_level)
+    except Exception as e:
+        print(f"Error initializing pipeline: {e}")
+        sys.exit(1)
     
     try:
-        # Initialize and run pipeline
-        orchestrator = BiomassFullPipelineOrchestrator(args)
-        success = orchestrator.run_full_pipeline()
+        # Log pipeline start
+        log_pipeline_start(orchestrator.logger, "Biomass Full Pipeline", orchestrator.config)
         
-        # Log completion
-        if success:
-            print("\n🎉 Biomass model pipeline completed successfully!")
-            return True
+        # Run pipeline
+        results = orchestrator.run_full_pipeline(
+            stages=args.stages,
+            skip_allometry=args.skip_allometry,
+            continue_on_error=args.continue_on_error,
+            years=args.years,
+            overwrite_allometry=args.overwrite_allometry
+        )
+        
+        # Print summary
+        orchestrator.print_pipeline_summary()
+        
+        # Determine exit code
+        failed_stages = [k for k, v in results.items() if not v['success']]
+        if failed_stages and not args.continue_on_error:
+            orchestrator.logger.error("Pipeline failed due to stage failures")
+            sys.exit(1)
+        elif failed_stages:
+            orchestrator.logger.warning("Pipeline completed with some stage failures")
         else:
-            print("\n💥 Biomass model pipeline failed!")
-            return False
-            
+            orchestrator.logger.info("Pipeline completed successfully!")
+        
+        # Log pipeline end
+        elapsed_time = time.time() - start_time
+        success = len(failed_stages) == 0
+        log_pipeline_end(orchestrator.logger, "Biomass Full Pipeline", success, elapsed_time)
+        
     except KeyboardInterrupt:
-        print("\n⚠️ Pipeline interrupted by user")
-        return False
+        orchestrator.logger.info("Pipeline interrupted by user")
+        sys.exit(1)
+        
     except Exception as e:
-        print(f"\n💥 Pipeline failed with error: {str(e)}")
-        return False
+        orchestrator.logger.error(f"Pipeline execution error: {e}")
+        if args.log_level == 'DEBUG':
+            import traceback
+            orchestrator.logger.debug(traceback.format_exc())
+        sys.exit(1)
 
 
 if __name__ == "__main__":
-    success = main()
-    sys.exit(0 if success else 1)
+    main()

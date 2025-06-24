@@ -11,12 +11,6 @@ Usage:
 Examples:
     # Run with default directories
     python run_masking.py
-    
-    # Custom input/output directories
-    python run_masking.py --input-dir ./biomass_raw --output-dir ./biomass_masked
-    
-    # Recipe integration
-    python run_masking.py --data-root ./data --biomass-input-dir ./biomass --land-cover-file ./corine.tif
 
 Author: Diego Bengochea
 """
@@ -40,17 +34,6 @@ def parse_arguments() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Annual Cropland Masking for Biomass Maps",
         formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog="""
-Examples:
-  %(prog)s                                      # Use default directories
-  %(prog)s --input-dir ./raw --output-dir ./masked  # Custom directories
-  %(prog)s --years 2020 2021                   # Specific years only
-  
-Recipe Integration:
-  %(prog)s --data-root ./data                   # Custom data root
-  %(prog)s --biomass-input-dir ./biomass        # Custom biomass input
-  %(prog)s --land-cover-file ./corine.tif       # Custom land cover file
-        """
     )
     
     # Core configuration
@@ -58,107 +41,6 @@ Recipe Integration:
         '--config',
         type=str,
         help='Path to configuration file'
-    )
-    
-    parser.add_argument(
-        '--data-root',
-        type=str,
-        default='data',
-        help='Root directory for data storage (default: data)'
-    )
-    
-    # Input/output directories
-    parser.add_argument(
-        '--input-dir',
-        type=str,
-        help='Input directory containing biomass maps to mask'
-    )
-    
-    parser.add_argument(
-        '--output-dir',
-        type=str,
-        help='Output directory for masked biomass maps'
-    )
-    
-    # **NEW: Recipe integration arguments**
-    parser.add_argument(
-        '--biomass-input-dir',
-        type=str,
-        help='Custom directory for biomass input maps (overrides default)'
-    )
-    
-    parser.add_argument(
-        '--biomass-output-dir',
-        type=str,
-        help='Custom directory for biomass output maps (overrides default)'
-    )
-    
-    parser.add_argument(
-        '--land-cover-file',
-        type=str,
-        help='Custom path to Corine land cover file (overrides default)'
-    )
-    
-    # Processing parameters
-    parser.add_argument(
-        '--years',
-        type=int,
-        nargs='+',
-        help='Specific years to process'
-    )
-    
-    parser.add_argument(
-        '--biomass-types',
-        nargs='+',
-        choices=['AGBD', 'BGBD', 'TBD'],
-        help='Specific biomass types to process'
-    )
-    
-    parser.add_argument(
-        '--measures',
-        nargs='+',
-        choices=['mean', 'uncertainty'],
-        help='Specific measures to process'
-    )
-    
-    parser.add_argument(
-        '--mask-values',
-        type=int,
-        nargs='+',
-        help='Land cover values to mask (overrides config)'
-    )
-    
-    # Processing control
-    parser.add_argument(
-        '--continue-on-error',
-        action='store_true',
-        help='Continue processing if individual files fail'
-    )
-    
-    parser.add_argument(
-        '--overwrite',
-        action='store_true',
-        help='Overwrite existing output files'
-    )
-    
-    parser.add_argument(
-        '--recursive',
-        action='store_true',
-        help='Process input directory recursively'
-    )
-    
-    # Logging
-    parser.add_argument(
-        '--log-level',
-        choices=['DEBUG', 'INFO', 'WARNING', 'ERROR'],
-        default='INFO',
-        help='Logging level'
-    )
-    
-    parser.add_argument(
-        '--quiet',
-        action='store_true',
-        help='Suppress non-error output'
     )
     
     return parser.parse_args()
@@ -170,27 +52,6 @@ def validate_arguments(args: argparse.Namespace) -> bool:
     if args.config and not Path(args.config).exists():
         print(f"Error: Config file not found: {args.config}")
         return False
-    
-    # Validate data root directory
-    data_root = Path(args.data_root)
-    if not data_root.exists():
-        print(f"Error: Data root directory not found: {args.data_root}")
-        return False
-    
-    # Validate input directory if provided
-    if args.input_dir and not Path(args.input_dir).exists():
-        print(f"Error: Input directory not found: {args.input_dir}")
-        return False
-    
-    if args.biomass_input_dir and not Path(args.biomass_input_dir).exists():
-        print(f"Error: Biomass input directory not found: {args.biomass_input_dir}")
-        return False
-    
-    # Validate land cover file if provided
-    if args.land_cover_file and not Path(args.land_cover_file).exists():
-        print(f"Error: Land cover file not found: {args.land_cover_file}")
-        return False
-    
     return True
 
 
@@ -204,11 +65,8 @@ class AnnualCroplandMaskingRunner:
     
     def __init__(self, args: argparse.Namespace):
         """Initialize masking runner."""
-        # Apply custom path overrides from recipe arguments
-        self._apply_path_overrides(args)
-        
         # Setup logging
-        log_level = 'ERROR' if args.quiet else args.log_level
+        log_level = 'INFO'
         self.logger = setup_logging(
             level=log_level,
             component_name='biomass_masking'
@@ -218,33 +76,12 @@ class AnnualCroplandMaskingRunner:
         self.args = args
         
         self.logger.info("AnnualCroplandMaskingRunner initialized")
-    
-    def _apply_path_overrides(self, args: argparse.Namespace) -> None:
-        """Apply custom path arguments to override default paths."""
-        overrides = {
-            'biomass_maps': args.biomass_input_dir or args.biomass_output_dir,
-            'land_cover': args.land_cover_file
-        }
+
     
     def determine_input_output_dirs(self) -> tuple:
         """Determine input and output directories from arguments and defaults."""
-        # Input directory priority: --input-dir > --biomass-input-dir > default
-        if self.args.input_dir:
-            input_dir = Path(self.args.input_dir)
-        elif self.args.biomass_input_dir:
-            input_dir = Path(self.args.biomass_input_dir)
-        else:
-            # Use default: biomass_maps/raw (before masking)
-            input_dir = BIOMASS_MAPS_DIR
-        
-        # Output directory priority: --output-dir > --biomass-output-dir > default
-        if self.args.output_dir:
-            output_dir = Path(self.args.output_dir)
-        elif self.args.biomass_output_dir:
-            output_dir = Path(self.args.biomass_output_dir)
-        else:
-            # Use default: biomass_maps/per_forest_type (after masking)
-            output_dir = BIOMASS_MAPS_PER_FOREST_TYPE_DIR
+        input_dir = BIOMASS_MAPS_RAW_DIR
+        output_dir = BIOMASS_MAPS_PER_FOREST_TYPE_DIR
         
         return input_dir, output_dir
     
@@ -295,19 +132,13 @@ class AnnualCroplandMaskingRunner:
                 success = masking_pipeline.process_directory(
                     input_dir=str(input_dir),
                     output_dir=str(output_dir),
-                    land_cover_file=str(land_cover_file),
-                    mask_values=self.args.mask_values,
-                    years=self.args.years,
-                    biomass_types=self.args.biomass_types,
-                    measures=self.args.measures,
-                    overwrite=self.args.overwrite,
-                    continue_on_error=self.args.continue_on_error
+                    land_cover_file=str(land_cover_file)
                 )
                 
             except ImportError:
                 # Fallback implementation if core masking module not available
-                self.logger.warning("Core masking module not available, using placeholder")
-                success = self._run_placeholder_masking(input_dir, output_dir)
+                self.logger.warning("Core masking module not available")
+                return False
             
             # Log completion
             duration = time.time() - start_time
@@ -322,36 +153,6 @@ class AnnualCroplandMaskingRunner:
             self.logger.error(f"Masking execution failed: {str(e)}")
             return False
     
-    def _run_placeholder_masking(self, input_dir: Path, output_dir: Path) -> bool:
-        """Placeholder masking implementation."""
-        self.logger.info("Running placeholder masking (copies files without actual masking)")
-        
-        try:
-            import shutil
-            
-            # Find biomass files
-            biomass_files = list(input_dir.glob("*.tif"))
-            if not biomass_files:
-                biomass_files = list(input_dir.rglob("*.tif"))
-            
-            if not biomass_files:
-                self.logger.error(f"No biomass files found in {input_dir}")
-                return False
-            
-            # Copy files to output directory
-            for biomass_file in biomass_files:
-                output_file = output_dir / biomass_file.name
-                shutil.copy2(biomass_file, output_file)
-                self.logger.debug(f"Copied {biomass_file.name} to output directory")
-            
-            self.logger.info(f"Placeholder masking completed: copied {len(biomass_files)} files")
-            return True
-            
-        except Exception as e:
-            self.logger.error(f"Placeholder masking failed: {str(e)}")
-            return False
-
-
 def main():
     """Main entry point."""
     # Parse arguments

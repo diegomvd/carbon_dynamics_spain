@@ -6,7 +6,7 @@ Command-line interface for creating interannual biomass difference maps between
 consecutive years. This is a thin wrapper around the core InterannualAnalyzer class.
 
 Usage:
-    python run_interannual_differences.py [OPTIONS]
+    python run_interannual_differences.py 
 
 Author: Diego Bengochea
 """
@@ -35,85 +35,8 @@ def parse_arguments():
         type=str,
         help='Path to configuration file (default: component config.yaml)'
     )
-    
-    # Analysis parameters
-    parser.add_argument(
-        '--years',
-        nargs='+',
-        type=int,
-        default=None,
-        help='Specific years to process (default: all from config)'
-    )
-    
-    # Input/Output directories
-    parser.add_argument(
-        '--input-dir',
-        type=str,
-        help='Override input biomass directory from config'
-    )
-    
-    parser.add_argument(
-        '--output-raw-dir',
-        type=str,
-        help='Override raw difference output directory from config'
-    )
-    
-    parser.add_argument(
-        '--output-relative-dir',
-        type=str,
-        help='Override relative difference output directory from config'
-    )
-    
-    # Processing control
-    parser.add_argument(
-        '--create-10km-resampled',
-        action='store_true',
-        help='Create 10km resampled versions (if implemented in config)'
-    )
-    
-    # Logging
-    parser.add_argument(
-        '--log-level',
-        choices=['DEBUG', 'INFO', 'WARNING', 'ERROR'],
-        default='INFO',
-        help='Logging level'
-    )
-    
-    parser.add_argument(
-        '--quiet',
-        action='store_true',
-        help='Suppress all output except errors'
-    )
-    
+
     return parser.parse_args()
-
-
-def override_config(analyzer, args):
-    """Override configuration with command line arguments."""
-    config_changed = False
-    
-    # Override input/output directories
-    if args.input_dir:
-        analyzer.config['interannual']['differences']['input_biomass_dir'] = args.input_dir
-        config_changed = True
-    
-    if args.output_raw_dir:
-        analyzer.config['interannual']['differences']['output_raw_dir'] = args.output_raw_dir
-        config_changed = True
-        
-    if args.output_relative_dir:
-        analyzer.config['interannual']['differences']['output_relative_dir'] = args.output_relative_dir
-        config_changed = True
-    
-    if args.create_10km_resampled:
-        analyzer.config['interannual']['differences']['create_10km_resampled'] = True
-        config_changed = True
-    
-    if config_changed:
-        analyzer.logger.info("Configuration overridden with command line arguments")
-    
-    return config_changed
-
 
 def main():
     """Main entry point for interannual differences script."""
@@ -126,21 +49,8 @@ def main():
         print(f"Error initializing analyzer: {e}")
         sys.exit(1)
     
-    # Override config with command line arguments
-    override_config(analyzer, args)
-    
-    # Set logging level
-    if args.quiet:
-        analyzer.logger.setLevel('ERROR')
-    else:
-        analyzer.logger.setLevel(args.log_level)
-    
-    # Determine target years
-    target_years = args.years
-    if target_years:
-        analyzer.logger.info(f"Processing specific years: {target_years}")
-    else:
-        analyzer.logger.info("Processing all available years in input directory")
+
+    analyzer.logger.setLevel('INFO')
     
     analyzer.logger.info("Starting interannual biomass difference mapping...")
     

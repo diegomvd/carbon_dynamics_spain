@@ -6,7 +6,7 @@ Command-line interface for integrating biomass change data with climate anomalie
 to create machine learning training datasets with proper spatial alignment.
 
 Usage:
-    python run_biomass_integration.py [OPTIONS]
+    python run_biomass_integration.py
 
 Author: Diego Bengochea
 """
@@ -19,7 +19,8 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 from climate_biomass_analysis.core.biomass_integration import BiomassIntegrator
-from shared_utils import setup_logging
+from shared_utils import setup_logging, ensure_directory
+from shared_utils.central_data_paths_constants import *
 
 
 def parse_arguments():
@@ -36,114 +37,7 @@ def parse_arguments():
         help='Path to configuration file (default: component config.yaml)'
     )
     
-    # Processing parameters
-    parser.add_argument(
-        '--biomass-pattern',
-        type=str,
-        help='File pattern for biomass difference files (overrides config)'
-    )
-    
-    parser.add_argument(
-        '--resampling-method',
-        choices=['nearest', 'bilinear', 'cubic', 'average'],
-        help='Resampling method for biomass data (overrides config)'
-    )
-    
-    parser.add_argument(
-        '--max-points',
-        type=int,
-        help='Maximum data points to extract per dataset (overrides config)'
-    )
-    
-    # Quality control
-    parser.add_argument(
-        '--remove-outliers',
-        action='store_true',
-        help='Remove statistical outliers from dataset'
-    )
-    
-    parser.add_argument(
-        '--no-remove-outliers',
-        action='store_true',
-        help='Keep all data points (no outlier removal)'
-    )
-    
-    parser.add_argument(
-        '--outlier-threshold',
-        type=float,
-        help='Standard deviation threshold for outlier removal (overrides config)'
-    )
-    
-    # Processing control
-    parser.add_argument(
-        '--skip-resampling',
-        action='store_true',
-        help='Skip biomass resampling step (assume already done)'
-    )
-    
-    parser.add_argument(
-        '--overwrite',
-        action='store_true',
-        help='Overwrite existing output files'
-    )
-    
-    parser.add_argument(
-        '--validate-only',
-        action='store_true',
-        help='Only validate inputs without processing'
-    )
-    
-    # Logging
-    parser.add_argument(
-        '--log-level',
-        choices=['DEBUG', 'INFO', 'WARNING', 'ERROR'],
-        default='INFO',
-        help='Logging level'
-    )
-    
-    parser.add_argument(
-        '--quiet',
-        action='store_true',
-        help='Suppress all output except errors'
-    )
-    
     return parser.parse_args()
-
-
-def override_config(integrator, args):
-    """Override configuration with command line arguments."""
-    config_changed = False
-    
-    # Processing parameters
-    if args.biomass_pattern:
-        integrator.integration_config['pattern'] = args.biomass_pattern
-        config_changed = True
-    
-    if args.resampling_method:
-        integrator.integration_config['resampling_method'] = args.resampling_method
-        config_changed = True
-    
-    if args.max_points:
-        integrator.integration_config['max_valid_pixels'] = args.max_points
-        config_changed = True
-    
-    # Quality control
-    if args.remove_outliers:
-        integrator.integration_config['remove_outliers'] = True
-        config_changed = True
-    
-    if args.no_remove_outliers:
-        integrator.integration_config['remove_outliers'] = False
-        config_changed = True
-    
-    if args.outlier_threshold:
-        integrator.integration_config['outlier_threshold'] = args.outlier_threshold
-        config_changed = True
-    
-    if config_changed:
-        integrator.logger.info("Configuration overridden with command line arguments")
-    
-    return config_changed
 
 
 def validate_inputs(integrator, args):
@@ -206,12 +100,7 @@ def check_existing_outputs(integrator, args):
     training_dataset = CLIMATE_BIOMASS_DATASET_FILE
     
     if Path(training_dataset).exists():
-        if args.overwrite:
-            logger.info(f"Training dataset exists, will overwrite: {training_dataset}")
-        else:
-            logger.warning(f"Training dataset already exists: {training_dataset}")
-            logger.warning("Use --overwrite to replace, or specify different --output-dataset")
-            return False
+        logger.info(f"Training dataset exists, will overwrite: {training_dataset}")
     
     return True
 
@@ -220,21 +109,13 @@ def main():
     """Main entry point for biomass integration script."""
     args = parse_arguments()
     
-    # Setup logging
-    if args.quiet:
-        log_level = 'ERROR'
-    else:
-        log_level = args.log_level
-    
+    log_level = 'INFO'
     logger = setup_logging(level=log_level, component_name='biomass_integration_script')
     
     try:
         # Initialize integrator
         logger.info("Initializing biomass integrator...")
         integrator = BiomassIntegrator(config_path=args.config)
-        
-        # Override configuration with command line arguments
-        override_config(integrator, args)
         
         # Log integration settings
         logger.info(f"Integration settings:")
@@ -255,13 +136,8 @@ def main():
             logger.error("Output validation failed")
             sys.exit(1)
         
-        # Validation only mode
-        if args.validate_only:
-            logger.info("✅ Validation completed successfully")
-            return
-        
         # Create output directories
-        from shared_utils import ensure_directory
+        
         ensure_directory(CLIMATE_BIOMASS_TEMP_RESAMPLED_DIR)
         ensure_directory(CLIMATE_BIOMASS_DATA_DIR)
         
@@ -299,9 +175,6 @@ def main():
         
     except Exception as e:
         logger.error(f"Biomass integration failed: {e}")
-        if args.log_level == 'DEBUG':
-            import traceback
-            logger.error(traceback.format_exc())
         sys.exit(1)
 
 

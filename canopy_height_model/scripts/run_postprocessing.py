@@ -21,12 +21,6 @@ Examples:
     
     # Run multiple steps
     python run_postprocessing.py --steps merge,sanitize
-    
-    # Continue on errors
-    python run_postprocessing.py --continue-on-error
-    
-    # Custom input/output directories
-    python run_postprocessing.py --steps merge --input-dir ./patches --output-dir ./tiles
 
 Author: Diego Bengochea
 """
@@ -50,20 +44,6 @@ def parse_arguments() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Canopy Height Post-Processing Pipeline",
         formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog="""
-Pipeline Steps:
-  merge        - Merge prediction patches into 120km tiles
-  sanitize     - Remove outliers and interpolate temporal gaps
-  final_merge  - Create final country-wide mosaics at 100m
-  all          - Run complete pipeline (default)
-
-Examples:
-  %(prog)s                                    # Run complete pipeline
-  %(prog)s --steps merge                      # Run only merge step
-  %(prog)s --steps merge,sanitize             # Run specific steps
-  %(prog)s --continue-on-error                # Continue even if step fails
-  %(prog)s --steps merge --input-dir ./patches --output-dir ./tiles
-        """
     )
     
     # Pipeline control
@@ -74,100 +54,11 @@ Examples:
         help='Comma-separated list of steps to run (default: all)'
     )
     
-    parser.add_argument(
-        '--continue-on-error',
-        action='store_true',
-        help='Continue pipeline execution even if a step fails'
-    )
-    
     # Configuration
     parser.add_argument(
         '--config',
         type=str,
         help='Path to configuration file'
-    )
-    
-    # Processing options
-    parser.add_argument(
-        '--num-workers',
-        type=int,
-        help='Number of parallel workers (default: from config)'
-    )
-    
-    parser.add_argument(
-        '--tile-size-km',
-        type=int,
-        help='Tile size in kilometers for merge step (default: from config)'
-    )
-    
-    parser.add_argument(
-        '--target-resolution',
-        type=int,
-        help='Target resolution in meters for final merge (default: from config)'
-    )
-    
-    # Quality control options
-    parser.add_argument(
-        '--height-min',
-        type=float,
-        help='Minimum valid height for outlier detection (default: from config)'
-    )
-    
-    parser.add_argument(
-        '--height-max',
-        type=float,
-        help='Maximum valid height for outlier detection (default: from config)'
-    )
-    
-    parser.add_argument(
-        '--skip-outlier-detection',
-        action='store_true',
-        help='Skip outlier detection in sanitize step'
-    )
-    
-    parser.add_argument(
-        '--skip-temporal-interpolation',
-        action='store_true',
-        help='Skip temporal interpolation in sanitize step'
-    )
-    
-    # Output options
-    parser.add_argument(
-        '--compression',
-        choices=['none', 'lzw', 'deflate', 'jpeg'],
-        help='Output compression method (default: from config)'
-    )
-    
-    parser.add_argument(
-        '--create-overviews',
-        action='store_true',
-        help='Create overview pyramids for final outputs'
-    )
-    
-    parser.add_argument(
-        '--overwrite',
-        action='store_true',
-        help='Overwrite existing output files'
-    )
-    
-    # Validation and debugging
-    parser.add_argument(
-        '--validate-only',
-        action='store_true',
-        help='Only validate inputs without processing'
-    )
-    
-    parser.add_argument(
-        '--log-level',
-        choices=['DEBUG', 'INFO', 'WARNING', 'ERROR'],
-        default='INFO',
-        help='Logging level (default: INFO)'
-    )
-    
-    parser.add_argument(
-        '--show-progress',
-        action='store_true',
-        help='Show detailed progress information'
     )
     
     return parser.parse_args()
@@ -209,71 +100,7 @@ def validate_arguments(args: argparse.Namespace) -> bool:
         print(f"Error: Config file not found: {args.config}")
         return False
     
-    # Validate numeric parameters
-    if args.tile_size_km and args.tile_size_km <= 0:
-        print("Error: Tile size must be positive")
-        return False
-    
-    if args.target_resolution and args.target_resolution <= 0:
-        print("Error: Target resolution must be positive")
-        return False
-    
-    if args.num_workers and args.num_workers <= 0:
-        print("Error: Number of workers must be positive")
-        return False
-    
-    if args.height_min is not None and args.height_max is not None:
-        if args.height_min >= args.height_max:
-            print("Error: height_min must be less than height_max")
-            return False
-    
     return True
-
-
-def apply_argument_overrides(pipeline: PostProcessingPipeline, args: argparse.Namespace) -> None:
-    """Apply command line argument overrides to pipeline configuration."""
-    config = pipeline.config
-    
-    # Processing overrides
-    if args.num_workers:
-        config['post_processing']['merge']['num_workers'] = args.num_workers
-        pipeline.logger.info(f"Override num_workers: {args.num_workers}")
-    
-    if args.tile_size_km:
-        config['post_processing']['merge']['tile_size_km'] = args.tile_size_km
-        pipeline.logger.info(f"Override tile_size_km: {args.tile_size_km}")
-    
-    if args.target_resolution:
-        config['post_processing']['final_merge']['target_resolution'] = args.target_resolution
-        pipeline.logger.info(f"Override target_resolution: {args.target_resolution}")
-    
-    # Quality control overrides
-    if args.height_min is not None:
-        config['post_processing']['sanitize']['height_min'] = args.height_min
-        pipeline.logger.info(f"Override height_min: {args.height_min}")
-    
-    if args.height_max is not None:
-        config['post_processing']['sanitize']['height_max'] = args.height_max
-        pipeline.logger.info(f"Override height_max: {args.height_max}")
-    
-    if args.skip_outlier_detection:
-        config['post_processing']['sanitize']['outlier_detection'] = False
-        pipeline.logger.info("Outlier detection disabled")
-    
-    if args.skip_temporal_interpolation:
-        config['post_processing']['sanitize']['temporal_interpolation'] = False
-        pipeline.logger.info("Temporal interpolation disabled")
-    
-    # Output overrides
-    if args.compression:
-        config['post_processing']['merge']['compression'] = args.compression
-        pipeline.logger.info(f"Override compression: {args.compression}")
-    
-    if args.create_overviews:
-        config['post_processing']['final_merge']['create_overview_pyramids'] = True
-        pipeline.logger.info("Overview pyramid creation enabled")
-    
-
 
 def validate_pipeline_only(pipeline: PostProcessingPipeline, steps: List[PipelineStep]) -> bool:
     """Run pipeline validation only."""
@@ -351,9 +178,8 @@ def main():
     
     # Setup logging
     logger = setup_logging(
-        level=args.log_level,
-        component_name='canopy_height_postprocessing',
-        format_style='detailed' if args.log_level == 'DEBUG' else 'standard'
+        level='INFO',
+        component_name='canopy_height_postprocessing'
     )
     
     try:
@@ -361,28 +187,14 @@ def main():
         logger.info("Initializing Canopy Height Post-Processing Pipeline...")
         pipeline = PostProcessingPipeline(config_path=args.config)
         
-        # Apply command line overrides
-        apply_argument_overrides(pipeline, args)
-        
         # Log pipeline start
         log_pipeline_start(logger, "Canopy Height Post-Processing", pipeline.config)
         
         logger.info(f"Pipeline steps to execute: {[step.value for step in steps]}")
         
-        # Validation only mode
-        if args.validate_only:
-            success = validate_pipeline_only(pipeline, steps)
-            if success:
-                logger.info("✅ Validation successful - exiting")
-                sys.exit(0)
-            else:
-                logger.error("❌ Validation failed")
-                sys.exit(1)
-        
         # Run pipeline
         results = pipeline.run_pipeline(
             steps=steps,
-            continue_on_error=args.continue_on_error
         )
         
         # Print detailed summary
@@ -408,9 +220,6 @@ def main():
         
     except Exception as e:
         logger.error(f"Post-processing pipeline failed with unexpected error: {str(e)}")
-        if args.log_level == 'DEBUG':
-            import traceback
-            logger.debug(traceback.format_exc())
         sys.exit(1)
 
 

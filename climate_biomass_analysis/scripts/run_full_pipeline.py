@@ -7,7 +7,7 @@ integration, spatial analysis, and machine learning optimization into a single
 coordinated pipeline with smart checkpointing and error recovery.
 
 Usage:
-    python run_full_pipeline.py [OPTIONS]
+    python run_full_pipeline.py
 
 Author: Diego Bengochea
 """
@@ -317,7 +317,7 @@ class PipelineOrchestrator:
         self.logger.info(f"{'='*60}")
         
         # Check if stage already completed
-        optimization_dir = "optimization_results"
+        optimization_dir = CLIMATE_BIOMASS_MODELS_DIR
         check_paths = [optimization_dir]
         check_patterns = ["optimization_summary.pkl", "individual_run_results.pkl"]
         
@@ -473,54 +473,15 @@ def parse_arguments():
         help='Specific stages to run (default: all stages)'
     )
     
-    parser.add_argument(
-        '--skip-stages',
-        nargs='+',
-        choices=['climate_processing', 'bioclim_calculation', 'biomass_integration', 
-                'spatial_analysis', 'optimization'],
-        help='Stages to skip'
-    )
-    
-    # Execution control
-    parser.add_argument(
-        '--continue-on-error',
-        action='store_true',
-        help='Continue pipeline execution even if a stage fails'
-    )
-    
-    parser.add_argument(
-        '--dry-run',
-        action='store_true',
-        help='Show what would be executed without running'
-    )
-    
-    # Logging
-    parser.add_argument(
-        '--log-level',
-        choices=['DEBUG', 'INFO', 'WARNING', 'ERROR'],
-        default='INFO',
-        help='Logging level'
-    )
-    
-    parser.add_argument(
-        '--quiet',
-        action='store_true',
-        help='Suppress all output except errors'
-    )
-    
     return parser.parse_args()
 
 
 def main():
     """Main entry point for complete pipeline script."""
     args = parse_arguments()
-    
-    # Setup logging
-    if args.quiet:
-        log_level = 'ERROR'
-    else:
-        log_level = args.log_level
-    
+
+    log_level = 'INFO'
+
     try:
         # Initialize orchestrator
         orchestrator = PipelineOrchestrator(config_path=args.config, log_level=log_level)
@@ -531,23 +492,13 @@ def main():
         else:
             all_stages = ['climate_processing', 'bioclim_calculation', 'biomass_integration', 
                          'spatial_analysis', 'optimization']
-            if args.skip_stages:
-                stages_to_run = [s for s in all_stages if s not in args.skip_stages]
-            else:
-                stages_to_run = all_stages
+            stages_to_run = all_stages
         
         orchestrator.logger.info(f"Pipeline stages to execute: {', '.join(stages_to_run)}")
         
-        # Dry run mode
-        if args.dry_run:
-            orchestrator.logger.info("DRY RUN MODE - No actual processing will be performed")
-            orchestrator.logger.info(f"Would execute stages: {', '.join(stages_to_run)}")
-            return
-        
         # Run pipeline
         results = orchestrator.run_full_pipeline(
-            stages=stages_to_run,
-            continue_on_error=args.continue_on_error
+            stages=stages_to_run
         )
         
         # Exit with appropriate code
@@ -558,11 +509,7 @@ def main():
         
     except Exception as e:
         print(f"Pipeline orchestrator failed: {e}")
-        if args.log_level == 'DEBUG':
-            import traceback
-            traceback.print_exc()
         sys.exit(1)
-
 
 if __name__ == "__main__":
     main()

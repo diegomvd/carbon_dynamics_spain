@@ -7,7 +7,7 @@ Uses the ModelEvaluationPipeline from the core module to generate statistical an
 residual plots, prediction density visualizations, and height distribution comparisons.
 
 Usage:
-    python run_evaluation.py [OPTIONS]
+    python run_evaluation.py
     
 Examples:
     # Evaluate with default configuration
@@ -15,9 +15,6 @@ Examples:
     
     # Custom configuration and checkpoint
     python run_evaluation.py --config custom_config.yaml --checkpoint model.ckpt
-    
-    # Specific output directory
-    python run_evaluation.py --output-dir ./evaluation_results
     
     # Multiple checkpoints comparison
     python run_evaluation.py --checkpoint model1.ckpt model2.ckpt
@@ -44,14 +41,6 @@ def parse_arguments() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Canopy Height Model Evaluation Pipeline",
         formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog="""
-Examples:
-  %(prog)s                                        # Evaluate with default config
-  %(prog)s --config custom.yaml --checkpoint model.ckpt    # Custom config and checkpoint  
-  %(prog)s --output-dir ./results                 # Custom output directory
-  %(prog)s --checkpoint model1.ckpt model2.ckpt   # Multiple checkpoints
-  %(prog)s --log-level DEBUG                      # Detailed logging
-        """
     )
     
     parser.add_argument(
@@ -65,19 +54,6 @@ Examples:
         type=str,
         nargs='+',
         help='Path(s) to model checkpoint(s) for evaluation'
-    )
-    
-    parser.add_argument(
-        '--output-dir',
-        type=str,
-        help='Custom output directory for evaluation results'
-    )
-    
-    parser.add_argument(
-        '--log-level',
-        choices=['DEBUG', 'INFO', 'WARNING', 'ERROR'],
-        default='INFO',
-        help='Logging level (default: INFO)'
     )
     
     return parser.parse_args()
@@ -197,7 +173,7 @@ def main():
             sys.exit(1)
         
         # Setup logging
-        logger = setup_logging(args.log_level)
+        logger = setup_logging('INFO')
         log_pipeline_start(logger, "Canopy Height Model Evaluation Pipeline")
         
         # Initialize evaluation pipeline

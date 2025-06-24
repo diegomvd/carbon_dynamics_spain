@@ -11,12 +11,6 @@ Usage:
 Examples:
     # Run with default directories
     python run_merging.py
-    
-    # Custom input/output directories
-    python run_merging.py --input-dir ./biomass_masked --output-dir ./biomass_merged
-    
-    # Recipe integration
-    python run_merging.py --data-root ./data --biomass-input-dir ./per_forest_type
 
 Author: Diego Bengochea
 """
@@ -31,7 +25,7 @@ from typing import List, Optional
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 # Shared utilities
-from shared_utils import setup_logging, CentralDataPaths
+from shared_utils import setup_logging
 from shared_utils.central_data_paths_constants import *
 
 
@@ -40,17 +34,6 @@ def parse_arguments() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Forest Type Merging for Country-wide Biomass Maps",
         formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog="""
-Examples:
-  %(prog)s                                      # Use default directories
-  %(prog)s --input-dir ./masked --output-dir ./merged  # Custom directories
-  %(prog)s --years 2020 2021                   # Specific years only
-  
-Recipe Integration:
-  %(prog)s --data-root ./data                   # Custom data root
-  %(prog)s --biomass-input-dir ./per_type       # Custom biomass input
-  %(prog)s --biomass-output-dir ./merged        # Custom merged output
-        """
     )
     
     # Core configuration
@@ -58,102 +41,6 @@ Recipe Integration:
         '--config',
         type=str,
         help='Path to configuration file'
-    )
-    
-    parser.add_argument(
-        '--data-root',
-        type=str,
-        default='data',
-        help='Root directory for data storage (default: data)'
-    )
-    
-    # Input/output directories
-    parser.add_argument(
-        '--input-dir',
-        type=str,
-        help='Input directory containing forest type specific biomass maps'
-    )
-    
-    parser.add_argument(
-        '--output-dir',
-        type=str,
-        help='Output directory for merged country-wide biomass maps'
-    )
-    
-    # **NEW: Recipe integration arguments**
-    parser.add_argument(
-        '--biomass-input-dir',
-        type=str,
-        help='Custom directory for per-forest-type biomass input (overrides default)'
-    )
-    
-    parser.add_argument(
-        '--biomass-output-dir',
-        type=str,
-        help='Custom directory for merged biomass output (overrides default)'
-    )
-    
-    # Processing parameters
-    parser.add_argument(
-        '--years',
-        type=int,
-        nargs='+',
-        help='Specific years to process'
-    )
-    
-    parser.add_argument(
-        '--biomass-types',
-        nargs='+',
-        choices=['AGBD', 'BGBD', 'TBD'],
-        help='Specific biomass types to process'
-    )
-    
-    parser.add_argument(
-        '--measures',
-        nargs='+',
-        choices=['mean', 'uncertainty'],
-        help='Specific measures to process'
-    )
-    
-    parser.add_argument(
-        '--resolution',
-        choices=['10m', '100m'],
-        default='100m',
-        help='Resolution to process (default: 100m)'
-    )
-    
-    # Processing control
-    parser.add_argument(
-        '--continue-on-error',
-        action='store_true',
-        help='Continue processing if individual merges fail'
-    )
-    
-    parser.add_argument(
-        '--overwrite',
-        action='store_true',
-        help='Overwrite existing output files'
-    )
-    
-    parser.add_argument(
-        '--compression',
-        choices=['lzw', 'deflate', 'none'],
-        default='lzw',
-        help='Output compression method (default: lzw)'
-    )
-    
-    # Logging
-    parser.add_argument(
-        '--log-level',
-        choices=['DEBUG', 'INFO', 'WARNING', 'ERROR'],
-        default='INFO',
-        help='Logging level'
-    )
-    
-    parser.add_argument(
-        '--quiet',
-        action='store_true',
-        help='Suppress non-error output'
     )
     
     return parser.parse_args()
@@ -165,22 +52,7 @@ def validate_arguments(args: argparse.Namespace) -> bool:
     if args.config and not Path(args.config).exists():
         print(f"Error: Config file not found: {args.config}")
         return False
-    
-    # Validate data root directory
-    data_root = Path(args.data_root)
-    if not data_root.exists():
-        print(f"Error: Data root directory not found: {args.data_root}")
-        return False
-    
-    # Validate input directory if provided
-    if args.input_dir and not Path(args.input_dir).exists():
-        print(f"Error: Input directory not found: {args.input_dir}")
-        return False
-    
-    if args.biomass_input_dir and not Path(args.biomass_input_dir).exists():
-        print(f"Error: Biomass input directory not found: {args.biomass_input_dir}")
-        return False
-    
+
     return True
 
 
@@ -195,11 +67,8 @@ class ForestTypeMergingRunner:
     def __init__(self, args: argparse.Namespace):
         """Initialize merging runner."""
         
-        # Apply custom path overrides from recipe arguments
-        self._apply_path_overrides(args)
-        
         # Setup logging
-        log_level = 'ERROR' if args.quiet else args.log_level
+        log_level = 'INFO'
         self.logger = setup_logging(
             level=log_level,
             component_name='biomass_merging'
@@ -210,30 +79,11 @@ class ForestTypeMergingRunner:
         
         self.logger.info("ForestTypeMergingRunner initialized")
     
-    def _apply_path_overrides(self, args: argparse.Namespace) -> None:
-        """Apply custom path arguments to override default paths."""
-        if args.biomass_input_dir or args.biomass_output_dir:            
-            continue
-    
+
     def determine_input_output_dirs(self) -> tuple:
         """Determine input and output directories from arguments and defaults."""
-        # Input directory priority: --input-dir > --biomass-input-dir > default
-        if self.args.input_dir:
-            input_dir = Path(self.args.input_dir)
-        elif self.args.biomass_input_dir:
-            input_dir = Path(self.args.biomass_input_dir)
-        else:
-            # Use default: biomass_maps/per_forest_type (masked, forest type specific)
-            input_dir = BIOMASS_MAPS_PER_FOREST_TYPE_DIR
-        
-        # Output directory priority: --output-dir > --biomass-output-dir > default
-        if self.args.output_dir:
-            output_dir = Path(self.args.output_dir)
-        elif self.args.biomass_output_dir:
-            output_dir = Path(self.args.biomass_output_dir)
-        else:
-            # Use default: biomass_maps/full_country (merged country-wide)
-            output_dir = BIOMASS_MAPS_FULL_COUNTRY_DIR
+        input_dir = BIOMASS_MAPS_PER_FOREST_TYPE_DIR
+        output_dir = BIOMASS_MAPS_FULL_COUNTRY_DIR
         
         return input_dir, output_dir
     
@@ -253,7 +103,6 @@ class ForestTypeMergingRunner:
             
             self.logger.info(f"Input directory: {input_dir}")
             self.logger.info(f"Output directory: {output_dir}")
-            self.logger.info(f"Resolution: {self.args.resolution}")
             
             # Validate paths
             if not input_dir.exists():
@@ -273,20 +122,13 @@ class ForestTypeMergingRunner:
                 # Run merging
                 success = merging_pipeline.process_directory(
                     input_dir=str(input_dir),
-                    output_dir=str(output_dir),
-                    years=self.args.years,
-                    biomass_types=self.args.biomass_types,
-                    measures=self.args.measures,
-                    resolution=self.args.resolution,
-                    compression=self.args.compression,
-                    overwrite=self.args.overwrite,
-                    continue_on_error=self.args.continue_on_error
+                    output_dir=str(output_dir)
                 )
                 
             except ImportError:
                 # Fallback implementation if core merging module not available
-                self.logger.warning("Core merging module not available, using placeholder")
-                success = self._run_placeholder_merging(input_dir, output_dir)
+                self.logger.warning("Core merging module not available")
+                return False
             
             # Log completion
             duration = time.time() - start_time
@@ -301,71 +143,6 @@ class ForestTypeMergingRunner:
             self.logger.error(f"Merging execution failed: {str(e)}")
             return False
     
-    def _run_placeholder_merging(self, input_dir: Path, output_dir: Path) -> bool:
-        """Placeholder merging implementation."""
-        self.logger.info("Running placeholder merging (simulates merging process)")
-        
-        try:
-            import glob
-            import shutil
-            
-            # Find forest type specific biomass files
-            biomass_files = []
-            for pattern in ["*AGBD*", "*BGBD*", "*TBD*"]:
-                pattern_files = list(input_dir.rglob(f"{pattern}.tif"))
-                biomass_files.extend(pattern_files)
-            
-            if not biomass_files:
-                self.logger.error(f"No biomass files found in {input_dir}")
-                return False
-            
-            # Group files by year, biomass type, and measure
-            file_groups = {}
-            for biomass_file in biomass_files:
-                # Extract year, biomass type, measure from filename
-                # This is a simplified example - real implementation would parse filenames properly
-                name_parts = biomass_file.stem.split('_')
-                
-                # Try to find year, biomass type, measure patterns
-                year = None
-                biomass_type = None
-                measure = None
-                
-                for part in name_parts:
-                    if part.isdigit() and len(part) == 4:  # Year
-                        year = part
-                    elif part in ['AGBD', 'BGBD', 'TBD']:  # Biomass type
-                        biomass_type = part
-                    elif part in ['mean', 'uncertainty']:  # Measure
-                        measure = part
-                
-                if year and biomass_type and measure:
-                    key = f"{biomass_type}_{measure}_{year}"
-                    if key not in file_groups:
-                        file_groups[key] = []
-                    file_groups[key].append(biomass_file)
-            
-            # Create merged files (placeholder: just copy first file from each group)
-            merged_count = 0
-            for key, files in file_groups.items():
-                if files:
-                    # Create merged filename
-                    output_file = output_dir / f"{key}_{self.args.resolution}_merged.tif"
-                    
-                    # Placeholder: just copy the first file
-                    shutil.copy2(files[0], output_file)
-                    merged_count += 1
-                    
-                    self.logger.debug(f"Created merged file: {output_file.name} (from {len(files)} inputs)")
-            
-            self.logger.info(f"Placeholder merging completed: created {merged_count} merged files")
-            return True
-            
-        except Exception as e:
-            self.logger.error(f"Placeholder merging failed: {str(e)}")
-            return False
-
-
 def main():
     """Main entry point."""
     # Parse arguments

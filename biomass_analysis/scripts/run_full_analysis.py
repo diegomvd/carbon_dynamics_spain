@@ -6,7 +6,7 @@ Integrates all biomass analysis components into a single coordinated pipeline
 with smart stage detection, error recovery, and progress monitoring.
 
 Usage:
-    python run_full_analysis.py [OPTIONS]
+    python run_full_analysis.py 
 
 Author: Diego Bengochea
 """
@@ -315,70 +315,6 @@ def parse_arguments():
         help='Path to configuration file (default: component config.yaml)'
     )
     
-    # Pipeline control
-    parser.add_argument(
-        '--stages',
-        nargs='+',
-        choices=['country_analysis', 'forest_type_analysis', 'landcover_analysis', 
-                'height_bin_analysis', 'difference_mapping', 'transition_analysis', 'carbon_flux_analysis'],
-        help='Specific stages to run (default: all stages)'
-    )
-    
-    parser.add_argument(
-        '--continue-on-error',
-        action='store_true',
-        help='Continue pipeline execution even if a stage fails'
-    )
-    
-    # Analysis parameters
-    parser.add_argument(
-        '--years',
-        nargs='+',
-        type=int,
-        help='Specific years to process (default: all from config)'
-    )
-    
-    parser.add_argument(
-        '--biomass-types',
-        nargs='+',
-        choices=['TBD', 'AGBD', 'BGBD'],
-        help='Biomass types for country analysis (default: all from config)'
-    )
-    
-    # Stage-specific options
-    parser.add_argument(
-        '--skip-mask-creation',
-        action='store_true',
-        help='Skip height mask creation in height bin analysis'
-    )
-    
-    parser.add_argument(
-        '--save-raw-data',
-        action='store_true',
-        help='Save raw transition data in transition analysis'
-    )
-    
-    parser.add_argument(
-        '--no-diagnostics',
-        action='store_true',
-        help='Skip diagnostic plot creation in carbon flux analysis'
-    )
-    
-    # Logging
-    parser.add_argument(
-        '--log-level',
-        choices=['DEBUG', 'INFO', 'WARNING', 'ERROR'],
-        default='INFO',
-        help='Logging level'
-    )
-    
-    parser.add_argument(
-        '--quiet',
-        action='store_true',
-        help='Suppress all output except errors'
-    )
-    
-    return parser.parse_args()
 
 
 def main():
@@ -386,7 +322,7 @@ def main():
     args = parse_arguments()
     
     # Set logging level
-    log_level = 'ERROR' if args.quiet else args.log_level
+    log_level = 'INFO'
     
     # Initialize pipeline orchestrator
     try:
