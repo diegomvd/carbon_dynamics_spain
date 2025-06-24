@@ -25,7 +25,7 @@ from shared_utils import setup_logging, get_logger, load_config
 from shared_utils.central_data_paths_constants import *
 
 
-class BiomassAggregator:
+class BiomassAggregationPipeline:
     """
     Hierarchical biomass aggregation for forest types, landcover, and height ranges.
     
@@ -33,19 +33,16 @@ class BiomassAggregator:
     for forest type hierarchies, landcover grouping, and height bin processing.
     """
     
-    def __init__(self, config: Optional[Union[str, Path, Dict]] = None):
+    def __init__(self, config: Optional[Union[str, Path]] = None):
         """
         Initialize the biomass aggregator.
         
         Args:
-            config: Configuration dictionary or path to config file
+            config:  Path to config file
         """
-        if isinstance(config, (str, Path)):
-            self.config = load_config(config, component_name="biomass_analysis")
-        elif isinstance(config, dict):
-            self.config = config
-        else:
-            self.config = load_config(component_name="biomass_analysis")
+        
+        self.config = load_config(config, component_name="biomass_analysis")
+
         
         # Setup logging
         self.logger = setup_logging(
@@ -53,16 +50,22 @@ class BiomassAggregator:
             component_name='aggregation_analysis'
         )
         
-        self.logger.info("Initialized BiomassAggregator")
+    def run_full_pipeline(self):
 
-    # ==================== FOREST TYPE ANALYSIS ====================
+        target_years = self.config['analysis']['target_years']
+
+        combined_forest_type_df, genus_df, clade_df = self.run_forest_type_analysis(target_years)
+        landcover_results_list = self.run_landcover_analysis(target_years)
+        height_bin_results_list = self.run_height_bin_analysis(target_years)
+
+        # TODO: RESULTS DATA FORMATS ARE NOT COHERENT AND THE CENTRALIZED SAVING FUNCTION LIKELY DOES NOT WORK AT ALL
+        self.save_results()
+
     
     def load_and_merge_forest_type_mappings(self) -> pd.DataFrame:
         """
         Load and merge the two CSV files containing forest type mappings.
         Returns a DataFrame with code, name, genus, and clade.
-        
-        CRITICAL: This algorithm must be preserved exactly as in original.
         
         Returns:
             DataFrame with forest type mappings
@@ -256,7 +259,6 @@ class BiomassAggregator:
         
         return genus_df, clade_df
 
-    # ==================== LANDCOVER ANALYSIS ====================
     
     def calculate_biomass_by_landcover(self, target_years: List[int]) -> List[Dict[str, Any]]:
         """
@@ -366,7 +368,6 @@ class BiomassAggregator:
         
         return results
 
-    # ==================== HEIGHT BIN ANALYSIS ====================
     
     def create_height_masks_for_year(self, year: int) -> bool:
         """
@@ -556,7 +557,6 @@ class BiomassAggregator:
         
         return all_masks_available
 
-    # ==================== MAIN ANALYSIS METHODS ====================
     
     def run_forest_type_analysis(self, target_years: Optional[List[int]] = None) -> Tuple[Optional[pd.DataFrame], Optional[pd.DataFrame], Optional[pd.DataFrame]]:
         """
@@ -650,7 +650,6 @@ class BiomassAggregator:
         # Calculate biomass by height ranges
         return self.calculate_biomass_by_height_ranges(target_years)
 
-    # ==================== RESULTS SAVING ====================
     
     def save_results(self, results_data: Dict[str, Any], analysis_type: str) -> str:
         """

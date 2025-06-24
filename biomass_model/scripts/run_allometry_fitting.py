@@ -65,8 +65,9 @@ def main():
     # Parse arguments
     args = parse_arguments()
     # Initialize and run pipeline
-    pipeline = AllometryFittingPipeline(args)
+    pipeline = AllometryFittingPipeline(args.config)
     success = pipeline.run_full_pipeline()
+    return success
 
 
 if __name__ == "__main__":

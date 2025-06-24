@@ -51,8 +51,9 @@ def main():
     # Parse arguments
     args = parse_arguments()
 
-    runner = LandUseMaskingPipeline(args.config)
+    pipeline = LandUseMaskingPipeline(args.config)
     success = pipeline.run_full_pipeline()
+    return success
 
 if __name__ == "__main__":
     success = main()

@@ -27,7 +27,7 @@ from shared_utils.central_data_paths_constants import *
 warnings.filterwarnings('ignore')
 
 
-class CarbonFluxAnalyzer:
+class CarbonFluxPipeline:
     """
     Interannual carbon flux analysis from Monte Carlo biomass samples.
     
@@ -35,29 +35,63 @@ class CarbonFluxAnalyzer:
     algorithms for Monte Carlo sampling and statistical analysis.
     """
     
-    def __init__(self, config: Optional[Union[str, Path, Dict]] = None):
+    def __init__(self, config: Optional[Union[str, Path]] = None):
         """
         Initialize the carbon flux analyzer.
         
         Args:
             config: Configuration dictionary or path to config file
         """
-        if isinstance(config, (str, Path)):
-            self.config = load_config(config, component_name="biomass_analysis")
-        elif isinstance(config, dict):
-            self.config = config
-        else:
-            self.config = load_config(component_name="biomass_analysis")
         
+        self.config = load_config(config, component_name="biomass_analysis")
+     
         # Setup logging
         self.logger = setup_logging(
             level=self.config['logging']['level'],
             component_name='carbon_flux_analysis'
         )
-        
-        self.logger.info("Initialized CarbonFluxAnalyzer")
 
-    def find_mc_samples_file(self, mc_file_path: Optional[str] = None) -> Optional[str]:
+    def run_full_pipeline(self):
+
+        self.logger.info("Starting interannual carbon flux calculation...")
+
+        # Find MC samples file
+        mc_samples_file = self.find_mc_samples_file()
+        if not mc_samples_file:
+            self.logger.error("Could not find Monte Carlo samples file")
+            return False
+        
+        # Load MC samples
+        self.logger.info(f"Loading Monte Carlo samples from: {mc_samples_file}")
+        mc_samples = self.load_mc_samples(mc_samples_file)
+        
+        if mc_samples is None:
+            self.logger.error("Error: Could not load Monte Carlo samples")
+            return False
+        
+        # Calculate interannual flux
+        self.logger.info("Calculating interannual carbon flux...")
+        flux_df, flux_samples = self.calculate_interannual_flux(mc_samples)
+        
+        if flux_df.empty:
+            self.logger.error("No flux results calculated")
+            return False
+        
+        flux_statistics_path = self.save_results(flux_df,flux_samples)
+        self.logger.info(f'Flux statistics saved to {flux_statistics_path}')
+
+        self.print_summary(flux_df)
+
+        create_diagnostics = self.config['interannual']['carbon_fluxes']['create_diagnostics']
+
+        if create_diagnostics:
+            self.logger.info('Creating diagnostic plots')
+            self.create_diagnostic_plots(flux_samples)
+
+        return True    
+
+
+    def find_mc_samples_file(self) -> Optional[str]:
         """
         Find Monte Carlo samples file automatically or use provided path.
                 
@@ -67,8 +101,6 @@ class CarbonFluxAnalyzer:
         Returns:
             str: Path to MC samples file or None if not found
         """
-        if mc_file_path and os.path.exists(mc_file_path):
-            return mc_file_path
         
         # Look for MC samples in output directory
         mc_samples_dir = BIOMASS_MC_SAMPLES_DIR
@@ -112,9 +144,7 @@ class CarbonFluxAnalyzer:
             
             # Log sample info
             for key, samples in mc_samples.items():
-                self.logger.info(f"  {key}: {len(samples)} samples, "
-                               f"mean: {np.mean(samples):.2f} Mt, "
-                               f"std: {np.std(samples):.2f} Mt")
+                self.logger.info(f"  {key}: {len(samples)} samples")
             
             return mc_samples
             
@@ -241,14 +271,7 @@ class CarbonFluxAnalyzer:
         Args:
             flux_samples: Dictionary with year pair keys and flux sample arrays
         """
-        if not self.config['interannual']['carbon_fluxes']['create_diagnostics']:
-            self.logger.info("Diagnostic plot creation disabled in config")
-            return
-        
-        if not flux_samples:
-            self.logger.warning("No flux samples provided for diagnostic plots")
-            return
-        
+
         try:
             # Set up the plotting style
             plt.style.use('default')
@@ -345,54 +368,6 @@ class CarbonFluxAnalyzer:
         except Exception as e:
             self.logger.error(f"Error creating diagnostic plots: {e}")
 
-    # ==================== MAIN ANALYSIS METHODS ====================
-    
-    def run_carbon_flux_analysis(self, mc_file_path: Optional[str] = None, create_diagnostics: Optional[bool] = None) -> Tuple[Optional[pd.DataFrame], Optional[Dict[str, np.ndarray]]]:
-        """
-        Run complete carbon flux analysis from Monte Carlo samples.
-        
-        Args:
-            mc_file_path: Optional specific path to MC samples file
-            create_diagnostics: Optional override for diagnostic plot creation
-            
-        Returns:
-            Tuple of (flux_statistics_df, flux_samples_dict)
-        """
-        self.logger.info("Starting interannual carbon flux calculation...")
-        
-        # Find MC samples file
-        mc_samples_file = self.find_mc_samples_file(mc_file_path)
-        if not mc_samples_file:
-            self.logger.error("Could not find Monte Carlo samples file")
-            return None, None
-        
-        # Load MC samples
-        self.logger.info(f"Loading Monte Carlo samples from: {mc_samples_file}")
-        mc_samples = self.load_mc_samples(mc_samples_file)
-        
-        if mc_samples is None:
-            self.logger.error("Error: Could not load Monte Carlo samples")
-            return None, None
-        
-        # Calculate interannual flux
-        self.logger.info("Calculating interannual carbon flux...")
-        flux_df, flux_samples = self.calculate_interannual_flux(mc_samples)
-        
-        if flux_df.empty:
-            self.logger.error("No flux results calculated")
-            return None, None
-        
-        # Create diagnostic plots if requested
-        create_plots = create_diagnostics
-        if create_plots is None:
-            create_plots = self.config['interannual']['carbon_fluxes']['create_diagnostics']
-        
-        if create_plots:
-            self.create_diagnostic_plots(flux_samples)
-        
-        return flux_df, flux_samples
-
-    # ==================== RESULTS SAVING ====================
     
     def save_results(self, flux_df: pd.DataFrame, flux_samples: Optional[Dict[str, np.ndarray]] = None) -> str:
         """

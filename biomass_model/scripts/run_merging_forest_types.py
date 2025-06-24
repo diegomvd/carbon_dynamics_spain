@@ -53,8 +53,9 @@ def main():
     args = parse_arguments()
     runner = Fo
 
-    runner = ForestTypeMergingPipeline(args.config)
+    pipeline = ForestTypeMergingPipeline(args.config)
     success = runner.run_full_pipeline()
+    return success
 
 if __name__ == "__main__":
     success = main()

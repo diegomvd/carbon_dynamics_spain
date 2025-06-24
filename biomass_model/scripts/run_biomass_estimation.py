@@ -15,15 +15,6 @@ Examples:
     
     # Run with custom config
     python run_biomass_estimation.py --config custom_config.yaml
-    
-    # Run specific years only
-    python run_biomass_estimation.py --years 2020 2021 2022
-    
-    # Run single forest type for testing
-    python run_biomass_estimation.py --test-mode --year 2020 --forest-type 12
-    
-    # Recipe integration with custom paths
-    python run_biomass_estimation.py --height-100m-dir ./height_maps/100m --allometries-output-dir ./allometries
 
 Author: Diego Bengochea
 """
@@ -63,8 +54,10 @@ def main():
     """Main entry point."""
     # Parse arguments
     args = parse_arguments()
-    runner = BiomassEstimationPipeline(config_path=args.config)
+    pipeline = BiomassEstimationPipeline(config_path=args.config)
     success = pipeline.run_full_pipeline()
+
+    return success
         
 if __name__ == "__main__":
     success = main()
