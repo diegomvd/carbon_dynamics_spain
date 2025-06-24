@@ -27,14 +27,14 @@ class AllometryManager:
     forest types with hierarchical fallback system.
     """
     
-    def __init__(self, config: Dict[str, Any]):
+    def __init__(self):
         """
         Initialize the allometry manager.
         
         Args:
             config: Configuration dictionary (processing parameters only)
         """
-        self.config = config
+        
         self.logger = get_logger('biomass_estimation.allometry')
         
         # Data containers

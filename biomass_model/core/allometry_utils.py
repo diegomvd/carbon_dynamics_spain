@@ -383,7 +383,7 @@ def create_training_dataset(config: dict) -> pd.DataFrame:
     nfi_processed_dir = FOREST_INVENTORY_PROCESSED_DIR
     
     # Determine which height maps to use (10m for fitting, 100m for estimation)
-    use_10m = config.get('use_10m_for_fitting', True)
+    use_10m = config['fitting']['height_res'] == 10
     if use_10m:
         height_maps_dir = HEIGHT_MAPS_10M_DIR
         logger.info("Using 10m height maps for allometry fitting")
@@ -391,7 +391,7 @@ def create_training_dataset(config: dict) -> pd.DataFrame:
         height_maps_dir = HEIGHT_MAPS_100M_DIR
         logger.info("Using 100m height maps for allometry fitting")
     
-    target_years = config['data']['target_years']
+    target_years = config['processing']['target_years']
     
     all_data = []
     

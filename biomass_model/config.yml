@@ -18,6 +18,8 @@ processing:
   # Masking parameters
   annual_crop_values: [12, 13, 14]  # Corine land cover values for arable land
 
+  merge_naming_patterns: ['*AGBD_MC_100m*', '*BGBD_MC_100m*', '*TBD_MC_100m*']
+
 # Forest type hierarchy configuration
 forest_types:
   tier_names: ['General', 'Clade', 'Family', 'Genus', 'ForestType']
@@ -60,3 +62,22 @@ quality:
   max_height: 80.0  # Maximum height for valid pixels (meters)
   min_biomass: 0.0  # Minimum biomass value (Mg/ha)
   max_biomass: 1000.0  # Maximum biomass value (Mg/ha)
+
+
+fitting:
+  height_res: 10
+
+  quantiles: [0.15, 0.85]
+  alpha: 0.05
+  min_samples: 10
+  max_height: 50.0
+  min_height: 1.0
+
+  min_bgb_samples: 25
+  percentiles: [5, 50, 95]
+
+  outlier_removal: True
+  outlier_contamination: 0.12
+         
+  min_r2: 0.1
+  min_slope: 0.0

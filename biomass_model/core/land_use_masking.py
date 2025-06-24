@@ -40,27 +40,29 @@ class LandUseMaskingPipeline:
     reprojection and alignment automatically.
     """
     
-    def __init__(self, temp_dir: Optional[Path] = None):
+    def __init__(self, config_path: Optional[Union[str, Path]] = None):
         """
         Initialize the land use masking pipeline.
         
         Args:
             temp_dir: Optional custom temporary directory for intermediate files
         """
-        self.logger = get_logger('biomass_estimation.land_use_masking')
+        # Store configuration and data paths
+        self.config = load_config(config_path, component='biomass_estimation')
+
+        # Setup logging
+        self.logger = setup_logging(
+            level=self.config['logging']['level'],
+            component_name='biomass_estimation',
+            log_file=self.config['logging'].get('log_file')
+        )
         
         # Default annual crop values to mask (from Corine Land Cover)
-        self.annual_crop_values = [12, 13, 14]  # Arable land for yearly crops
+        self.annual_crop_values = self.config['processing']['annual_crop_values']  # Arable land for yearly crops
         
-        # Set up temporary directory
-        if temp_dir:
-            self.temp_dir = Path(temp_dir)
-            self.temp_dir.mkdir(parents=True, exist_ok=True)
-        else:
-            # Create temp directory under biomass_maps
-            self.temp_dir = BIOMASS_MASKING_TEMP_DIR
-            self.temp_dir.mkdir(parents=True, exist_ok=True)
-        
+        self.temp_dir = BIOMASS_MASKING_TEMP_DIR
+        self.temp_dir.mkdir(parents=True, exist_ok=True)
+    
         # Target file extensions
         self.target_extensions = ['.tif', '.tiff']
         
@@ -68,132 +70,76 @@ class LandUseMaskingPipeline:
         self.logger.info(f"Temporary directory: {self.temp_dir}")
         self.logger.info(f"Annual crop values to mask: {self.annual_crop_values}")
     
-    def process_directory(
-        self,
-        input_dir: Union[str, Path],
-        output_dir: Union[str, Path],
-        land_cover_file: Union[str, Path],
-        mask_values: Optional[List[int]] = None,
-        years: Optional[List[int]] = None,
-        biomass_types: Optional[List[str]] = None,
-        measures: Optional[List[str]] = None,
-        overwrite: bool = False,
-        continue_on_error: bool = False
-    ) -> bool:
+    def run_full_pipeline(self) -> bool:
         """
         Process a directory of biomass rasters with annual cropland masking.
-        
-        Args:
-            input_dir: Input directory containing biomass rasters
-            output_dir: Output directory for masked rasters
-            land_cover_file: Path to Corine Land Cover raster
-            mask_values: Land cover values to mask (defaults to annual crops)
-            years: Optional list of years to filter
-            biomass_types: Optional list of biomass types to filter
-            measures: Optional list of measures to filter
-            overwrite: Whether to overwrite existing output files
-            continue_on_error: Whether to continue if individual files fail
-            
-        Returns:
-            True if processing completed successfully, False otherwise
         """
-        try:
-            input_dir = Path(input_dir)
-            output_dir = Path(output_dir)
-            land_cover_file = Path(land_cover_file)
-            
-            # Use default mask values if not provided
-            if mask_values is None:
-                mask_values = self.annual_crop_values
-            
-            self.logger.info(f"Starting land use masking...")
-            self.logger.info(f"Input directory: {input_dir}")
-            self.logger.info(f"Output directory: {output_dir}")
-            self.logger.info(f"Land cover file: {land_cover_file}")
-            self.logger.info(f"Mask values: {mask_values}")
-            
-            # Validate inputs
-            if not input_dir.exists():
-                raise FileNotFoundError(f"Input directory not found: {input_dir}")
-            
-            if not land_cover_file.exists():
-                raise FileNotFoundError(f"Land cover file not found: {land_cover_file}")
-            
-            # Create output directory
-            ensure_directory(output_dir)
-            
-            # Find raster files to process
-            raster_files = self._find_raster_files(
-                input_dir, years, biomass_types, measures
-            )
-            
-            if not raster_files:
+
+        input_dir = BIOMASS_MAPS_RAW_DIR
+        output_dir = BIOMASS_MAPS_PER_FOREST_TYPE_DIR
+        land_cover_file = CORINE_LAND_COVER_FILE
+
+        mask_values = self.annual_crop_values
+
+        # Validate inputs
+        if not input_dir.exists():
+            raise FileNotFoundError(f"Input directory not found: {input_dir}")
+        if not land_cover_file.exists():
+            raise FileNotFoundError(f"Land cover file not found: {land_cover_file}")
+        # Create output directory
+        ensure_directory(output_dir)
+
+        # Find raster files to process
+        raster_files = self._find_raster_files(input_dir)
+
+        if not raster_files:
                 self.logger.warning("No raster files found to process")
                 return True
-            
-            self.logger.info(f"Found {len(raster_files)} raster files to process")
-            
-            # Process each raster file
-            success_count = 0
-            error_count = 0
-            
-            for raster_file in raster_files:
-                try:
-                    # Calculate relative path to maintain directory structure
-                    relative_path = raster_file.relative_to(input_dir)
-                    output_file = output_dir / relative_path
-                    
-                    # Skip if output exists and not overwriting
-                    if output_file.exists() and not overwrite:
-                        self.logger.debug(f"Skipping existing file: {relative_path}")
-                        continue
-                    
-                    # Process the raster file
-                    success = self._process_single_raster(
-                        raster_file, output_file, land_cover_file, mask_values
-                    )
-                    
-                    if success:
-                        success_count += 1
-                        self.logger.debug(f"Successfully processed: {relative_path}")
-                    else:
-                        error_count += 1
-                        if not continue_on_error:
-                            return False
-                        
-                except Exception as e:
+
+        self.logger.info(f"Found {len(raster_files)} raster files to process")        
+
+        # Process each raster file
+        success_count = 0
+        error_count = 0
+        
+        for raster_file in raster_files:
+            try:
+                # Calculate relative path to maintain directory structure
+                relative_path = raster_file.relative_to(input_dir)
+                output_file = output_dir / relative_path
+                
+                # Process the raster file
+                success = self._process_single_raster(
+                    raster_file, output_file, land_cover_file, mask_values
+                )
+                if success:
+                    success_count += 1
+                    self.logger.debug(f"Successfully processed: {relative_path}")
+                else:
                     error_count += 1
-                    self.logger.error(f"Error processing {raster_file}: {str(e)}")
-                    if not continue_on_error:
-                        raise
-            
-            # Log completion
-            self.logger.info(f"Masking completed: {success_count} succeeded, {error_count} failed")
-            
-            # Cleanup temporary files
-            self._cleanup_temp_files()
-            
-            return error_count == 0 or continue_on_error
-            
-        except Exception as e:
-            self.logger.error(f"Directory processing failed: {str(e)}")
-            return False
+                    
+            except Exception as e:
+                error_count += 1
+                self.logger.error(f"Error processing {raster_file}: {str(e)}")
+
+        # Log completion
+        self.logger.info(f"Masking completed: {success_count} succeeded, {error_count} failed")
+        
+        # Cleanup temporary files
+        self._cleanup_temp_files()
+        
+        return error_count == 0
+
     
     def _find_raster_files(
         self,
         input_dir: Path,
-        years: Optional[List[int]] = None,
-        biomass_types: Optional[List[str]] = None,
-        measures: Optional[List[str]] = None
     ) -> List[Path]:
         """
         Find raster files in input directory with optional filtering.
         
         Args:
             input_dir: Directory to search
-            years: Optional year filter
-            biomass_types: Optional biomass type filter (AGBD, BGBD, TBD)
-            measures: Optional measure filter (mean, uncertainty, etc.)
             
         Returns:
             List of raster file paths
@@ -203,35 +149,6 @@ class LandUseMaskingPipeline:
         # Find all raster files recursively
         for ext in self.target_extensions:
             raster_files.extend(list(input_dir.rglob(f"*{ext}")))
-        
-        # Apply filters if specified
-        if years or biomass_types or measures:
-            filtered_files = []
-            
-            for raster_file in raster_files:
-                filename = raster_file.name
-                
-                # Check year filter
-                if years:
-                    year_match = any(str(year) in filename for year in years)
-                    if not year_match:
-                        continue
-                
-                # Check biomass type filter
-                if biomass_types:
-                    type_match = any(btype in filename for btype in biomass_types)
-                    if not type_match:
-                        continue
-                
-                # Check measure filter
-                if measures:
-                    measure_match = any(measure in filename for measure in measures)
-                    if not measure_match:
-                        continue
-                
-                filtered_files.append(raster_file)
-            
-            raster_files = filtered_files
         
         return sorted(raster_files)
     
@@ -417,65 +334,3 @@ class LandUseMaskingPipeline:
         except Exception as e:
             self.logger.warning(f"Failed to cleanup temporary files: {str(e)}")
     
-    def validate_inputs(
-        self,
-        input_dir: Union[str, Path],
-        land_cover_file: Union[str, Path]
-    ) -> bool:
-        """
-        Validate input paths and data.
-        
-        Args:
-            input_dir: Input directory path
-            land_cover_file: Land cover file path
-            
-        Returns:
-            True if inputs are valid, False otherwise
-        """
-        try:
-            input_dir = Path(input_dir)
-            land_cover_file = Path(land_cover_file)
-            
-            # Check input directory
-            if not input_dir.exists():
-                self.logger.error(f"Input directory not found: {input_dir}")
-                return False
-            
-            # Check land cover file
-            if not land_cover_file.exists():
-                self.logger.error(f"Land cover file not found: {land_cover_file}")
-                return False
-            
-            # Check if land cover file is readable
-            try:
-                with rasterio.open(land_cover_file) as src:
-                    self.logger.debug(f"Land cover file validation: {src.width}x{src.height}, CRS: {src.crs}")
-            except Exception as e:
-                self.logger.error(f"Cannot read land cover file: {str(e)}")
-                return False
-            
-            # Check for raster files in input directory
-            raster_files = self._find_raster_files(input_dir)
-            if not raster_files:
-                self.logger.warning(f"No raster files found in input directory: {input_dir}")
-            else:
-                self.logger.debug(f"Found {len(raster_files)} raster files in input directory")
-            
-            return True
-            
-        except Exception as e:
-            self.logger.error(f"Input validation failed: {str(e)}")
-            return False
-
-
-def create_land_use_masking_pipeline(temp_dir: Optional[Path] = None) -> LandUseMaskingPipeline:
-    """
-    Factory function to create a LandUseMaskingPipeline instance.
-    
-    Args:
-        temp_dir: Optional custom temporary directory
-        
-    Returns:
-        Configured LandUseMaskingPipeline instance
-    """
-    return LandUseMaskingPipeline(temp_dir=temp_dir)

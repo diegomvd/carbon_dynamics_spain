@@ -36,7 +36,7 @@ class BiomassEstimationPipeline:
     Supports forest type specific processing and distributed computing.
     """
     
-    def __init__(self, config: Dict[str, Any]):
+    def __init__(self, config_path: Optional[Union[str, Path]] = None):
         """
         Initialize the biomass estimation pipeline.
         
@@ -44,7 +44,7 @@ class BiomassEstimationPipeline:
             config: Configuration dictionary (processing parameters only)
         """
         # Store configuration and data paths
-        self.config = config
+        self.config = load_config(config_path, component='biomass_estimation')
         
         # Setup logging
         self.logger = setup_logging(
@@ -53,7 +53,7 @@ class BiomassEstimationPipeline:
             log_file=self.config['logging'].get('log_file')
         )
         
-        self.allometry_manager = AllometryManager(self.config)
+        self.allometry_manager = AllometryManager()
         self.monte_carlo = MonteCarloEstimator(self.config)
         self.raster_manager = RasterManager(self.config)
         self.dask_manager = DaskClusterManager(self.config)
