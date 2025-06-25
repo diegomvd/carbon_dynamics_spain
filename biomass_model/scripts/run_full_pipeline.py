@@ -39,7 +39,7 @@ from shared_utils import setup_logging, load_config, log_pipeline_start, log_pip
 def parse_arguments() -> argparse.Namespace:
     """Parse command line arguments."""
     parser = argparse.ArgumentParser(
-        description="Biomass Estimation Pipeline with Monte Carlo Uncertainty",
+        description="Biomass Estimation Pipeline with post-processing",
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     

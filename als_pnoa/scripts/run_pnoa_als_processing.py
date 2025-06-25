@@ -28,8 +28,7 @@ from typing import List, Optional
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 # Component imports
-from als_pnoa.core.pnoa_processor import PNOAProcessor
-from shared_utils import setup_logging, load_config
+from als_pnoa.core.pnoa_processor import PNOAProcessingPipeline
 
 
 def parse_arguments() -> argparse.Namespace:
@@ -47,75 +46,12 @@ def parse_arguments() -> argparse.Namespace:
 
     return parser.parse_args()
 
-
-def validate_arguments(args: argparse.Namespace) -> bool:
-    """Validate command line arguments."""
-    if args.config and not Path(args.config).exists():
-        print(f"Error: Config file not found: {args.config}")
-        return False
-    return True
-
-
-def print_processing_summary(processor: PNOAProcessor) -> None:
-    """Print a summary of what will be processed."""
-    print(f"\n{'='*60}")
-    print(f"PNOA PROCESSING SUMMARY")
-    print(f"{'='*60}")
-    
-    summary = processor.get_processing_summary()
-    
-    print(f"Target years: {summary['target_years']}")
-    print(f"Coverage areas: {summary['coverage_areas']}")
-    print(f"Total PNOA files available: {summary['total_pnoa_files']}")
-    
-    print(f"\nSentinel-2 tiles by year:")
-    for year, count in summary['sentinel_tiles_by_year'].items():
-        print(f"  {year}: {count} tiles")
-    
-    print(f"\nConfiguration:")
-    print(f"  Sentinel-2 path: {processor.sentinel_path}")
-    print(f"  PNOA data path: {processor.pnoa_data_dir}")
-    print(f"  Output path: {processor.target_output_dir}")
-    print(f"  Target CRS: {processor.target_crs}")
-
-
-def print_results_summary(results: dict, execution_time: float) -> None:
-    """Print summary of processing results."""
-    print(f"\n{'='*60}")
-    print(f"PNOA PROCESSING RESULTS")
-    print(f"{'='*60}")
-    
-    print(f"Execution time: {execution_time/60:.2f} minutes")
-    print(f"Total tiles selected: {results['total_selected']}")
-    print(f"Successfully processed: {results['successfully_processed']}")
-    print(f"Errors: {results['errors']}")
-    
-    if results['errors'] > 0:
-        error_rate = (results['errors'] / results['total_selected']) * 100
-        print(f"Error rate: {error_rate:.1f}%")
-    
-    print(f"\nOutput directory: {results['output_directory']}")
-    
-    # Show some example output files
-    output_dir = Path(results['output_directory'])
-    if output_dir.exists():
-        output_files = list(output_dir.glob("PNOA_*.tif"))
-        print(f"Output files created: {len(output_files)}")
-        
-        if output_files:
-            print(f"\nExample output files:")
-            for i, file in enumerate(output_files[:3]):
-                print(f"  {file.name}")
-            if len(output_files) > 3:
-                print(f"  ... and {len(output_files) - 3} more")
-
-
 def main():
     """Main entry point for PNOA processing script."""
-    start_time = time.time()
-    
+
     # Parse arguments
     args = parse_arguments()
+    pnoa_tiles = PNOAProcessingPipeline()
     
     if not validate_arguments(args):
         sys.exit(1)

@@ -29,7 +29,7 @@ from shared_utils.central_data_paths_constants import *
 warnings.filterwarnings('ignore')
 
 
-class MonteCarloAnalyzer:
+class MonteCarloAggregationPipeline:
     """
     Monte Carlo uncertainty quantification for country-level biomass analysis.
     
@@ -38,27 +38,34 @@ class MonteCarloAnalyzer:
     exactly from original implementation.
     """
     
-    def __init__(self, config: Optional[Union[str, Path, Dict]] = None):
+    def __init__(self, config: Optional[Union[str, Path]] = None):
         """
         Initialize the Monte Carlo analyzer.
         
         Args:
             config: Configuration dictionary or path to config file
         """
-        if isinstance(config, (str, Path)):
-            self.config = load_config(config, component_name="biomass_analysis")
-        elif isinstance(config, dict):
-            self.config = config
-        else:
-            self.config = load_config(component_name="biomass_analysis")
+        self.config = load_config(config, component_name="biomass_analysis")
         
         # Setup logging
         self.logger = setup_logging(
             level=self.config['logging']['level'],
             component_name='monte_carlo_analysis'
         )
+
+    def run_full_pipeline(self):
+
+        aggregated, mc_samples = self.run_country_analysis()
         
-        self.logger.info("Initialized MonteCarloAnalyzer")
+        if len(aggregated) == 0:
+            self.logger.error('Country-level biomass stocks aggregation failed.')
+            return False
+
+        agg_path, samples_path = self.save_results(aggregated,mc_samples)
+
+        self.logger.info(f'Processed results saved to {agg_path} and raw Monte Carlo samples to {samples_path}')
+
+        return True        
 
     def build_file_path(self, biomass_type: str, year: str, file_type: str = 'mean') -> str:
         """
@@ -72,7 +79,7 @@ class MonteCarloAnalyzer:
         Returns:
             Complete file path
         """
-        biomass_maps_dir = BIOMASS_MAPS_FULL_COUNTRY_DIR / "mean"
+        biomass_maps_dir = BIOMASS_MAPS_FULL_COUNTRY_DIR 
         
         if file_type == 'mean':
             pattern = self.config['file_patterns']['biomass_mean']

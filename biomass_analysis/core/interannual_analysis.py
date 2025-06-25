@@ -25,7 +25,7 @@ import gc
 from shared_utils import setup_logging, get_logger, load_config
 
 
-class InterannualAnalyzer:
+class InterannualChangePipeline:
     """
     Interannual biomass analysis for difference mapping and transition distributions.
     
@@ -33,30 +33,39 @@ class InterannualAnalyzer:
     exact preservation of original mathematical formulations and processing logic.
     """
     
-    def __init__(self, config: Optional[Union[str, Path, Dict]] = None):
+    def __init__(self, config: Optional[Union[str, Path]] = None):
         """
         Initialize the interannual analyzer.
         
         Args:
             config: Configuration dictionary or path to config file
         """
-        if isinstance(config, (str, Path)):
-            self.config = load_config(config, component_name="biomass_analysis")
-        elif isinstance(config, dict):
-            self.config = config
-        else:
-            self.config = load_config(component_name="biomass_analysis")
+        
+        self.config = load_config(config, component_name="biomass_analysis")
         
         # Setup logging
         self.logger = setup_logging(
             level=self.config['logging']['level'],
             component_name='interannual_analysis'
         )
-        
-        self.logger.info("Initialized InterannualAnalyzer")
 
-    # ==================== SHARED UTILITY METHODS ====================
+    def run_full_pipeline(self):
+        
+        maps = self.run_difference_mapping()
+        
+        if not maps:
+            self.logger.error('Carbon change map creation failed.')
+            return False
+
+        transitions = self.run_transition_analysis(True)
+
+        if not transitions:    
+            self.logger.error('Transition analysis failed.')
+            return False
     
+        return True
+
+
     def find_biomass_files(self, input_dir: str) -> Dict[int, str]:
         """
         Find and organize biomass files by year.
@@ -116,8 +125,6 @@ class InterannualAnalyzer:
         except Exception as e:
             self.logger.error(f"Error loading raster {file_path}: {e}")
             return None
-
-    # ==================== DIFFERENCE MAPPING METHODS ====================
     
     def calculate_raw_difference(self, data1: np.ndarray, data2: np.ndarray, nodata_value: float) -> np.ndarray:
         """
@@ -147,9 +154,7 @@ class InterannualAnalyzer:
     def calculate_relative_difference(self, data1: np.ndarray, data2: np.ndarray, nodata_value: float) -> np.ndarray:
         """
         Calculate relative symmetric difference: 200*(year2-year1)/(year2+year1).
-        
-        CRITICAL: This algorithm must be preserved exactly as in original.
-        
+                
         Args:
             data1: Biomass data for first year
             data2: Biomass data for second year
@@ -257,7 +262,6 @@ class InterannualAnalyzer:
         
         return True
 
-    # ==================== TRANSITION DISTRIBUTION METHODS ====================
     
     def calculate_transition_statistics(self, year1_data: np.ndarray, year2_data: np.ndarray, year1: int, year2: int) -> Dict[str, Any]:
         """
@@ -381,7 +385,7 @@ class InterannualAnalyzer:
         df.to_csv(output_file, index=False)
         self.logger.info(f"  Saved raw transition data: {output_file}")
 
-    def calculate_transition_distributions(self, data_dir: str, target_years: Optional[List[int]] = None, save_raw_data: bool = False) -> List[Dict[str, Any]]:
+    def calculate_transition_distributions(self, data_dir: str, target_years: Optional[List[int]] = None, save_raw_data: bool = False) -> bool:
         """
         Calculate biomass transition distributions between consecutive years.
                 
@@ -447,12 +451,18 @@ class InterannualAnalyzer:
             # Force garbage collection
             del year1_data, year2_data
             gc.collect()
-        
-        return results
 
-    # ==================== MAIN ANALYSIS METHODS ====================
+            if len(results)==0:
+                self.logger.error('Could not analyze interannual transitions, no results were produced.')
+                return False
+            else:
+                transition_stats_path = self.save_transition_statistics(transitions)
+                self.logger.info(f'Transition statistisc saved to {transition_stats_path}')
+
+        return True
+
     
-    def run_difference_mapping(self, target_years: Optional[List[int]] = None) -> bool:
+    def run_difference_mapping(self) -> bool:
         """
         Run complete interannual difference mapping analysis.
         
@@ -463,6 +473,8 @@ class InterannualAnalyzer:
             bool: True if successful, False otherwise
         """
         self.logger.info("Starting interannual difference mapping...")
+
+        target_years = self.config['analysis']['target_years']
         
         # Get input and output directories from config
         input_dir = BIOMASS_MAPS_FULL_COUNTRY_DIR / "mean"
@@ -487,7 +499,7 @@ class InterannualAnalyzer:
         # Create difference maps
         return self.create_difference_maps(year_files, output_raw_dir, output_relative_dir)
 
-    def run_transition_analysis(self, target_years: Optional[List[int]] = None, save_raw_data: bool = True) -> List[Dict[str, Any]]:
+    def run_transition_analysis(self, save_raw_data: bool = True) -> bool:
         """
         Run complete transition distribution analysis.
         
@@ -499,7 +511,8 @@ class InterannualAnalyzer:
             List of transition statistics dictionaries
         """
         self.logger.info("Starting biomass transition distribution analysis...")
-        
+        target_years = self.config['analysis']['target_years']
+
         # Get input directory from config
         input_dir = BIOMASS_MAPS_FULL_COUNTRY_DIR / "mean"
         
@@ -508,9 +521,8 @@ class InterannualAnalyzer:
         # Calculate transition distributions
         return self.calculate_transition_distributions(input_dir, target_years, save_raw_data)
 
-    # ==================== RESULTS SAVING ====================
     
-    def save_results(self, results: List[Dict[str, Any]], analysis_type: str) -> Optional[str]:
+    def save_transition_statistics(self, results: List[Dict[str, Any]]) -> Optional[str]:
         """
         Save interannual analysis results to files.
         
@@ -525,21 +537,15 @@ class InterannualAnalyzer:
             self.logger.warning("No results to save")
             return None
         
-        
-        
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         
-        if analysis_type == 'transitions':
-            output_dir = BIOMASS_TRANSITIONS_DIR
-            os.makedirs(output_dir, exist_ok=True)
+        output_dir = BIOMASS_TRANSITIONS_DIR
+        os.makedirs(output_dir, exist_ok=True)
 
-            # Save transition statistics
-            df = pd.DataFrame(results)
-            output_file = os.path.join(output_dir, f"biomass_transition_statistics_{timestamp}.csv")
-            df.to_csv(output_file, index=False)
-            self.logger.info(f"Transition statistics saved to: {output_file}")
-            return output_file
-        else:
-            # For difference mapping, results are already saved as raster files
-            self.logger.info("Difference maps saved to output directories")
-            return None
+        # Save transition statistics
+        df = pd.DataFrame(results)
+        output_file = os.path.join(output_dir, f"biomass_transition_statistics_{timestamp}.csv")
+        df.to_csv(output_file, index=False)
+        self.logger.info(f"Transition statistics saved to: {output_file}")
+        return output_file
+ 

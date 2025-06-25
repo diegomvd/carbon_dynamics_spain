@@ -17,9 +17,10 @@ import numpy as np
 from typing import List, Tuple, Dict, Optional
 import logging
 
+from shared_utils import setup_logging, get_logger, load_config
 from shared_utils.central_data_paths import *
 
-class PNOAProcessor:
+class PNOAProcessingPipeline:
     """
     PNOA LiDAR tile processor for training data preparation.
     
@@ -27,15 +28,20 @@ class PNOAProcessor:
     standardizing naming and format for machine learning training.
     """
     
-    def __init__(self, config: Dict):
+    def __init__(self, config: Optional[Union[str, Path]] = None):
         """
         Initialize PNOA processor.
         
         Args:
             config: Configuration dictionary
         """
-        self.config = config
-        self.logger = logging.getLogger(__name__)
+        self.config =  load_config(args.config, component_name="als_pnoa")
+        
+        # Setup logging
+        self.logger = setup_logging(
+            level=self.config['logging']['level'],
+            component_name='als_pnoa'
+        )
         
         # Extract paths from config
         self.sentinel_path = SENTINEL2_MOSAICS_DIR
@@ -49,6 +55,24 @@ class PNOAProcessor:
         
         self.logger.info("Initialized PNOAProcessor")
     
+    def run_full_pipeline(self):
+
+        if not self.validate_inputs():
+            logger.error("Input validation failed")
+            return False
+
+        # Process tiles
+        logger.info("Processing PNOA tiles...")
+        results, success = self.process_all_tiles()
+
+        total_selected = results['total_selected']
+        processed = results['successfully_processed']
+
+        self.logger.info(f'Processed {total_selected} tiles, {processed} successfully.')
+
+        return success
+
+
     def create_output_directory(self) -> None:
         """Create output directory if it doesn't exist."""
         output_path = Path(self.target_output_dir)
@@ -204,7 +228,7 @@ class PNOAProcessor:
             self.logger.error(f"Error processing {input_path}: {str(e)}")
             return False
     
-    def process_all_tiles(self) -> Dict[str, any]:
+    def process_all_tiles(self) -> Tuple[Dict[str, any], bool]:
         """
         Process all PNOA tiles that intersect with Sentinel-2 tiles.
         
@@ -276,7 +300,7 @@ class PNOAProcessor:
         
         self.logger.info(f"Processing complete: {processed_count} tiles processed, {error_count} errors")
         
-        return results
+        return results, True
     
     def validate_inputs(self) -> bool:
         """
@@ -334,32 +358,3 @@ class PNOAProcessor:
         
         self.logger.info("Input validation passed")
         return True
-    
-    def get_processing_summary(self) -> Dict[str, any]:
-        """
-        Get summary of what would be processed without actually processing.
-        
-        Returns:
-            Summary of processing scope
-        """
-        summary = {
-            'target_years': self.target_years,
-            'sentinel_tiles_by_year': {},
-            'total_pnoa_files': 0,
-            'coverage_areas': len(self.pnoa_coverage_paths)
-        }
-        
-        sentinel_dir = Path(self.sentinel_path)
-        
-        for year in self.target_years:
-            sentinel_pattern = f'sentinel2_mosaic_{year}_*.tif'
-            sentinel_tiles = list(sentinel_dir.rglob(sentinel_pattern))
-            summary['sentinel_tiles_by_year'][year] = len(sentinel_tiles)
-        
-        # Count total PNOA files
-        pnoa_data_dir = Path(self.pnoa_data_dir)
-        if pnoa_data_dir.exists():
-            pnoa_files = list(pnoa_data_dir.rglob('NDSM-VEGETACION-*.tif'))
-            summary['total_pnoa_files'] = len(pnoa_files)
-        
-        return summary

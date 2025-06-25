@@ -1,12 +1,11 @@
 #!/usr/bin/env python3
 """
-Interannual biomass difference mapping script.
+Country-level biomass time series analysis script.
 
-Command-line interface for creating interannual biomass difference maps between
-consecutive years. This is a thin wrapper around the core InterannualAnalyzer class.
+Command-line interface for biomass stocks aggregation across multiple categories
 
 Usage:
-    python run_interannual_differences.py 
+    python run_biomass_aggregation.py
 
 Author: Diego Bengochea
 """
@@ -18,14 +17,13 @@ from pathlib import Path
 # Add parent directory to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
-from biomass_analysis.core.interannual_analysis import InterannualChangePipeline
-from shared_utils import setup_logging
+from biomass_analysis.core.aggregation_analysis import BiomassAggregationPipeline
 
 
 def parse_arguments():
     """Parse command line arguments."""
     parser = argparse.ArgumentParser(
-        description="Create interannual biomass difference maps for consecutive years",
+        description="Country-level biomass time series analysis with Monte Carlo uncertainty quantification",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter
     )
     
@@ -35,18 +33,17 @@ def parse_arguments():
         type=str,
         help='Path to configuration file (default: component config.yaml)'
     )
-
+    
     return parser.parse_args()
 
 def main():
-    """Main entry point for interannual differences script."""
+    """Main entry point for country trend analysis script."""
     args = parse_arguments()
+    biomass_aggregation = BiomassAggregationPipeline(args.config)
+    success = biomass_aggregation.run_full_pipeline()
 
-    biomass_change = InterannualChangePipeline(args.config)
-    success = biomass_change.run_difference_mapping()
     return success
 
 if __name__ == "__main__":
     success = main()
     sys.exit(0 if success else 1)
-
