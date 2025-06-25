@@ -211,7 +211,7 @@ class MemoryEfficientSemivariogram:
         return bin_centers, np.array(mean_semivariances), np.array(bin_counts)
 
 
-class SpatialAnalyzer:
+class SpatialAnalysisPipeline:
     """
     Spatial analysis pipeline for autocorrelation and clustering.
     
@@ -247,6 +247,94 @@ class SpatialAnalyzer:
         
         self.logger.info("Initialized SpatialAnalyzer")
     
+    def run_full_pipeline(self) -> bool:
+        """
+        Execute the complete spatial analysis workflow.
+        
+        Returns:
+            DataFrame with spatial clusters or None if failed
+        """
+        self.logger.info("Starting spatial analysis pipeline...")
+        
+        # Step 1: Find biomass difference raster files
+        raster_files = self.find_interannual_difference_files()
+        
+        if not raster_files:
+            self.logger.error("No raster files found for spatial analysis")
+            return False
+        
+        # Step 2: Analyze spatial autocorrelation for each raster
+        self.logger.info(f"Analyzing spatial autocorrelation for {len(raster_files)} raster files...")
+        results = []
+        
+        start_time = time.time()
+        for raster_path in raster_files:
+            self.logger.info(f"Processing: {Path(raster_path).name}")
+            result = self.analyze_raster(raster_path)
+            results.append(result)
+            
+            # Force garbage collection between rasters
+            gc.collect()
+        
+        total_time = time.time() - start_time
+        
+        # Step 3: Save results and create plots
+        output_dir = Path("autocorr_results")
+        summary_file, detailed_file = self.save_results(results, output_dir)
+        self.plot_results(results, output_dir)
+        
+        # Print summary
+        valid_results = [r for r in results if r is not None]
+        lengths = [r['autocorr_length_km'] for r in valid_results if not np.isnan(r['autocorr_length_km'])]
+        
+        self.logger.info(f"\n{'='*60}")
+        self.logger.info(f"AUTOCORRELATION ANALYSIS COMPLETE")
+        self.logger.info(f"{'='*60}")
+        self.logger.info(f"Total time: {total_time/60:.1f} minutes")
+        self.logger.info(f"Processed: {len(valid_results)}/{len(raster_files)} files")
+        
+        if lengths:
+            self.logger.info(f"Autocorrelation lengths: {np.mean(lengths):.1f} ± {np.std(lengths):.1f} km")
+            self.logger.info(f"Range: {np.min(lengths):.1f} - {np.max(lengths):.1f} km")
+            
+            self.logger.info(f"By year:")
+            for r in sorted(valid_results, key=lambda x: x['year'] or 0):
+                if r['year'] and not np.isnan(r['autocorr_length_km']):
+                    self.logger.info(f"  {r['year']}: {r['autocorr_length_km']:.1f} km")
+        
+        # Step 4: Create spatial clusters using the ML dataset
+        training_dataset_path = CLIMATE_BIOMASS_DATASET_FILE
+        
+        if not os.path.exists(training_dataset_path):
+            self.logger.error(f"Training dataset not found: {training_dataset_path}")
+            self.logger.error("Please run biomass integration pipeline first")
+            return False
+        
+        self.logger.info(f"\n{'='*60}")
+        self.logger.info(f"SPATIAL CLUSTERING")
+        self.logger.info(f"{'='*60}")
+        
+        # Load ML dataset
+        self.logger.info(f"Loading ML dataset from {training_dataset_path}")
+        df = pd.read_csv(training_dataset_path)
+        self.logger.info(f"Loaded {len(df)} data points with columns: {', '.join(df.columns)}")
+        
+        # Create spatial clusters
+        k = self.spatial_config['clustering'].get('n_clusters_range', [10, 50])[0]  # Use minimum as default
+        autocorr_lengths_m = [r['autocorr_length_m'] for r in valid_results if not np.isnan(r['autocorr_length_m'])]
+        
+        df_clustered = self.create_spatial_clusters_advanced(df, k, autocorr_lengths_m)
+        
+        # Save clustered dataset
+        clustered_dataset_path = CLIMATE_BIOMASS_DATASET_CLUSTERS_FILE
+        ensure_directory(Path(clustered_dataset_path).parent)
+        df_clustered.to_csv(clustered_dataset_path, index=False)
+        self.logger.info(f"Saved clustered dataset to {clustered_dataset_path}")
+        
+        self.logger.info("Spatial analysis pipeline completed successfully!")
+        
+        return True
+
     def analyze_spatial_autocorrelation(
         self, 
         raster_path: Union[str, Path],
@@ -983,90 +1071,4 @@ class SpatialAnalyzer:
         
         return df_clustered
     
-    def run_spatial_analysis_pipeline(self) -> Optional[pd.DataFrame]:
-        """
-        Execute the complete spatial analysis workflow.
-        
-        Returns:
-            DataFrame with spatial clusters or None if failed
-        """
-        self.logger.info("Starting spatial analysis pipeline...")
-        
-        # Step 1: Find biomass difference raster files
-        raster_files = self.find_interannual_difference_files()
-        
-        if not raster_files:
-            self.logger.error("No raster files found for spatial analysis")
-            return None
-        
-        # Step 2: Analyze spatial autocorrelation for each raster
-        self.logger.info(f"Analyzing spatial autocorrelation for {len(raster_files)} raster files...")
-        results = []
-        
-        start_time = time.time()
-        for raster_path in raster_files:
-            self.logger.info(f"Processing: {Path(raster_path).name}")
-            result = self.analyze_raster(raster_path)
-            results.append(result)
-            
-            # Force garbage collection between rasters
-            gc.collect()
-        
-        total_time = time.time() - start_time
-        
-        # Step 3: Save results and create plots
-        output_dir = Path("autocorr_results")
-        summary_file, detailed_file = self.save_results(results, output_dir)
-        self.plot_results(results, output_dir)
-        
-        # Print summary
-        valid_results = [r for r in results if r is not None]
-        lengths = [r['autocorr_length_km'] for r in valid_results if not np.isnan(r['autocorr_length_km'])]
-        
-        self.logger.info(f"\n{'='*60}")
-        self.logger.info(f"AUTOCORRELATION ANALYSIS COMPLETE")
-        self.logger.info(f"{'='*60}")
-        self.logger.info(f"Total time: {total_time/60:.1f} minutes")
-        self.logger.info(f"Processed: {len(valid_results)}/{len(raster_files)} files")
-        
-        if lengths:
-            self.logger.info(f"Autocorrelation lengths: {np.mean(lengths):.1f} ± {np.std(lengths):.1f} km")
-            self.logger.info(f"Range: {np.min(lengths):.1f} - {np.max(lengths):.1f} km")
-            
-            self.logger.info(f"By year:")
-            for r in sorted(valid_results, key=lambda x: x['year'] or 0):
-                if r['year'] and not np.isnan(r['autocorr_length_km']):
-                    self.logger.info(f"  {r['year']}: {r['autocorr_length_km']:.1f} km")
-        
-        # Step 4: Create spatial clusters using the ML dataset
-        training_dataset_path = CLIMATE_BIOMASS_DATASET_FILE
-        
-        if not os.path.exists(training_dataset_path):
-            self.logger.error(f"Training dataset not found: {training_dataset_path}")
-            self.logger.error("Please run biomass integration pipeline first")
-            return None
-        
-        self.logger.info(f"\n{'='*60}")
-        self.logger.info(f"SPATIAL CLUSTERING")
-        self.logger.info(f"{'='*60}")
-        
-        # Load ML dataset
-        self.logger.info(f"Loading ML dataset from {training_dataset_path}")
-        df = pd.read_csv(training_dataset_path)
-        self.logger.info(f"Loaded {len(df)} data points with columns: {', '.join(df.columns)}")
-        
-        # Create spatial clusters
-        k = self.spatial_config['clustering'].get('n_clusters_range', [10, 50])[0]  # Use minimum as default
-        autocorr_lengths_m = [r['autocorr_length_m'] for r in valid_results if not np.isnan(r['autocorr_length_m'])]
-        
-        df_clustered = self.create_spatial_clusters_advanced(df, k, autocorr_lengths_m)
-        
-        # Save clustered dataset
-        clustered_dataset_path = CLIMATE_BIOMASS_DATASET_CLUSTERS_FILE
-        ensure_directory(Path(clustered_dataset_path).parent)
-        df_clustered.to_csv(clustered_dataset_path, index=False)
-        self.logger.info(f"Saved clustered dataset to {clustered_dataset_path}")
-        
-        self.logger.info("Spatial analysis pipeline completed successfully!")
-        
-        return df_clustered
+    

@@ -25,7 +25,7 @@ from rasterio.enums import Resampling
 from shared_utils import setup_logging, get_logger, load_config, ensure_directory, find_files
 
 
-class BioclimCalculator:
+class BioclimCalculationPipeline:
     """
     Bioclimatic variables calculation and anomaly analysis pipeline.
     
@@ -56,7 +56,6 @@ class BioclimCalculator:
         self.climate_config = self.config['climate_processing']
         self.time_periods = self.config['time_periods']
         
-        # FIXED: Remove bio2 and bio3 from variables list
         available_vars = ['bio1', 'bio4', 'bio5', 'bio6', 'bio7', 'bio8', 'bio9', 'bio10', 
                          'bio11', 'bio12', 'bio13', 'bio14', 'bio15', 'bio16', 'bio17', 'bio18', 'bio19']
         self.bio_variables = [v for v in self.bioclim_config['variables'] if v in available_vars]
@@ -65,8 +64,71 @@ class BioclimCalculator:
         self.temp_conversion = self.bioclim_config['temp_conversion']
         self.precip_scaling = self.bioclim_config['precip_scaling']
         
-        self.logger.info(f"Initialized BioclimCalculator for {len(self.bio_variables)} variables")
-    
+        self.data_dir = CLIMATE_RAW_DIR
+        self.harmonized_dir = CLIMATE_HARMONIZED_DIR
+        self.bioclim_dir = BIOCLIM_VARIABLES_DIR
+        self.anomalies_dir = BIOCLIM_ANOMALIES_DIR
+
+
+    def run_full_pipeline(self):
+        data_dir = self.data_dir
+
+        temp_files = glob.glob(os.path.join(data_dir, calculator.climate_config['temp_pattern']))
+        precip_files = glob.glob(os.path.join(data_dir, calculator.climate_config['precip_pattern']))
+        
+        logger.info(f"Found {len(temp_files)} temperature files and {len(precip_files)} precipitation files")
+        
+        if not temp_files or not precip_files:
+            raise ValueError("No temperature or precipitation files found")
+
+        harmonized_dir = self.harmonized_dir   
+
+        harmonized_temp_dir = harmonized_dir / "temperature"
+        harmonized_precip_dir = harmonized_dir / "precipitation"
+        
+        logger.info("Harmonizing raster files...")
+        harmonized_temp_files = calculator.harmonize_rasters(temp_files, harmonized_temp_dir)
+        harmonized_precip_files = calculator.harmonize_rasters(precip_files, harmonized_precip_dir)
+ 
+        bioclim_dir = self.bioclim_dir
+        reference_bioclim = calculator.calculate_bioclim_variables(
+            harmonized_temp_files,
+            harmonized_precip_files,
+            output_dir,
+            start_year=time_periods['reference']['start_year'],
+            end_year=time_periods['reference']['end_year'],
+            rolling=time_periods['reference']['rolling']
+        )
+        
+        if reference_bioclim:
+            logger.info(f"✅ Reference bioclimatic variables calculated: {len(reference_bioclim)} variables")
+        else:
+            logger.error("❌ Failed to calculate reference bioclimatic variables")
+            return False
+
+        anomalies_dir = self.anomalies_dir
+        yearly_anomalies = calculator.calculate_bioclim_anomalies(
+            harmonized_temp_files,
+            harmonized_precip_files,
+            bioclim_dir,
+            anomaly_dir,
+            start_year=time_periods['analysis']['start_year'],
+            end_year=time_periods['analysis']['end_year'],
+            rolling=time_periods['analysis']['rolling']
+        )
+
+        if yearly_anomalies:
+            total_anomalies = sum(len(year_data) for year_data in yearly_anomalies.values())
+            logger.info(f"✅ Bioclimatic anomalies calculated: {len(yearly_anomalies)} years, "
+                        f"{total_anomalies} total anomaly files")
+        else:
+            logger.error("❌ Failed to calculate bioclimatic anomalies")
+            return False
+
+        logger.info("Bioclimatic calculation completed successfully!")
+
+        return True    
+
     def extract_date(self, filename: str) -> datetime:
         """
         Extract date from filename with pattern {var}_{YYYY}-{MM}.tif
@@ -127,9 +189,7 @@ class BioclimCalculator:
     ) -> Dict[str, np.ndarray]:
         """
         Calculate all bioclimatic variables from monthly data.
-        
-        FIXED: Restored original quarter-based logic from old implementation
-        
+                
         Args:
             monthly_temp: Dictionary of monthly temperature arrays (1-12)
             monthly_precip: Dictionary of monthly precipitation arrays (1-12)
@@ -176,7 +236,6 @@ class BioclimCalculator:
         cv = np.where(mean_precip > 0, (std_precip / mean_precip) * 100, 0)
         bioclim['bio15'] = cv
         
-        # FIXED: Restore original quarter-based logic
         # Define quarters based on rolling vs calendar year
         if rolling:
             quarters = [
@@ -274,9 +333,7 @@ class BioclimCalculator:
     ) -> Optional[Dict[str, Dict[str, str]]]:
         """
         Calculate bioclimatic anomalies for each year in the analysis period.
-        
-        FIXED: Added cumulative anomaly calculations (2yr, 3yr)
-        
+                
         Args:
             temp_files: List of temperature file paths
             precip_files: List of precipitation file paths
@@ -342,7 +399,6 @@ class BioclimCalculator:
             
             yearly_anomalies[year] = year_anomalies
         
-        # FIXED: Add cumulative anomaly calculations (2-year and 3-year)
         self.logger.info("Calculating cumulative anomalies...")
         
         for year in range(start_year + 2, end_year + 1):  # Start from year that has 2 years before it

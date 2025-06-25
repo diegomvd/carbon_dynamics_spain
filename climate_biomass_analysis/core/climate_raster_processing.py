@@ -28,7 +28,7 @@ from shared_utils import setup_logging, get_logger, load_config, ensure_director
 warnings.filterwarnings('ignore')
 
 
-class ClimateProcessor:
+class ClimateProcessingPipeline:
     """
     Climate raster processing pipeline for GRIB to GeoTIFF conversion.
     
@@ -59,8 +59,37 @@ class ClimateProcessor:
         self.target_crs = self.climate_config['target_crs']
         self.resampling_method = getattr(Resampling, self.climate_config['resampling_method'].upper())
         
-        self.logger.info(f"Initialized ClimateProcessor with target CRS: {self.target_crs}")
+        self.input_dir = CLIMATE_RAW_DIR
+        self.output_dir = CLIMATE_HARMONIZED_DIR
+
+        self.logger.info(f"Initialized ClimateProcessingPipeline with target CRS: {self.target_crs}")
+
+    def run_full_pipeline(self):
+
+        logger.info(f"Processing directory: {self.input_dir}")
+        logger.info(f"Output directory: {self.output_dir}")   
     
+        results = self.process_directory(self.input_dir,self.output_dir)
+
+        # Report results
+        successful = sum(results.values())
+        total = len(results)
+        logger.info(f"Processing completed: {successful}/{total} files successful")
+        
+        if successful < total:
+            failed_files = [f for f, success in results.items() if not success]
+            logger.warning(f"Failed files: {failed_files}")
+    
+        logger.info("Validating output files...")
+        validation_result = self.validate_outputs(self.output_dir)
+        
+        if validation_result:
+            logger.info("Climate processing completed: all output files validated successfully")
+        else:
+            logger.error("Output validation failed")
+        
+        return validation_result 
+
     def estimate_resolution_meters(self, data: xr.DataArray) -> float:
         """
         Estimate a suitable resolution in meters for reprojection based on the original data.

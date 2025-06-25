@@ -102,17 +102,83 @@ class OptimizationPipeline:
         self.cv_config = self.opt_config['cv_strategy']
         self.early_stopping_config = self.opt_config.get('early_stopping', {'patience': 40, 'min_trials': 100})
         
-        # FIXED: Add max_features for feature selection
         self.max_features = self.opt_config.get('max_features', 15)  # Default to 15 like in old implementation
         
         self.logger.info("Initialized OptimizationPipeline")
     
+    def run_full_pipeline(self) -> bool:
+        """
+        Execute the complete optimization pipeline.
+        
+        Returns:
+            Dictionary with comprehensive optimization results
+        """
+        self.logger.info("Starting Bayesian optimization pipeline...")
+        
+        # Load spatial data
+        df = self.load_spatial_data()
+        
+        # Prepare features
+        df_processed, predictor_cols, target_col = self.prepare_data_for_modeling(df)
+        
+        self.logger.info(f"Dataset shape: {df_processed.shape}")
+        self.logger.info(f"Features: {len(predictor_cols)}, Target: {target_col}")
+        
+        # Run multiple optimization runs
+        n_runs = self.opt_config['n_runs']
+        random_seeds = self.opt_config['random_seeds'][:n_runs]
+        
+        # Ensure we have enough seeds
+        while len(random_seeds) < n_runs:
+            random_seeds.append(random_seeds[-1] + 1000)
+        
+        all_results = []
+        
+        for run_id in range(n_runs):
+            try:
+                run_results = self.run_single_optimization(
+                    df_processed, predictor_cols, target_col, run_id, random_seeds[run_id]
+                )
+                all_results.append(run_results)
+                
+            except Exception as e:
+                self.logger.error(f"Error in optimization run {run_id + 1}: {e}")
+                continue
+        
+        if not all_results:
+            self.logger.error("All optimization runs failed")
+            return False
+        
+        # Analyze results
+        self.logger.info("Analyzing optimization results...")
+        summary = self.analyze_optimization_results(all_results)
+        
+        # Save detailed results
+        output_dir = CLIMATE_BIOMASS_MODELS_DIR
+        ensure_directory(output_dir)
+        
+        # Save individual run results
+        with open(output_dir / "individual_run_results.pkl", 'wb') as f:
+            pickle.dump(all_results, f)
+        
+        # Save summary
+        with open(output_dir / "optimization_summary.pkl", 'wb') as f:
+            pickle.dump(summary, f)
+        
+        # Log summary statistics
+        self.logger.info(f"Optimization completed successfully!")
+        self.logger.info(f"Validation R² - Mean: {summary['validation_r2']['mean']:.4f} "
+                        f"± {summary['validation_r2']['std']:.4f}")
+        self.logger.info(f"Test R² - Mean: {summary['test_r2']['mean']:.4f} "
+                        f"± {summary['test_r2']['std']:.4f}")
+        self.logger.info(f"Top features: {', '.join(summary['feature_analysis']['top_features'][:5])}")
+        
+        return True
+
     def prepare_data_for_modeling(self, df: pd.DataFrame) -> Tuple[pd.DataFrame, List[str], str]:
         """
         Prepare data for modeling by standardizing and identifying columns.
-        
-        FIXED: Restored original standardization logic (always standardize, but with zero-division protection)
-        
+    
         Args:
             df: Input dataset
             
@@ -216,9 +282,7 @@ class OptimizationPipeline:
     ) -> float:
         """
         Objective function for Optuna optimization.
-        
-        FIXED: Restored original feature selection logic from old implementation
-        
+                
         Args:
             trial: Optuna trial object
             X_train: Training features
@@ -482,78 +546,6 @@ class OptimizationPipeline:
         }
         
         return summary
-    
-    def run_optimization_pipeline(self) -> Dict[str, Any]:
-        """
-        Execute the complete optimization pipeline.
-        
-        Returns:
-            Dictionary with comprehensive optimization results
-        """
-        self.logger.info("Starting Bayesian optimization pipeline...")
-        
-        # Load spatial data
-        df = self.load_spatial_data()
-        
-        # Prepare features
-        df_processed, predictor_cols, target_col = self.prepare_data_for_modeling(df)
-        
-        self.logger.info(f"Dataset shape: {df_processed.shape}")
-        self.logger.info(f"Features: {len(predictor_cols)}, Target: {target_col}")
-        
-        # Run multiple optimization runs
-        n_runs = self.opt_config['n_runs']
-        random_seeds = self.opt_config['random_seeds'][:n_runs]
-        
-        # Ensure we have enough seeds
-        while len(random_seeds) < n_runs:
-            random_seeds.append(random_seeds[-1] + 1000)
-        
-        all_results = []
-        
-        for run_id in range(n_runs):
-            try:
-                run_results = self.run_single_optimization(
-                    df_processed, predictor_cols, target_col, run_id, random_seeds[run_id]
-                )
-                all_results.append(run_results)
-                
-            except Exception as e:
-                self.logger.error(f"Error in optimization run {run_id + 1}: {e}")
-                continue
-        
-        if not all_results:
-            raise RuntimeError("All optimization runs failed")
-        
-        # Analyze results
-        self.logger.info("Analyzing optimization results...")
-        summary = self.analyze_optimization_results(all_results)
-        
-        # Save detailed results
-        output_dir = CLIMATE_BIOMASS_MODELS_DIR
-        ensure_directory(output_dir)
-        
-        # Save individual run results
-        with open(output_dir / "individual_run_results.pkl", 'wb') as f:
-            pickle.dump(all_results, f)
-        
-        # Save summary
-        with open(output_dir / "optimization_summary.pkl", 'wb') as f:
-            pickle.dump(summary, f)
-        
-        # Log summary statistics
-        self.logger.info(f"Optimization completed successfully!")
-        self.logger.info(f"Validation R² - Mean: {summary['validation_r2']['mean']:.4f} "
-                        f"± {summary['validation_r2']['std']:.4f}")
-        self.logger.info(f"Test R² - Mean: {summary['test_r2']['mean']:.4f} "
-                        f"± {summary['test_r2']['std']:.4f}")
-        self.logger.info(f"Top features: {', '.join(summary['feature_analysis']['top_features'][:5])}")
-        
-        return {
-            'individual_results': all_results,
-            'summary': summary,
-            'output_directory': str(output_dir)
-        }
     
     def load_spatial_data(self) -> pd.DataFrame:
         """Load the spatial dataset with cluster assignments."""

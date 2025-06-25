@@ -36,7 +36,7 @@ from shared_utils import setup_logging, load_config, ensure_directory
 from shared_utils.central_data_paths_constants import *
 
 
-class ShapAnalyzer:
+class ShapAnalysisPipeline:
     """
     Comprehensive SHAP Analysis Pipeline
     
@@ -69,6 +69,161 @@ class ShapAnalyzer:
         self.shap_config = self.config['shap_analysis']        
         self.logger.info("Initialized ShapAnalyzer")
     
+    def run_full_pipeline(self) -> bool:
+        """
+        Run the complete SHAP analysis pipeline.
+        
+        Returns:
+            Dict containing all analysis results
+        """
+        self.logger.info("Starting comprehensive SHAP analysis pipeline...")
+        start_time = time.time()
+        
+        try:
+            # Extract configuration
+            models_dir = CLIMATE_BIOMASS_MODELS_DIR
+            dataset_path = CLIMATE_BIOMASS_DATASET_CLUSTERS_FILE
+            output_dir = CLIMATE_BIOMASS_SHAP_OUTPUT_DIR
+            
+            # Analysis parameters
+            r2_threshold = self.shap_config['model_filtering']['r2_threshold']
+            max_samples = self.shap_config['analysis']['shap_max_samples']
+            max_background = self.shap_config['analysis']['shap_max_background']
+            
+            # Step 1: Load models
+            self.logger.info("="*60)
+            self.logger.info("STEP 1: Loading models")
+            self.logger.info("="*60)
+            models = self.load_models(models_dir)
+            
+            # Filter models by R²
+            filtered_models = self.filter_models_by_r2(models, min_r2=r2_threshold)
+            
+            # Step 2: Load dataset
+            self.logger.info("="*60)
+            self.logger.info("STEP 2: Loading dataset")
+            self.logger.info("="*60)
+            df = pd.read_csv(dataset_path)
+            self.logger.info(f"Loaded dataset with {len(df)} rows and {len(df.columns)} columns")
+            
+            # Step 3: Feature frequency analysis
+            self.logger.info("="*60)
+            self.logger.info("STEP 3: Feature frequency analysis")
+            self.logger.info("="*60)
+            freq_df = self.calculate_feature_frequencies(filtered_models)
+            
+            # Step 4: SHAP importance calculation
+            self.logger.info("="*60)
+            self.logger.info("STEP 4: SHAP importance calculation")
+            self.logger.info("="*60)
+            avg_shap_importance = self.calculate_shap_importance(filtered_models, df, max_samples, max_background)
+            
+            # Step 5: Permutation importance calculation
+            self.logger.info("="*60)
+            self.logger.info("STEP 5: Permutation importance calculation")
+            self.logger.info("="*60)
+            perm_max_samples = self.shap_config['analysis']['perm_max_samples']
+            perm_n_repeats = self.shap_config['analysis']['perm_n_repeats']
+            avg_permutation_importance = self.calculate_permutation_importance(
+                filtered_models, df, perm_max_samples, perm_n_repeats
+            )
+            
+            # Step 6: PDP analysis
+            self.logger.info("="*60)
+            self.logger.info("STEP 6: PDP analysis with LOWESS")
+            self.logger.info("="*60)
+            pdp_config = self.shap_config['analysis']
+            pdp_data, pdp_lowess_data = self.calculate_pdp_with_lowess(
+                filtered_models, df,
+                max_samples=pdp_config['pdp_max_samples'],
+                background_size=pdp_config['pdp_background_size'],
+                n_top_features=pdp_config['pdp_n_top_features'],
+                x_range=pdp_config['pdp_x_range'],
+                lowess_frac=pdp_config['pdp_lowess_frac'],
+                n_models_subsample=pdp_config['pdp_n_models_subsample']
+            )
+            
+            # Step 7: Interaction analysis
+            self.logger.info("="*60)
+            self.logger.info("STEP 7: Interaction analysis")
+            self.logger.info("="*60)
+            interaction_config = self.shap_config['analysis']
+            interaction_results = self.calculate_interaction_analysis(
+                filtered_models, df,
+                max_samples=interaction_config['interaction_max_samples'],
+                max_background=interaction_config['interaction_max_background'],
+                n_top_features=interaction_config['interaction_n_top_features']
+            )
+            
+            # Step 8: Save results
+            self.logger.info("="*60)
+            self.logger.info("STEP 8: Saving results")
+            self.logger.info("="*60)
+            
+            # Create output directory
+            ensure_directory(output_dir)
+            
+            # Save feature frequencies
+            freq_df.to_csv(os.path.join(output_dir, 'feature_frequencies_df.csv'), index=False)
+            
+            # Save SHAP importance
+            with open(os.path.join(output_dir, 'avg_shap_importance.pkl'), 'wb') as f:
+                pickle.dump(avg_shap_importance, f)
+            
+            # Save permutation importance
+            with open(os.path.join(output_dir, 'avg_permutation_importance.pkl'), 'wb') as f:
+                pickle.dump(avg_permutation_importance, f)
+            
+            # Save PDP data
+            with open(os.path.join(output_dir, 'pdp_data.pkl'), 'wb') as f:
+                pickle.dump(pdp_data, f)
+            
+            # Save PDP LOWESS data
+            with open(os.path.join(output_dir, 'pdp_lowess_data.pkl'), 'wb') as f:
+                pickle.dump(pdp_lowess_data, f)
+            
+            # Save interaction results
+            with open(os.path.join(output_dir, 'interaction_results.pkl'), 'wb') as f:
+                pickle.dump(interaction_results, f)
+            
+            # Create analysis summary
+            end_time = time.time()
+            analysis_time = end_time - start_time
+            
+            summary = {
+                'analysis_completed': True,
+                'analysis_time_seconds': analysis_time,
+                'analysis_time_formatted': str(timedelta(seconds=int(analysis_time))),
+                'models_loaded': len(models),
+                'models_filtered': len(filtered_models),
+                'dataset_shape': df.shape,
+                'features_analyzed': len(freq_df),
+                'features_with_shap': len(avg_shap_importance),
+                'features_with_permutation': len(avg_permutation_importance),
+                'features_with_pdp': len(pdp_data),
+                'interaction_samples': interaction_results.get('n_samples', 0),
+                'output_directory': output_dir
+            }
+            
+            # Save summary
+            with open(os.path.join(output_dir, 'analysis_summary.json'), 'w') as f:
+                json.dump(summary, f, indent=2)
+            
+            # Log completion
+            self.logger.info("="*60)
+            self.logger.info("SHAP ANALYSIS COMPLETED SUCCESSFULLY!")
+            self.logger.info("="*60)
+            self.logger.info(f"Analysis time: {summary['analysis_time_formatted']}")
+            self.logger.info(f"Models processed: {summary['models_filtered']}/{summary['models_loaded']}")
+            self.logger.info(f"Features analyzed: {summary['features_analyzed']}")
+            self.logger.info(f"Results saved to: {output_dir}")
+            
+            return True
+            
+        except Exception as e:
+            self.logger.error(f"SHAP analysis failed: {str(e)}")
+            raise
+
     def load_models(self, models_dir: str) -> Dict[str, Any]:
         """Load all models from subdirectories within the models directory."""
         self.logger.info(f"Loading models from {models_dir}")
@@ -519,157 +674,4 @@ class ShapAnalyzer:
         self.logger.info(f"Calculated interactions using {len(valid_models)} models, {len(all_interactions)} samples")
         return interaction_results
 
-    def run_comprehensive_shap_analysis(self) -> Dict[str, Any]:
-        """
-        Run the complete SHAP analysis pipeline.
-        
-        Returns:
-            Dict containing all analysis results
-        """
-        self.logger.info("Starting comprehensive SHAP analysis pipeline...")
-        start_time = time.time()
-        
-        try:
-            # Extract configuration
-            models_dir = CLIMATE_BIOMASS_MODELS_DIR
-            dataset_path = CLIMATE_BIOMASS_DATASET_CLUSTERS_FILE
-            output_dir = CLIMATE_BIOMASS_SHAP_OUTPUT_DIR
-            
-            # Analysis parameters
-            r2_threshold = self.shap_config['model_filtering']['r2_threshold']
-            max_samples = self.shap_config['analysis']['shap_max_samples']
-            max_background = self.shap_config['analysis']['shap_max_background']
-            
-            # Step 1: Load models
-            self.logger.info("="*60)
-            self.logger.info("STEP 1: Loading models")
-            self.logger.info("="*60)
-            models = self.load_models(models_dir)
-            
-            # Filter models by R²
-            filtered_models = self.filter_models_by_r2(models, min_r2=r2_threshold)
-            
-            # Step 2: Load dataset
-            self.logger.info("="*60)
-            self.logger.info("STEP 2: Loading dataset")
-            self.logger.info("="*60)
-            df = pd.read_csv(dataset_path)
-            self.logger.info(f"Loaded dataset with {len(df)} rows and {len(df.columns)} columns")
-            
-            # Step 3: Feature frequency analysis
-            self.logger.info("="*60)
-            self.logger.info("STEP 3: Feature frequency analysis")
-            self.logger.info("="*60)
-            freq_df = self.calculate_feature_frequencies(filtered_models)
-            
-            # Step 4: SHAP importance calculation
-            self.logger.info("="*60)
-            self.logger.info("STEP 4: SHAP importance calculation")
-            self.logger.info("="*60)
-            avg_shap_importance = self.calculate_shap_importance(filtered_models, df, max_samples, max_background)
-            
-            # Step 5: Permutation importance calculation
-            self.logger.info("="*60)
-            self.logger.info("STEP 5: Permutation importance calculation")
-            self.logger.info("="*60)
-            perm_max_samples = self.shap_config['analysis']['perm_max_samples']
-            perm_n_repeats = self.shap_config['analysis']['perm_n_repeats']
-            avg_permutation_importance = self.calculate_permutation_importance(
-                filtered_models, df, perm_max_samples, perm_n_repeats
-            )
-            
-            # Step 6: PDP analysis
-            self.logger.info("="*60)
-            self.logger.info("STEP 6: PDP analysis with LOWESS")
-            self.logger.info("="*60)
-            pdp_config = self.shap_config['analysis']
-            pdp_data, pdp_lowess_data = self.calculate_pdp_with_lowess(
-                filtered_models, df,
-                max_samples=pdp_config['pdp_max_samples'],
-                background_size=pdp_config['pdp_background_size'],
-                n_top_features=pdp_config['pdp_n_top_features'],
-                x_range=pdp_config['pdp_x_range'],
-                lowess_frac=pdp_config['pdp_lowess_frac'],
-                n_models_subsample=pdp_config['pdp_n_models_subsample']
-            )
-            
-            # Step 7: Interaction analysis
-            self.logger.info("="*60)
-            self.logger.info("STEP 7: Interaction analysis")
-            self.logger.info("="*60)
-            interaction_config = self.shap_config['analysis']
-            interaction_results = self.calculate_interaction_analysis(
-                filtered_models, df,
-                max_samples=interaction_config['interaction_max_samples'],
-                max_background=interaction_config['interaction_max_background'],
-                n_top_features=interaction_config['interaction_n_top_features']
-            )
-            
-            # Step 8: Save results
-            self.logger.info("="*60)
-            self.logger.info("STEP 8: Saving results")
-            self.logger.info("="*60)
-            
-            # Create output directory
-            ensure_directory(output_dir)
-            
-            # Save feature frequencies
-            freq_df.to_csv(os.path.join(output_dir, 'feature_frequencies_df.csv'), index=False)
-            
-            # Save SHAP importance
-            with open(os.path.join(output_dir, 'avg_shap_importance.pkl'), 'wb') as f:
-                pickle.dump(avg_shap_importance, f)
-            
-            # Save permutation importance
-            with open(os.path.join(output_dir, 'avg_permutation_importance.pkl'), 'wb') as f:
-                pickle.dump(avg_permutation_importance, f)
-            
-            # Save PDP data
-            with open(os.path.join(output_dir, 'pdp_data.pkl'), 'wb') as f:
-                pickle.dump(pdp_data, f)
-            
-            # Save PDP LOWESS data
-            with open(os.path.join(output_dir, 'pdp_lowess_data.pkl'), 'wb') as f:
-                pickle.dump(pdp_lowess_data, f)
-            
-            # Save interaction results
-            with open(os.path.join(output_dir, 'interaction_results.pkl'), 'wb') as f:
-                pickle.dump(interaction_results, f)
-            
-            # Create analysis summary
-            end_time = time.time()
-            analysis_time = end_time - start_time
-            
-            summary = {
-                'analysis_completed': True,
-                'analysis_time_seconds': analysis_time,
-                'analysis_time_formatted': str(timedelta(seconds=int(analysis_time))),
-                'models_loaded': len(models),
-                'models_filtered': len(filtered_models),
-                'dataset_shape': df.shape,
-                'features_analyzed': len(freq_df),
-                'features_with_shap': len(avg_shap_importance),
-                'features_with_permutation': len(avg_permutation_importance),
-                'features_with_pdp': len(pdp_data),
-                'interaction_samples': interaction_results.get('n_samples', 0),
-                'output_directory': output_dir
-            }
-            
-            # Save summary
-            with open(os.path.join(output_dir, 'analysis_summary.json'), 'w') as f:
-                json.dump(summary, f, indent=2)
-            
-            # Log completion
-            self.logger.info("="*60)
-            self.logger.info("SHAP ANALYSIS COMPLETED SUCCESSFULLY!")
-            self.logger.info("="*60)
-            self.logger.info(f"Analysis time: {summary['analysis_time_formatted']}")
-            self.logger.info(f"Models processed: {summary['models_filtered']}/{summary['models_loaded']}")
-            self.logger.info(f"Features analyzed: {summary['features_analyzed']}")
-            self.logger.info(f"Results saved to: {output_dir}")
-            
-            return summary
-            
-        except Exception as e:
-            self.logger.error(f"SHAP analysis failed: {str(e)}")
-            raise
+    

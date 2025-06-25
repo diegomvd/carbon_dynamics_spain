@@ -44,49 +44,10 @@ def parse_arguments():
 def main():
     """Main entry point for climate processing script."""
     args = parse_arguments()
-
-    log_level = 'INFO'
-    logger = setup_logging(level=log_level, component_name='climate_processing_script')
-    
-    try:
-        # Initialize processor
-        logger.info("Initializing climate processor...")
-        processor = ClimateProcessor(config_path=args.config)
-        
-        # Process directory mode
-        logger.info(f"Processing directory: {str(CLIMATE_RAW_DIR)}")
-        logger.info(f"Output directory: {str(CLIMATE_HARMONIZED_DIR)}")
-        
-        results = processor.process_directory(
-            input_dir=str(CLIMATE_RAW_DIR),
-            output_dir=str(CLIMATE_HARMONIZED_DIR)
-        )
-        
-        # Report results
-        successful = sum(results.values())
-        total = len(results)
-        logger.info(f"Processing completed: {successful}/{total} files successful")
-        
-        if successful < total:
-            failed_files = [f for f, success in results.items() if not success]
-            logger.warning(f"Failed files: {failed_files}")
-    
-  
-            logger.info("Validating output files...")
-            validation_result = processor.validate_outputs(str(CLIMATE_HARMONIZED_DIR))
-            
-            if validation_result:
-                logger.info("✅ All output files validated successfully")
-            else:
-                logger.error("❌ Output validation failed")
-                sys.exit(1)
-        
-        logger.info("Climate processing completed successfully!")
-        
-    except Exception as e:
-        logger.error(f"Climate processing failed: {e}")
-        sys.exit(1)
-
+    climate_processing = ClimateProcessingPipeline(args.config)
+    success = ClimateProcessingPipeline.run_full_pipeline()
+    return success
 
 if __name__ == "__main__":
-    main()
+    success = main()
+    sys.exit(0 if success else 1)

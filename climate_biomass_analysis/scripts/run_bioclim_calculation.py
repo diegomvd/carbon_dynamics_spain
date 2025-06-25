@@ -21,7 +21,7 @@ import os
 # Add parent directory to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
-from climate_biomass_analysis.core.bioclim_calculation import BioclimCalculator
+from climate_biomass_analysis.core.bioclim_calculation import BioclimCalculationPipeline
 from shared_utils import setup_logging
 from shared_utils.central_data_paths_constants import *
 
@@ -46,88 +46,10 @@ def main():
     """Main entry point for bioclimatic calculation script."""
     args = parse_arguments()
     
-    log_level = 'INFO'
-    logger = setup_logging(level=log_level, component_name='bioclim_calculation_script')
-    
-    try:
-        # Initialize calculator
-        logger.info("Initializing bioclimatic calculator...")
-        calculator = BioclimCalculator(config_path=args.config)
-        
-        # Use config paths
-        data_dir = CLIMATE_HARMONIZED_DIR
-        temp_files = glob.glob(os.path.join(data_dir, calculator.climate_config['temp_pattern']))
-        precip_files = glob.glob(os.path.join(data_dir, calculator.climate_config['precip_pattern']))
-        
-        logger.info(f"Found {len(temp_files)} temperature files and {len(precip_files)} precipitation files")
-        
-        if not temp_files or not precip_files:
-            raise ValueError("No temperature or precipitation files found")
-
-        
-        # Step 1: Harmonize rasters (unless skipped)
-
-        harmonized_dir = CLIMATE_HARMONIZED_DIR
-        harmonized_temp_dir = harmonized_dir / "temperature"
-        harmonized_precip_dir = harmonized_dir / "precipitation"
-        
-        logger.info("Harmonizing raster files...")
-        harmonized_temp_files = calculator.harmonize_rasters(temp_files, harmonized_temp_dir)
-        harmonized_precip_files = calculator.harmonize_rasters(precip_files, harmonized_precip_dir)
-
-        
-        # Step 2: Calculate reference bioclimatic variables
-        logger.info("Calculating reference bioclimatic variables...")
-        
-        output_dir = args.output_dir or BIOCLIM_VARIABLES_DIR
-        
-        reference_bioclim = calculator.calculate_bioclim_variables(
-            harmonized_temp_files,
-            harmonized_precip_files,
-            output_dir,
-            start_year=time_periods['reference']['start_year'],
-            end_year=time_periods['reference']['end_year'],
-            rolling=time_periods['reference']['rolling']
-        )
-        
-        if reference_bioclim:
-            logger.info(f"✅ Reference bioclimatic variables calculated: {len(reference_bioclim)} variables")
-        else:
-            logger.error("❌ Failed to calculate reference bioclimatic variables")
-            if not args.continue_on_error:
-                sys.exit(1)
-        
-        # Step 3: Calculate anomalies (if requested)
-        logger.info("Calculating bioclimatic anomalies...")
-        
-        reference_dir = args.output_dir or BIOCLIM_VARIABLES_DIR
-        anomaly_dir = args.anomaly_dir or BIOCLIM_ANOMALIES_DIR
-        
-        yearly_anomalies = calculator.calculate_bioclim_anomalies(
-            harmonized_temp_files,
-            harmonized_precip_files,
-            reference_dir,
-            anomaly_dir,
-            start_year=time_periods['analysis']['start_year'],
-            end_year=time_periods['analysis']['end_year'],
-            rolling=time_periods['analysis']['rolling']
-        )
-        
-        if yearly_anomalies:
-            total_anomalies = sum(len(year_data) for year_data in yearly_anomalies.values())
-            logger.info(f"✅ Bioclimatic anomalies calculated: {len(yearly_anomalies)} years, "
-                        f"{total_anomalies} total anomaly files")
-        else:
-            logger.error("❌ Failed to calculate bioclimatic anomalies")
-            if not args.continue_on_error:
-                sys.exit(1)
-        
-        logger.info("Bioclimatic calculation completed successfully!")
-        
-    except Exception as e:
-        logger.error(f"Bioclimatic calculation failed: {e}")
-        sys.exit(1)
-
+    climate_processing = BioclimCalculationPipeline(args.config)
+    success = climate_processing.run_full_pipeline()
+    return success
 
 if __name__ == "__main__":
-    main()
+    success = main()
+    sys.exit(0 if success else 1)

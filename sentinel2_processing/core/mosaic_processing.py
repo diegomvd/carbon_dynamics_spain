@@ -62,8 +62,11 @@ class MosaicProcessingPipeline:
         # Load configuration using shared utilities
         self.config = load_config(config_path) if config_path else load_config()
         
-        # Setup logging using shared utilities  
-        self.logger = get_logger('sentinel2_processing')
+        # Setup logging
+        self.logger = setup_logging(
+            level=self.config['logging']['level'],
+            component_name='sentinel2_mosaicing'
+        )
         
         # Initialize STAC catalog
         self.catalog = None
@@ -77,6 +80,64 @@ class MosaicProcessingPipeline:
         
         self.logger.info("MosaicProcessingPipeline initialized")
     
+    def run_full_pipeline(self) -> bool:
+        """
+        Execute the complete mosaic processing pipeline.
+        
+        Returns:
+            dict: Processing summary with statistics
+            
+        Examples:
+            >>> pipeline = MosaicProcessingPipeline()
+            >>> results = pipeline.run_full_pipeline()
+            >>> print(f"Processed: {results['processed']}, Errors: {results['errors']}")
+        """
+        self.start_time = time.time()
+        self.logger.info("Starting Sentinel-2 mosaic processing pipeline...")
+        
+        try:
+            # Initialize components
+            if self.catalog is None:
+                self.initialize_catalog()
+            
+            if self.processing_list is None:
+                self.create_processing_plan()
+            
+            # Create output directory using shared utilities
+            ensure_directory(SENTINEL2_MOSAICS_DIR)
+            self.logger.info(f"Output directory ready: {str(SENTINEL2_MOSAICS_DIR)}")
+            
+            total_combinations = len(self.processing_list)
+            self.logger.info(f"Processing {total_combinations} tile-year combinations")
+            
+            for i, (tile, year) in enumerate(self.processing_list):
+                
+                # Process single combination
+                self.process_single_combination(tile, year, i, total_combinations)
+                
+                gc.collect()
+                memory_usage = psutil.virtual_memory()
+                self.logger.info(f"System memory usage: {memory_usage.percent}%")
+                time.sleep(5)
+
+            self.logger.info("Processing completed successfully!")
+            
+            # Generate processing summary
+            summary = self.get_processing_summary()
+            logger.info("\n" + "="*60)
+            logger.info("PROCESSING COMPLETED")
+            logger.info("="*60)
+            logger.info(summary) 
+
+            return True
+
+        except Exception as e:
+            self.logger.error(f"Main process error: {str(e)}")
+            raise
+        finally:
+            gc.collect()
+            self.logger.info("Pipeline finished")
+
     def initialize_catalog(self):
         """
         Initialize STAC catalog connection.
@@ -111,10 +172,6 @@ class MosaicProcessingPipeline:
         """
         Process a dataset to create a median mosaic.
         
-        CRITICAL: This function preserves the exact algorithmic logic from the original
-        implementation including baseline correction factors, median calculation, and
-        metadata handling to ensure consistent results.
-        
         Args:
             dataset: Input xarray.Dataset with multiple time steps
             year: Processing year for baseline correction logic
@@ -128,7 +185,6 @@ class MosaicProcessingPipeline:
         """
         self.logger.info(f"Processing mosaic with {len(dataset.time)} scenes")
         
-        # CRITICAL: Preserve exact scene selection algorithm
         dataset, time_span = select_best_scenes(
             dataset,
             self.config['processing']['n_scenes'],
@@ -136,23 +192,18 @@ class MosaicProcessingPipeline:
             self.config['data']['bands_drop']
         )
         
-        # CRITICAL: Preserve exact correction factor for processing baseline 04.00
         if year > 2021:
             dataset = dataset + 1000
         
-        # CRITICAL: Preserve exact median mosaic calculation
         mosaic = dataset.median(dim="time", skipna=True)
 
-        # CRITICAL: Preserve exact metadata attributes calculation
         mosaic.attrs['valid_pixel_percentage'] = mosaic.count()/(len(mosaic.x)*len(mosaic.y))*100
         mosaic.attrs['time_span'] = time_span
         mosaic.attrs['year'] = year
         mosaic.attrs['sampling_period'] = sampling_period
         
-        # CRITICAL: Preserve exact data type conversion and nodata handling
         mosaic = mosaic.fillna(0).astype('uint16')
 
-        # CRITICAL: Preserve exact nodata value setting for all bands
         for band in mosaic.variables:
             mosaic[band] = mosaic[band].rio.write_nodata(0, inplace=False)
             
@@ -161,10 +212,7 @@ class MosaicProcessingPipeline:
     def save_mosaic(self, mosaic, path: str, client):
         """
         Save mosaic to disk with compression and metadata.
-        
-        CRITICAL: Preserves exact saving parameters including compression settings,
-        tiling options, and distributed lock handling for consistent output format.
-        
+
         Args:
             mosaic: Processed mosaic dataset to save
             path: Output file path
@@ -173,7 +221,6 @@ class MosaicProcessingPipeline:
         Examples:
             >>> pipeline.save_mosaic(mosaic, "/path/to/output.tif", client)
         """
-        # CRITICAL: Preserve exact raster writing parameters and distributed lock
         mosaic.rio.to_raster(
             path,
             tags=mosaic.attrs,
@@ -258,65 +305,6 @@ class MosaicProcessingPipeline:
             self.logger.error(f"Cluster error for year {year} and tile {bounding_box}: {str(cluster_error)}")
             self.error_count += 1
             return False
-    
-    def run_processing(self) -> Dict[str, Any]:
-        """
-        Execute the complete mosaic processing pipeline.
-        
-        CRITICAL: Preserves the exact distributed processing loop structure,
-        error handling patterns, memory management, and cleanup sequences
-        from the original implementation.
-        
-        Returns:
-            dict: Processing summary with statistics
-            
-        Examples:
-            >>> pipeline = MosaicProcessingPipeline()
-            >>> results = pipeline.run_processing()
-            >>> print(f"Processed: {results['processed']}, Errors: {results['errors']}")
-        """
-        self.start_time = time.time()
-        self.logger.info("Starting Sentinel-2 mosaic processing pipeline...")
-        
-        try:
-            # Initialize components
-            if self.catalog is None:
-                self.initialize_catalog()
-            
-            if self.processing_list is None:
-                self.create_processing_plan()
-            
-            # Create output directory using shared utilities
-            ensure_directory(SENTINEL2_MOSAICS_DIR)
-            self.logger.info(f"Output directory ready: {str(SENTINEL2_MOSAICS_DIR)}")
-            
-            total_combinations = len(self.processing_list)
-            self.logger.info(f"Processing {total_combinations} tile-year combinations")
-            
-            # CRITICAL: Preserve exact processing loop structure and enumeration
-            for i, (tile, year) in enumerate(self.processing_list):
-                
-                # Process single combination
-                self.process_single_combination(tile, year, i, total_combinations)
-                
-                # CRITICAL: Preserve exact cleanup and memory monitoring sequence
-                gc.collect()
-                memory_usage = psutil.virtual_memory()
-                self.logger.info(f"System memory usage: {memory_usage.percent}%")
-                time.sleep(5)
-
-            self.logger.info("Processing completed successfully!")
-            
-            # Generate processing summary
-            return self.get_processing_summary()
-
-        except Exception as e:
-            self.logger.error(f"Main process error: {str(e)}")
-            raise
-        finally:
-            # CRITICAL: Preserve exact final cleanup sequence
-            gc.collect()
-            self.logger.info("Pipeline finished")
     
     def get_processing_summary(self) -> Dict[str, Any]:
         """

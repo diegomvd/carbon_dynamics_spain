@@ -22,7 +22,7 @@ from shared_utils import setup_logging, get_logger, load_config, ensure_director
 from shared_utils.central_data_paths_constants import *
 
 
-class BiomassIntegrator:
+class BiomassIntegrationPipeline:
     """
     Biomass-climate data integration pipeline.
     
@@ -52,6 +52,62 @@ class BiomassIntegrator:
         
         self.logger.info("Initialized BiomassIntegrator")
     
+    def run_full_pipeline(self) -> Optional[pd.DataFrame]:
+        """
+        Execute the complete biomass-climate integration workflow.
+        
+        Returns:
+            Final ML dataset as DataFrame
+        """
+        self.logger.info("Starting biomass-climate integration pipeline...")
+        
+        # Extract config parameters
+        biomass_diff_dir = BIOMASS_MAPS_RELDIFF_DIR
+        anomaly_dir = BIOCLIM_ANOMALIES_DIR
+        output_dir = CLIMATE_BIOMASS_TEMP_RESAMPLED_DIR 
+        training_dataset_path = CLIMATE_BIOMASS_DATASET_FILE
+        biomass_pattern = self.integration_config.get('pattern', "*_rel_change_*.tif")
+        
+        # Get reference raster from first available anomaly file
+        first_anomaly_dir = None
+        for item in os.listdir(anomaly_dir):
+            if item.startswith("anomalies_") and os.path.isdir(os.path.join(anomaly_dir, item)):
+                first_anomaly_dir = os.path.join(anomaly_dir, item)
+                break
+        
+        if not first_anomaly_dir:
+            self.logger.error("No anomaly directories found. Run bioclimatic calculation first.")
+            return False
+        
+        # Find first anomaly file as reference
+        anomaly_files = glob.glob(os.path.join(first_anomaly_dir, "*.tif"))
+        if not anomaly_files:
+            self.logger.error("No anomaly files found in directory. Run bioclimatic calculation first.")
+            return False
+        
+        reference_file = anomaly_files[0]
+        
+        # Step 1: Resample biomass files to match climate resolution
+        self.logger.info("Resampling biomass files to match climate resolution...")
+        resampled_files = self.batch_resample_biomass(
+            biomass_diff_dir, reference_file, output_dir, biomass_pattern
+        )
+        
+        if not resampled_files:
+            self.logger.error("No biomass files were successfully resampled.")
+            return False
+        
+        # Step 2: Create ML dataset
+        self.logger.info("Creating ML training dataset...")
+        success = self.create_ml_dataset(resampled_files, anomaly_dir, training_dataset_path)
+        
+        if success:
+            self.logger.info("Biomass-climate integration completed successfully!")
+        else:
+            self.logger.error("Failed to create ML dataset.")
+        
+        return success
+
     def harmonize_raster(
         self, 
         input_path: Union[str, Path], 
@@ -61,9 +117,7 @@ class BiomassIntegrator:
     ) -> np.ndarray:
         """
         Harmonize a single raster to match reference grid properties.
-        
-        FIXED: Use np.zeros instead of np.empty
-        
+                
         Args:
             input_path: Path to input raster
             reference_shape: Target shape (height, width)
@@ -80,7 +134,6 @@ class BiomassIntegrator:
                 src.crs == reference_crs):
                 return src.read(1)
             
-            # FIXED: Use np.zeros instead of np.empty to avoid uninitialized values
             harmonized = np.zeros(reference_shape, dtype=src.dtypes[0])
             
             rasterio.warp.reproject(
@@ -180,7 +233,7 @@ class BiomassIntegrator:
         diff_files: List[str], 
         anomaly_dir: Union[str, Path], 
         output_file: Union[str, Path]
-    ) -> Optional[pd.DataFrame]:
+    ) -> bool:
         """
         Create a machine learning dataset combining biomass changes with climate anomalies.
         
@@ -365,10 +418,10 @@ class BiomassIntegrator:
             df.to_csv(output_file, index=False)
             
             self.logger.info(f"Dataset created with {len(df)} data points. Saved to {output_file}")
-            return df
+            return True
         else:
             self.logger.warning("No data points found.")
-            return None
+            return False
     
     def _remove_outliers(self, df: pd.DataFrame) -> pd.DataFrame:
         """
@@ -399,58 +452,4 @@ class BiomassIntegrator:
         
         return df
     
-    def run_biomass_integration_pipeline(self) -> Optional[pd.DataFrame]:
-        """
-        Execute the complete biomass-climate integration workflow.
-        
-        Returns:
-            Final ML dataset as DataFrame
-        """
-        self.logger.info("Starting biomass-climate integration pipeline...")
-        
-        # Extract config parameters
-        biomass_diff_dir = BIOMASS_MAPS_RELDIFF_DIR
-        anomaly_dir = BIOCLIM_ANOMALIES_DIR
-        output_dir = CLIMATE_BIOMASS_TEMP_RESAMPLED_DIR 
-        training_dataset_path = CLIMATE_BIOMASS_DATASET_FILE
-        biomass_pattern = self.integration_config.get('pattern', "*_rel_change_*.tif")
-        
-        # Get reference raster from first available anomaly file
-        first_anomaly_dir = None
-        for item in os.listdir(anomaly_dir):
-            if item.startswith("anomalies_") and os.path.isdir(os.path.join(anomaly_dir, item)):
-                first_anomaly_dir = os.path.join(anomaly_dir, item)
-                break
-        
-        if not first_anomaly_dir:
-            self.logger.error("No anomaly directories found. Run bioclimatic calculation first.")
-            return None
-        
-        # Find first anomaly file as reference
-        anomaly_files = glob.glob(os.path.join(first_anomaly_dir, "*.tif"))
-        if not anomaly_files:
-            self.logger.error("No anomaly files found in directory. Run bioclimatic calculation first.")
-            return None
-        
-        reference_file = anomaly_files[0]
-        
-        # Step 1: Resample biomass files to match climate resolution
-        self.logger.info("Resampling biomass files to match climate resolution...")
-        resampled_files = self.batch_resample_biomass(
-            biomass_diff_dir, reference_file, output_dir, biomass_pattern
-        )
-        
-        if not resampled_files:
-            self.logger.error("No biomass files were successfully resampled.")
-            return None
-        
-        # Step 2: Create ML dataset
-        self.logger.info("Creating ML training dataset...")
-        df = self.create_ml_dataset(resampled_files, anomaly_dir, training_dataset_path)
-        
-        if df is not None:
-            self.logger.info("Biomass-climate integration completed successfully!")
-        else:
-            self.logger.error("Failed to create ML dataset.")
-        
-        return df
+    

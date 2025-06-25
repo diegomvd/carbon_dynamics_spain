@@ -51,42 +51,6 @@ def parse_arguments() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def validate_arguments(args: argparse.Namespace) -> bool:
-    """
-    Validate command-line arguments.
-    
-    Args:
-        args: Parsed arguments
-        
-    Returns:
-        bool: True if arguments are valid
-    """
-    if args.config and not Path(args.config).exists():
-        print(f"Error: Configuration file does not exist: {args.config}")
-        return False
-    
-    return True
-
-def print_processing_summary(pipeline: MosaicProcessingPipeline) -> None:
-    """
-    Print processing summary information.
-    
-    Args:
-        pipeline: Initialized pipeline instance
-    """
-    summary = pipeline.get_processing_summary()
-    
-    print("\n" + "="*60)
-    print("SENTINEL-2 MOSAIC PROCESSING SUMMARY")
-    print("="*60)
-    print(f"Processing Years:     {summary['config_summary']['years']}")
-    print(f"Scenes per Mosaic:    {summary['config_summary']['n_scenes']}")
-    print(f"Tile Size:            {summary['config_summary']['tile_size']}")
-    print(f"Total Combinations:   {summary['total_combinations']}")
-    print(f"Dask Workers:         {summary['config_summary']['n_workers']}")
-    print("="*60)
-
-
 def main() -> int:
     """
     Main entry point for mosaic processing script.
@@ -95,54 +59,10 @@ def main() -> int:
         int: Exit code (0 for success, 1 for failure)
     """
     args = parse_arguments()
-    
-    # Validate arguments
-    if not validate_arguments(args):
-        return 1
-    
-    try:
-        # Setup logging
-        setup_logging(level='INFO', log_file='sentinel2_mosaicing')
-        logger = get_logger('sentinel2_processing')
-        
-        # Load and override configuration
-        config = load_config(args.config)
-        
-        # Initialize pipeline
-        pipeline = MosaicProcessingPipeline()
-        pipeline.config = config
-        
-        # Validate configuration
-        if not pipeline.validate_configuration():
-            logger.error("Configuration validation failed")
-            return 1
-        
-        # Run processing
-        logger.info("Starting Sentinel-2 mosaic processing...")
-        start_time = time.time()
-        
-        results = pipeline.run_processing()
-        
-        end_time = time.time()
-        duration = end_time - start_time
-        
-        # Print final summary
-        logger.info("\n" + "="*60)
-        logger.info("PROCESSING COMPLETED")
-        logger.info("="*60)
-        logger.info(f"Total Duration: {duration/60:.1f} minutes")
-        logger.info(f"Processed: {results['processed_count']}")
-        logger.info(f"Skipped: {results['skipped_count']}")
-        logger.info(f"Errors: {results['error_count']}")
-        logger.info(f"Success Rate: {results['success_rate']:.1f}%")
-        logger.info("="*60)
-        
-        return 0 if results['error_count'] == 0 else 1
-        
-    except Exception as e:
-        logger.error(f"Processing failed: {str(e)}")
-        return 1
-
+    s2_mosaicing = MosaicProcessingPipeline(args.config)
+    success = s2_mosaicing.run_full_pipeline()
+    return success 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    success = main()
+    sys.exit(0 if success else 1)

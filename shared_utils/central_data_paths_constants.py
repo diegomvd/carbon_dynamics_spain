@@ -50,6 +50,11 @@ SPAIN_BOUNDARIES_FILE = SPAIN_BOUNDARIES_DIR / "gadm41_ESP_0.shp"
 # Climate data
 CLIMATE_RAW_DIR = RAW_DIR / "climate"
 
+CLIMATE_DIR = PROCESSED_DIR / "climate"
+CLIMATE_HARMONIZED_DIR = CLIMATE_DIR / "harmonized"
+BIOCLIM_VARIABLES_DIR = CLIMATE_DIR / "bioclimatic"
+BIOCLIM_ANOMALIES_DIR = CLIMATE_DIR / "bioclimatic_anomalies"
+
 # ALS LiDAR
 ALS_CANOPY_HEIGHT_RAW_DIR = RAW_DIR / "als_canopy_height"
 ALS_DATA_DIR = ALS_CANOPY_HEIGHT_RAW_DIR / "data"
@@ -125,11 +130,7 @@ BIOMASS_TRANSITIONS_DIR = RESULTS_DIR / "biomass_transitions"
 # Carbon changes stats
 CARBON_CHANGES_DIR = RESULTS_DIR / "carbon_changes"
 
-# Climate processing
-CLIMATE_DIR = PROCESSED_DIR / "climate"
-CLIMATE_HARMONIZED_DIR = CLIMATE_DIR / "harmonized"
-BIOCLIM_VARIABLES_DIR = CLIMATE_DIR / "bioclimatic"
-BIOCLIM_ANOMALIES_DIR = CLIMATE_DIR / "bioclimatic_anomalies"
+
 
 # Climate biomass results
 CLIMATE_BIOMASS_DATA_DIR = PROCESSED_DIR / "climate_biomass"
