@@ -289,6 +289,20 @@ class BiomassEstimationPipeline:
         try:
             self.logger.info(f"Processing forest type {forest_type} for year {year}")
             
+            # Load height data
+            height_file = height_files[0] if isinstance(height_files, list) else height_files
+            heights = rxr.open_rasterio(height_file, chunks=True)
+            if 'band' in heights.dims:
+                heights = heights.isel(band=0)
+            
+            # Load mask data
+            mask = rxr.open_rasterio(mask_file, chunks=True)
+            if 'band' in mask.dims:
+                mask = mask.isel(band=0)
+            
+            # Apply mask to heights
+            masked_heights = heights.where(mask > 0)
+
             # Get allometric parameters for this forest type
             agb_params, bgb_params = self.allometry_manager.get_allometry_parameters(forest_type)
             
@@ -296,12 +310,8 @@ class BiomassEstimationPipeline:
                 self.logger.warning(f"No allometry parameters found for forest type {forest_type}")
                 return False
             
-            # Combine parameters for Monte Carlo
-            allometry_params = {
-                'agb_params': agb_params,
-                'bgb_params': bgb_params
-            }
-            
+            results = self.monte_carlo.run(masked_heights,agb_params,bgb_params)
+
             # Process each biomass type
             for biomass_type in self.config['output']['types']:
                 output_dir = output_dirs[biomass_type]
@@ -316,22 +326,22 @@ class BiomassEstimationPipeline:
                     if output_file.exists() and not self.config.get('overwrite', False):
                         self.logger.debug(f"Output file already exists, skipping: {output_file.name}")
                         continue
-                    
-                    # Run Monte Carlo estimation
-                    success = self.monte_carlo.estimate_biomass(
-                        height_files=height_files,
-                        mask_file=mask_file,
-                        allometry_params=allometry_params,
-                        biomass_type=biomass_type,
-                        measure=measure,
-                        output_file=output_file
-                    )
-                    
-                    if success:
-                        self.logger.info(f"Generated: {output_file.name}")
-                    else:
-                        self.logger.error(f"Failed to generate: {output_file.name}")
+                
+                    # Extract requested result
+                    result_key = f"{biomass_type}_{measure}"
+                    if result_key not in results:
+                        self.logger.error(f"Result {result_key} not found")
                         return False
+                    
+                    result_array = results[result_key]
+                    
+                    # Save result
+                    ensure_directory(output_file.parent)
+                    
+                    # Simple save (just get it working)
+                    result_array.rio.to_raster(output_file)
+                    
+                    self.logger.info(f"Saved result to {output_file}")
             
             return True
             

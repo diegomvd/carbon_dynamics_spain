@@ -1,41 +1,36 @@
 """
-Monte Carlo Uncertainty Quantification
+Monte Carlo simulation functions for biomass estimation with uncertainty quantification.
 
-This module implements Monte Carlo estimation for biomass uncertainty
-quantification using statistical sampling of allometric parameters.
+This module implements vectorized Monte Carlo simulations to estimate above-ground biomass (AGB),
+below-ground biomass (BGB), and total biomass from canopy height data. Uses statistical sampling
+to propagate uncertainty through allometric relationships and generate confidence intervals.
+
+The implementation leverages xarray and dask for memory-efficient processing of large raster
+datasets with distributed computing capabilities.
 
 Author: Diego Bengochea
 """
 
 import numpy as np
+import dask.array as da
+from scipy.stats import norm
 import xarray as xr
-import rasterio
+import rioxarray as rxr
+import gc
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple, Any, Union
-import time
 
 # Shared utilities
 from shared_utils import get_logger, ensure_directory
 
-# Component imports
-from .io_utils import RasterManager
-
 
 class MonteCarloEstimator:
     """
-    Monte Carlo estimator for biomass uncertainty quantification.
-    
-    Implements statistical sampling of allometric parameters to generate
-    biomass estimates with uncertainty bounds.
+    Monte Carlo estimator - RESTORED original logic without overengineering.
     """
     
     def __init__(self, config: Dict[str, Any]):
-        """
-        Initialize the Monte Carlo estimator.
-        
-        Args:
-            config: Configuration dictionary
-        """
+        """Initialize the Monte Carlo estimator."""
         self.config = config
         self.logger = get_logger('biomass_estimation.monte_carlo')
         
@@ -47,447 +42,204 @@ class MonteCarloEstimator:
         # Processing parameters
         self.height_threshold = config['processing']['height_threshold']
         
-        # Initialize random state
-        self.rng = np.random.RandomState(self.random_seed)
-        
-        # Initialize raster manager
-        self.raster_manager = RasterManager(config)
-        
         self.logger.info(f"MonteCarloEstimator initialized with {self.num_samples} samples")
     
-    def estimate_biomass(
-        self,
-        height_files: List[Path],
-        mask_file: Path,
-        allometry_params: Dict[str, Any],
-        biomass_type: str,
-        measure: str,
-        output_file: Path
-    ) -> bool:
+    def run(self, heights, agb_params, bgb_params):
         """
-        Estimate biomass with uncertainty using Monte Carlo sampling.
+        Vectorized Monte Carlo simulation for biomass estimation with uncertainty quantification.
+        
+        Performs statistical sampling to propagate uncertainty through allometric relationships,
+        generating mean biomass estimates and confidence intervals for AGB, BGB, and total biomass fro one forest type.
+        Uses normal distribution approximations and vectorized operations for computational efficiency.
         
         Args:
-            height_files: List of height raster files
-            mask_file: Forest type mask file
-            allometry_params: Allometric parameters dictionary
-            biomass_type: Type of biomass ('agbd', 'bgbd', 'total')
-            measure: Statistical measure ('mean', 'uncertainty')
-            output_file: Output file path
+            heights (xarray.DataArray): Canopy height data array with spatial coordinates
+            agb_params (dict): Above-ground biomass allometry parameters containing:
+                - 'median': (intercept, slope, function_type) for median allometry
+                - 'p15': (intercept, slope, function_type) for 15th percentile
+                - 'p85': (intercept, slope, function_type) for 85th percentile
+            bgb_params (dict): Below-ground biomass ratio parameters containing:
+                - 'mean': Mean BGB/AGB ratio
+                - 'p5': 5th percentile of ratio
+                - 'p95': 95th percentile of ratio
+            num_samples (int): Number of Monte Carlo samples per pixel
+            seed (int): Random seed for reproducibility
             
         Returns:
-            bool: True if estimation succeeded
+            xarray.Dataset: Dataset containing mean and uncertainty estimates for:
+                - agbd_mean, agbd_uncertainty: Above-ground biomass
+                - bgbd_mean, bgbd_uncertainty: Below-ground biomass  
+                - total_mean, total_uncertainty: Total biomass
         """
-        try:
-            self.logger.info(f"Starting Monte Carlo estimation: {biomass_type} {measure}")
-            start_time = time.time()
-            
-            # Load and prepare input data
-            height_data, mask_data, profile = self._load_input_data(height_files, mask_file)
-            
-            if height_data is None:
-                self.logger.error("Failed to load input data")
-                return False
-            
-            # Generate parameter samples
-            param_samples = self._generate_parameter_samples(allometry_params, biomass_type)
-            
-            if param_samples is None:
-                self.logger.error("Failed to generate parameter samples")
-                return False
-            
-            # Run Monte Carlo estimation
-            result = self._run_monte_carlo_estimation(
-                height_data, mask_data, param_samples, biomass_type, measure
-            )
-            
-            if result is None:
-                self.logger.error("Monte Carlo estimation failed")
-                return False
-            
-            # Save result
-            success = self._save_result(result, profile, output_file)
-            
-            elapsed_time = time.time() - start_time
-            self.logger.info(f"Monte Carlo estimation completed in {elapsed_time:.2f}s")
-            
-            return success
-            
-        except Exception as e:
-            self.logger.error(f"Error in Monte Carlo estimation: {str(e)}")
-            return False
-    
-    def _load_input_data(
-        self, 
-        height_files: List[Path], 
-        mask_file: Path
-    ) -> Tuple[Optional[np.ndarray], Optional[np.ndarray], Optional[Dict]]:
-        """
-        Load and prepare height and mask data.
+        self.logger.info(f"Starting vectorized Monte Carlo simulation with {num_samples} samples")
         
-        Args:
-            height_files: Height raster files
-            mask_file: Mask file
-            
-        Returns:
-            Tuple of (height_data, mask_data, raster_profile)
-        """
-        try:
-            # Load height data (use first file for now, could be mosaicked)
-            if not height_files:
-                self.logger.error("No height files provided")
-                return None, None, None
-            
-            height_file = height_files[0]  # TODO: Handle multiple files
-            
-            with rasterio.open(height_file) as src:
-                height_data = src.read(1).astype(np.float32)
-                height_profile = src.profile.copy()
-            
-            # Load mask data
-            with rasterio.open(mask_file) as src:
-                mask_data = src.read(1).astype(np.uint8)
-                mask_profile = src.profile.copy()
-            
-            # Validate dimensions match
-            if height_data.shape != mask_data.shape:
-                self.logger.error(f"Shape mismatch: height {height_data.shape}, mask {mask_data.shape}")
-                return None, None, None
-            
-            # Apply height threshold
-            height_data[height_data < self.height_threshold] = np.nan
-            
-            # Apply forest type mask
-            height_data[mask_data == 0] = np.nan
-            
-            # Update profile for output
-            output_profile = height_profile.copy()
-            output_profile.update({
-                'dtype': 'float32',
-                'nodata': self.config['output']['geotiff']['nodata_value'],
-                'compress': self.config['output']['geotiff']['compress'],
-                'tiled': self.config['output']['geotiff']['tiled'],
-                'blockxsize': self.config['output']['geotiff']['blockxsize'],
-                'blockysize': self.config['output']['geotiff']['blockysize']
-            })
-            
-            self.logger.debug(f"Loaded data: {height_data.shape}, valid pixels: {np.sum(~np.isnan(height_data))}")
-            
-            return height_data, mask_data, output_profile
-            
-        except Exception as e:
-            self.logger.error(f"Error loading input data: {str(e)}")
-            return None, None, None
-    
-    def _generate_parameter_samples(
-        self, 
-        allometry_params: Dict[str, Any], 
-        biomass_type: str
-    ) -> Optional[Dict[str, np.ndarray]]:
-        """
-        Generate Monte Carlo samples of allometric parameters.
+        num_samples = self.num_samples
+        seed = self.random_seed
+
+        # Apply height filtering based on configuration
+        self.logger.info("Masking heights")
+        masked_heights = heights.where(heights > 0, np.nan)  # Remove non-positive heights
         
-        Args:
-            allometry_params: Allometric parameters
-            biomass_type: Biomass type
+        # Apply minimum height threshold for biomass calculation
+        masked_heights = masked_heights.where(
+            masked_heights >= self.height_threshold, 0.0
+        )
             
-        Returns:
-            Dictionary with parameter samples
-        """
-        try:
-            samples = {}
-            
-            # AGB parameters (always needed)
-            agb_params = allometry_params.get('agb_params')
-            if agb_params:
-                samples['a_samples'] = self._sample_parameter(
-                    agb_params['a_mean'], 
-                    agb_params['a_std']
-                )
-                samples['b_samples'] = self._sample_parameter(
-                    agb_params['b_mean'], 
-                    agb_params['b_std']
-                )
-            else:
-                self.logger.error("No AGB parameters available")
-                return None
-            
-            # BGB parameters (for bgbd and total biomass)
-            if biomass_type in ['bgbd', 'total']:
-                bgb_params = allometry_params.get('bgb_params')
-                if bgb_params:
-                    samples['ratio_samples'] = self._sample_parameter(
-                        bgb_params['ratio_mean'],
-                        bgb_params['ratio_std']
-                    )
-                else:
-                    # Use default ratio if no BGB parameters
-                    self.logger.warning("No BGB parameters, using default ratio")
-                    samples['ratio_samples'] = np.full(self.num_samples, 0.25)  # Default 25%
-            
-            self.logger.debug(f"Generated {self.num_samples} parameter samples for {biomass_type}")
-            return samples
-            
-        except Exception as e:
-            self.logger.error(f"Error generating parameter samples: {str(e)}")
-            return None
-    
-    def _sample_parameter(self, mean: float, std: float) -> np.ndarray:
-        """
-        Sample parameter from statistical distribution.
+        masked_heights = masked_heights.persist()  # Materialize in distributed memory
         
-        Args:
-            mean: Parameter mean
-            std: Parameter standard deviation
-            
-        Returns:
-            Array of parameter samples
-        """
-        if self.distribution_type == 'normal':
-            return self.rng.normal(mean, std, self.num_samples)
-        elif self.distribution_type == 'lognormal':
-            # Convert to log-normal parameters
-            log_mean = np.log(mean**2 / np.sqrt(std**2 + mean**2))
-            log_std = np.sqrt(np.log(1 + (std**2 / mean**2)))
-            return self.rng.lognormal(log_mean, log_std, self.num_samples)
+        # Apply allometric relationships to generate AGB percentile curves
+        self.logger.info("Calculating AGB allometry curves")
+        
+        # Median allometry curve
+        intercept, slope, function_type = agb_params['median']
+        if function_type == 'power':
+            agbd_p50 = intercept * (masked_heights ** slope)
         else:
-            self.logger.warning(f"Unknown distribution type: {self.distribution_type}, using normal")
-            return self.rng.normal(mean, std, self.num_samples)
-    
-    def _run_monte_carlo_estimation(
-        self,
-        height_data: np.ndarray,
-        mask_data: np.ndarray,
-        param_samples: Dict[str, np.ndarray],
-        biomass_type: str,
-        measure: str
-    ) -> Optional[np.ndarray]:
-        """
-        Run Monte Carlo estimation over all parameter samples.
+            agbd_p50 = xr.zeros_like(masked_heights)
         
-        Args:
-            height_data: Height raster data
-            mask_data: Mask raster data  
-            param_samples: Parameter samples
-            biomass_type: Biomass type
-            measure: Statistical measure
-            
-        Returns:
-            Result array or None if failed
-        """
-        try:
-            # Initialize storage for all samples
-            valid_mask = ~np.isnan(height_data)
-            n_valid_pixels = np.sum(valid_mask)
-            
-            if n_valid_pixels == 0:
-                self.logger.warning("No valid pixels for estimation")
-                return np.full(height_data.shape, self.config['output']['geotiff']['nodata_value'], dtype=np.float32)
-            
-            # Storage for Monte Carlo samples
-            mc_samples = np.zeros((self.num_samples, *height_data.shape), dtype=np.float32)
-            
-            self.logger.info(f"Running {self.num_samples} Monte Carlo iterations...")
-            
-            # Run Monte Carlo iterations
-            for i in range(self.num_samples):
-                if i % 50 == 0:  # Progress logging
-                    self.logger.debug(f"Monte Carlo iteration {i+1}/{self.num_samples}")
-                
-                # Get parameters for this iteration
-                a_param = param_samples['a_samples'][i]
-                b_param = param_samples['b_samples'][i]
-                
-                # Calculate AGB using allometric equation: AGB = a * H^b
-                agb = np.zeros_like(height_data)
-                agb[valid_mask] = a_param * (height_data[valid_mask] ** b_param)
-                
-                # Calculate final biomass based on type
-                if biomass_type == 'agbd':
-                    biomass = agb
-                elif biomass_type == 'bgbd':
-                    ratio = param_samples['ratio_samples'][i]
-                    biomass = agb * ratio
-                elif biomass_type == 'total':
-                    ratio = param_samples['ratio_samples'][i]
-                    biomass = agb * (1 + ratio)  # AGB + BGB
-                else:
-                    raise ValueError(f"Unknown biomass type: {biomass_type}")
-                
-                # Store sample
-                mc_samples[i] = biomass
-            
-            # Calculate requested statistical measure
-            if measure == 'mean':
-                result = np.mean(mc_samples, axis=0)
-            elif measure == 'uncertainty':
-                result = np.std(mc_samples, axis=0)
-            elif measure == 'median':
-                result = np.median(mc_samples, axis=0)
-            elif measure.startswith('percentile_'):
-                percentile = float(measure.split('_')[1])
-                result = np.percentile(mc_samples, percentile, axis=0)
-            else:
-                raise ValueError(f"Unknown measure: {measure}")
-            
-            # Set no-data values
-            result[~valid_mask] = self.config['output']['geotiff']['nodata_value']
-            
-            self.logger.info(f"Monte Carlo estimation complete. Valid pixels: {n_valid_pixels}")
-            return result.astype(np.float32)
-            
-        except Exception as e:
-            self.logger.error(f"Error in Monte Carlo estimation: {str(e)}")
-            return None
-    
-    def _save_result(
-        self, 
-        result: np.ndarray, 
-        profile: Dict, 
-        output_file: Path
-    ) -> bool:
-        """
-        Save estimation result to raster file.
+        # 15th percentile allometry curve
+        intercept, slope, function_type = agb_params['p15']
+        if function_type == 'power':
+            agbd_p15 = intercept * (masked_heights ** slope)
+        else:
+            agbd_p15 = xr.zeros_like(masked_heights)
         
-        Args:
-            result: Result array
-            profile: Raster profile
-            output_file: Output file path
-            
-        Returns:
-            bool: True if save succeeded
-        """
-        try:
-            # Ensure output directory exists
-            ensure_directory(output_file.parent)
-            
-            # Write result
-            with rasterio.open(output_file, 'w', **profile) as dst:
-                dst.write(result, 1)
-                
-                # Add metadata
-                dst.update_tags(
-                    MONTE_CARLO_SAMPLES=str(self.num_samples),
-                    RANDOM_SEED=str(self.random_seed),
-                    DISTRIBUTION_TYPE=self.distribution_type
-                )
-            
-            self.logger.info(f"Result saved to: {output_file}")
-            return True
-            
-        except Exception as e:
-            self.logger.error(f"Error saving result: {str(e)}")
-            return False
-    
-    def estimate_single_pixel(
-        self,
-        height_value: float,
-        allometry_params: Dict[str, Any],
-        biomass_type: str = 'total'
-    ) -> Dict[str, float]:
-        """
-        Estimate biomass for a single pixel (useful for testing/validation).
+        # 85th percentile allometry curve
+        intercept, slope, function_type = agb_params['p85']
+        if function_type == 'power':
+            agbd_p85 = intercept * (masked_heights ** slope)
+        else:
+            agbd_p85 = xr.zeros_like(masked_heights)
         
-        Args:
-            height_value: Canopy height value
-            allometry_params: Allometric parameters
-            biomass_type: Biomass type
-            
-        Returns:
-            Dictionary with statistics
-        """
-        try:
-            if height_value < self.height_threshold or np.isnan(height_value):
-                return {'mean': 0.0, 'std': 0.0, 'median': 0.0}
-            
-            # Generate parameter samples
-            param_samples = self._generate_parameter_samples(allometry_params, biomass_type)
-            
-            if param_samples is None:
-                return {'mean': 0.0, 'std': 0.0, 'median': 0.0}
-            
-            # Calculate biomass for each sample
-            biomass_samples = []
-            
-            for i in range(self.num_samples):
-                a_param = param_samples['a_samples'][i]
-                b_param = param_samples['b_samples'][i]
-                
-                # AGB calculation
-                agb = a_param * (height_value ** b_param)
-                
-                # Final biomass
-                if biomass_type == 'agbd':
-                    biomass = agb
-                elif biomass_type == 'bgbd':
-                    ratio = param_samples['ratio_samples'][i]
-                    biomass = agb * ratio
-                elif biomass_type == 'total':
-                    ratio = param_samples['ratio_samples'][i]
-                    biomass = agb * (1 + ratio)
-                
-                biomass_samples.append(biomass)
-            
-            # Calculate statistics
-            biomass_samples = np.array(biomass_samples)
-            
-            return {
-                'mean': float(np.mean(biomass_samples)),
-                'std': float(np.std(biomass_samples)),
-                'median': float(np.median(biomass_samples)),
-                'percentile_5': float(np.percentile(biomass_samples, 5)),
-                'percentile_95': float(np.percentile(biomass_samples, 95))
-            }
-            
-        except Exception as e:
-            self.logger.error(f"Error in single pixel estimation: {str(e)}")
-            return {'mean': 0.0, 'std': 0.0, 'median': 0.0}
-    
-    def validate_parameters(self, allometry_params: Dict[str, Any]) -> bool:
-        """
-        Validate allometric parameters for Monte Carlo estimation.
+        # Persist allometry results in distributed memory
+        agbd_p50 = agbd_p50.persist()
+        agbd_p15 = agbd_p15.persist()
+        agbd_p85 = agbd_p85.persist()
         
-        Args:
-            allometry_params: Parameters to validate
-            
-        Returns:
-            bool: True if parameters are valid
-        """
-        try:
-            # Check AGB parameters
-            agb_params = allometry_params.get('agb_params')
-            if not agb_params:
-                self.logger.error("Missing AGB parameters")
-                return False
-            
-            required_agb = ['a_mean', 'b_mean', 'a_std', 'b_std']
-            for param in required_agb:
-                if param not in agb_params or pd.isna(agb_params[param]):
-                    self.logger.error(f"Missing or invalid AGB parameter: {param}")
-                    return False
-            
-            # Check parameter ranges
-            if agb_params['a_mean'] <= 0 or agb_params['b_mean'] <= 0:
-                self.logger.error("AGB parameters must be positive")
-                return False
-            
-            if agb_params['a_std'] < 0 or agb_params['b_std'] < 0:
-                self.logger.error("Standard deviations must be non-negative")
-                return False
-            
-            # Check BGB parameters if present
-            bgb_params = allometry_params.get('bgb_params')
-            if bgb_params:
-                if 'ratio_mean' not in bgb_params or pd.isna(bgb_params['ratio_mean']):
-                    self.logger.error("Invalid BGB ratio parameter")
-                    return False
-                
-                if bgb_params['ratio_mean'] < 0:
-                    self.logger.error("BGB ratio must be non-negative")
-                    return False
-            
-            return True
-            
-        except Exception as e:
-            self.logger.error(f"Error validating parameters: {str(e)}")
-            return False
+        # Calculate AGB standard deviation from percentile bounds using normal approximation
+        z_15 = norm.ppf(0.15)  # Z-score for 15th percentile
+        z_85 = norm.ppf(0.85)  # Z-score for 85th percentile
+        agb_sd = ((agbd_p50 - agbd_p15) / abs(z_15) + (agbd_p85 - agbd_p50) / z_85) / 2
+        agb_sd = agb_sd.persist()
+        
+        # Calculate BGB ratio standard deviation from percentile bounds
+        bgb_mean_val = bgb_params['mean']
+        bgb_p5_val = bgb_params['p5']
+        bgb_p95_val = bgb_params['p95']
+        
+        z_5 = norm.ppf(0.05)   # Z-score for 5th percentile
+        z_95 = norm.ppf(0.95)  # Z-score for 95th percentile
+        bgb_sd = ((bgb_mean_val - bgb_p5_val) / abs(z_5) + (bgb_p95_val - bgb_mean_val) / z_95) / 2
+        
+        # Set up sample dimension for vectorized Monte Carlo
+        sample_dim = np.arange(num_samples)
+        
+        # Configure chunking for memory-efficient processing
+        if hasattr(masked_heights, 'chunks'):
+            y_chunks, x_chunks = masked_heights.chunks
+        else:
+            # Use default chunking if not available
+            y_chunks, x_chunks = (1500, 1500)
+        
+        # Initialize results dataset
+        results = xr.Dataset()
+        
+        self.logger.info("Generating vectorized Monte Carlo samples")
+        
+        # Initialize random number generators with different seeds for independence
+        rs = da.random.RandomState(seed)
+        rs_bgb = da.random.RandomState(seed + 10000)
+        
+        # Configure sample chunking to balance memory usage and computational efficiency
+        sample_chunks = (min(25, num_samples), y_chunks[0], x_chunks[0])
+        
+        # Generate AGB noise samples and persist for reuse
+        self.logger.info("Generating AGB noise")
+        agb_noise = rs.normal(0, 1, (num_samples,) + masked_heights.shape, chunks=sample_chunks)
+        agb_noise = agb_noise.persist()
+        
+        # Generate BGB noise samples and persist for reuse
+        self.logger.info("Generating BGB noise")
+        bgb_noise = rs_bgb.normal(0, 1, (num_samples,) + masked_heights.shape, chunks=sample_chunks)
+        bgb_noise = bgb_noise.persist()
+        
+        # Broadcast mean and standard deviation for vectorized sampling
+        self.logger.info("Broadcasting values for vectorized operations")
+        agbd_p50_expanded = agbd_p50.expand_dims(sample=sample_dim)
+        agb_sd_expanded = agb_sd.expand_dims(sample=sample_dim)
+        
+        # Generate AGB samples using normal distribution around allometric predictions
+        self.logger.info("Calculating AGB samples")
+        agbd_samples = agbd_p50_expanded + (agb_noise * agb_sd_expanded)
+        agbd_samples = agbd_samples.persist()  # Materialize samples
+        
+        # Clean up intermediate arrays to free memory
+        del agb_noise, agbd_p50_expanded, agb_sd_expanded
+        gc.collect()
+        
+        # Generate BGB coefficient samples using normal distribution around ratio means
+        self.logger.info("Calculating BGB coefficients")
+        bgb_coef = xr.ones_like(masked_heights).expand_dims(sample=sample_dim) * bgb_mean_val + (bgb_noise * bgb_sd)
+        bgb_coef = bgb_coef.persist()  # Materialize coefficients
+        
+        # Clean up BGB noise to free memory
+        del bgb_noise
+        gc.collect()
+        
+        # Calculate BGB samples by applying ratios to AGB samples
+        self.logger.info("Calculating BGBD samples")
+        bgbd_samples = agbd_samples * bgb_coef
+        bgbd_samples = bgbd_samples.persist()  # Materialize samples
+        
+        # Calculate total biomass samples
+        self.logger.info("Calculating total biomass samples")
+        total_samples = agbd_samples + bgbd_samples
+        total_samples = total_samples.persist()  # Materialize samples
+        
+        # Clean up coefficient array
+        del bgb_coef
+        gc.collect()
+        
+        # Calculate statistical summaries using efficient moment-based approach
+        self.logger.info("Calculating means and standard deviations")
+        
+        # Compute mean values across Monte Carlo samples
+        agbd_mean = agbd_samples.mean(dim='sample').persist()
+        agbd_std = agbd_samples.std(dim='sample').persist()
+        
+        bgbd_mean = bgbd_samples.mean(dim='sample').persist()
+        bgbd_std = bgbd_samples.std(dim='sample').persist()
+        
+        total_mean = total_samples.mean(dim='sample').persist()
+        total_std = total_samples.std(dim='sample').persist()
+        
+        # Free memory from large sample arrays
+        del agbd_samples, bgbd_samples, total_samples
+        gc.collect()
+        
+        # Calculate uncertainty as half-width of 95% confidence interval using normal approximation
+        z_95_ci = 1.96  # Z-score for 95% confidence interval (±1.96σ covers 95%)
+        
+        agbd_uncertainty = z_95_ci * agbd_std
+        bgbd_uncertainty = z_95_ci * bgbd_std
+        total_uncertainty = z_95_ci * total_std    
+        
+        # Store final results in structured dataset
+        self.logger.info("Storing results")
+        
+        # Mean biomass estimates
+        results['agbd_mean'] = agbd_mean
+        results['bgbd_mean'] = bgbd_mean
+        results['total_mean'] = total_mean
+        
+        # Uncertainty estimates (half-width of 95% confidence intervals)
+        results['agbd_uncertainty'] = agbd_uncertainty
+        results['bgbd_uncertainty'] = bgbd_uncertainty
+        results['total_uncertainty'] = total_uncertainty
+
+        # Clean up standard deviation arrays
+        del agbd_std, bgbd_std, total_std
+        gc.collect()
+        
+        self.logger.info("Monte Carlo simulation completed - results ready for incremental computation")
+        return results
