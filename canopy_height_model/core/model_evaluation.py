@@ -225,7 +225,8 @@ class ModelEvaluationPipeline:
     def _setup_datamodule(self) -> None:
         """Initialize the data module."""
         self.datamodule = S2PNOAVegetationDataModule(
-            data_dir=str(SENTINEL2_MOSAICS_DIR.parent),
+            sentinel2_dir=str(SENTINEL2_MOSAICS_DIR),
+            pnoa_dir = str(ALS_CANOPY_HEIGHT_PROCESSED_DIR),
             config_path=None  # Will use component default
         )
         self.logger.info("Datamodule initialized for evaluation")

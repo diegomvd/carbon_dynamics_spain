@@ -103,6 +103,23 @@ augmentation:
   mask_noise_std: 0.05
   mask_noise_p: 0.2
 
+  # Loss function configuration
+loss:
+  # Range-aware loss parameters
+  alpha: 0.5                   # Exponent for inverse frequency weighting (0=no weighting, 1=full inverse)
+  max_height: 30.0             # Maximum height for range definitions in meters
+  eps: 1e-6                    # Small constant for numerical stability
+  weights: true                # Whether to apply range-specific weighting
+
+optimizer:
+  max_lr: 2e-4
+  weight_decay: 0.01
+
+scheduler:
+  pct_start: 0.2
+  div_factor: 15
+  final_div_factor: 100 
+
 # Post-processing configuration
 post_processing:
   # Step 1: Merge predictions
@@ -196,3 +213,4 @@ file_patterns:
   lidar_pattern: 'PNOA_*_height_*.tif'
   prediction_pattern: 'canopy_height_pred_*.tif'
   checkpoint_pattern: 'canopy_height_model_*.ckpt'
+

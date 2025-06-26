@@ -1,5 +1,5 @@
 """
-Range-aware loss functions for canopy height regression in log-space.
+Frequency-blanced L1 loss functions for canopy height regression in log-space.
 
 This module provides specialized loss functions designed for canopy height regression
 tasks that operate in log-space and incorporate range-specific weighting to handle
@@ -33,7 +33,7 @@ from shared_utils import get_logger
 logger = get_logger(__name__)
 
 
-class RangeAwareL1Loss(nn.Module):
+class FrequecnyBalancedL1Loss(nn.Module):
     """
     Loss function for height prediction in log1p space with range diversity weighting.
     
@@ -52,8 +52,6 @@ class RangeAwareL1Loss(nn.Module):
     - Final loss: mean(w_i * |pred_i - target_i|) for pixels in range i
     
     Args:
-        percentile_range: Percentile range for diversity calculation (currently unused)
-        lambda_reg: Weight for range diversity regularization term (currently unused)
         max_height: Maximum height for range definitions in meters
         eps: Small constant for numerical stability in inverse frequency calculation
         nan_value: Value to be treated as no-data/invalid
@@ -63,8 +61,6 @@ class RangeAwareL1Loss(nn.Module):
     
     def __init__(
         self,
-        percentile_range: Tuple[float, float] = (10.0, 90.0),
-        lambda_reg: float = 0.25,
         max_height: float = 30.0,
         eps: float = 1e-6,
         nan_value: float = -1.0,
@@ -75,8 +71,6 @@ class RangeAwareL1Loss(nn.Module):
         Initialize the range-aware L1 loss function.
         
         Args:
-            percentile_range (Tuple[float, float]): Percentile range for diversity calculation
-            lambda_reg (float): Weight for range diversity regularization term
             max_height (float): Maximum height for range definitions
             eps (float): Small constant for numerical stability
             nan_value (float): Value to be treated as no-data
@@ -84,8 +78,6 @@ class RangeAwareL1Loss(nn.Module):
             weights (bool): Whether to apply range-specific weighting
         """
         super().__init__()
-        self.percentile_range = percentile_range
-        self.lambda_reg = lambda_reg
         self.eps = eps
         self.nan_value = nan_value
         self.weights = weights
@@ -98,7 +90,7 @@ class RangeAwareL1Loss(nn.Module):
             self.height_ranges.append((int(max_height), float('inf')))
             logger.debug(f"Initialized {len(self.height_ranges)} height ranges for weighting")
         
-        logger.info(f"Initialized RangeAwareL1Loss with weights={weights}, alpha={alpha}, max_height={max_height}")
+        logger.info(f"Initialized FrequecnyBalancedL1Loss with weights={weights}, alpha={alpha}, max_height={max_height}")
 
     def _compute_range_frequencies(self, target: torch.Tensor) -> Dict[int, float]:
         """
@@ -249,5 +241,5 @@ class RangeAwareL1Loss(nn.Module):
 # -----------------------------------------------------------------------------
 
 __all__ = [
-    'RangeAwareL1Loss'
+    'FrequecnyBalancedL1Loss'
 ]

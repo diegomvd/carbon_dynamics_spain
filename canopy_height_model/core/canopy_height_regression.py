@@ -31,31 +31,21 @@ from torchgeo.trainers import PixelwiseRegressionTask
 # Shared utilities
 from shared_utils import get_logger, load_config
 
-# Component imports (these would be additional modules in the same core/ directory)
-try:
-    from .height_regression_losses import RangeAwareL1Loss
-except ImportError:
-    # Fallback if module doesn't exist yet
-    RangeAwareL1Loss = None
+from .height_regression_losses import FrequecnyBalancedL1Loss
 
 
-def get_balanced_universal_loss(config: Dict[str, Any]) -> Optional[Any]:
+def get_frequency_balanced_loss(config: Dict[str, Any]) -> Optional[Any]:
     """
-    Create a balanced universal loss function from configuration.
+    Create frequency-balanced loss function from configuration.
     
     Args:
         config (Dict[str, Any]): Configuration dictionary containing loss parameters
         
     Returns:
-        RangeAwareL1Loss: Configured loss function instance or None if not available
-    """
-    if RangeAwareL1Loss is None:
-        return None
-        
+        FrequecnyBalancedL1Loss: Configured loss function instance or None if not available
+    """        
     loss_config = config['loss']
-    return RangeAwareL1Loss(
-        percentile_range=tuple(loss_config['percentile_range']),
-        lambda_reg=loss_config['lambda_reg'],
+    return FrequecnyBalancedL1Loss(
         alpha=loss_config['alpha'],
         max_height=loss_config['max_height'],
         eps=loss_config['eps'],
@@ -71,23 +61,17 @@ class HeightRangeMetrics:
     height ranges to assess model performance across different vegetation heights.
     """
     
-    def __init__(self, config: Dict[str, Any]):
-        """
-        Initialize with height ranges from configuration.
-        
-        Args:
-            config (Dict[str, Any]): Configuration dictionary containing height ranges
-        """
-        # Get height ranges from config, handle both old and new config formats
-        if 'model' in config and 'height_ranges' in config['model']:
-            height_ranges_config = config['model']['height_ranges']
-        elif 'evaluation' in config and 'height_ranges' in config['evaluation']:
+    def __init__(self, config: Optional[Dict[str, Any]] = None):
+        """Initialize with height ranges from configuration or defaults."""
+        if config and 'evaluation' in config and 'height_ranges' in config['evaluation']:
             height_ranges_config = config['evaluation']['height_ranges']
         else:
-            # Default height ranges if not in config
-            height_ranges_config = [[0, 2], [2, 6], [6, 10], [10, 20], [20, 50]]
+            # Original default ranges
+            height_ranges_config = [[0, 1], [1, 2], [2, 4], [4, 8], 
+                                   [8, 12], [12, 16], [16, 20], [20, 25], 
+                                   [25, float('inf')]]
         
-        # Convert .inf string back to float('inf') for configuration compatibility
+        # Convert to tuples and handle infinity
         self.height_ranges = []
         for min_h, max_h in height_ranges_config:
             if max_h == '.inf' or max_h == 'inf':
@@ -169,7 +153,6 @@ class CanopyHeightRegressionTask(PixelwiseRegressionTask):
         weights: Optional[Union[WeightsEnum, str, bool]] = None,
         in_channels: int = 10,
         num_outputs: int = 1,
-        target_range: str = "universal",  
         nan_value_target: float = -1.0,
         nan_value_input: float = 0.0,
         lr: float = 1e-4,
@@ -186,7 +169,6 @@ class CanopyHeightRegressionTask(PixelwiseRegressionTask):
             weights: Pre-trained weights to use
             in_channels: Number of input channels
             num_outputs: Number of output channels
-            target_range: Target range specification
             nan_value_target: NaN value for target data
             nan_value_input: NaN value for input data
             lr: Learning rate
@@ -197,6 +179,7 @@ class CanopyHeightRegressionTask(PixelwiseRegressionTask):
         # Store parameters before calling super().__init__
         self.nan_value_target = nan_value_target
         self.nan_value_input = nan_value_input
+        self.nan_counter = 0
         self.lr = lr
         self.patience = patience
         
@@ -242,33 +225,27 @@ class CanopyHeightRegressionTask(PixelwiseRegressionTask):
     
     def _setup_custom_loss(self) -> None:
         """Setup custom loss function if available."""
-        if self.config and RangeAwareL1Loss is not None:
+        if self.config:
             try:
-                custom_loss = get_balanced_universal_loss(self.config)
+                custom_loss = get_frequency_balanced_loss(self.config)
                 if custom_loss:
                     self.loss = custom_loss
-                    self.logger.info("Using custom RangeAwareL1Loss")
+                    self.logger.info("Using custom FrequecnyBalancedL1Loss")
             except Exception as e:
                 self.logger.warning(f"Could not setup custom loss: {e}")
     
-    def _handle_nan_inputs(self, x: Tensor) -> Tuple[Tensor, Tensor]:
-        """
-        Handle NaN values in input tensors.
-        
-        Args:
-            x: Input tensor
-            
-        Returns:
-            Tuple of (filled_tensor, valid_mask)
-        """
-        # Create mask for valid (non-NaN) inputs
-        input_mask = torch.isfinite(x).all(dim=1, keepdim=True)
-        
-        # Fill NaN values with the configured input NaN value
-        x_filled = torch.where(torch.isfinite(x), x, self.nan_value_input)
-        
+    def _create_input_mask(self, x: Tensor) -> Tensor:
+        """Create mask for valid input values across all bands"""
+        # Returns True for valid pixels across all bands, False otherwise
+        return ~(x == self.nan_value_input).any(dim=1, keepdim=True)  # Mask where any band has nodata
+
+    def _handle_nan_inputs(self, x: Tensor) -> Tensor:
+        """Handle NaN values in input tensor."""
+        input_mask = self._create_input_mask(x)
+        x_filled = x.clone()
+        x_filled[x == self.nan_value_input] = 0.0  # Fill nodata with zeros
         return x_filled, input_mask
-    
+
     def training_step(self, batch: Dict[str, Tensor], batch_idx: int) -> Tensor:
         """
         Training step with NaN handling.
@@ -297,18 +274,15 @@ class CanopyHeightRegressionTask(PixelwiseRegressionTask):
         valid_mask = (y != self.nan_value_target) & input_mask
         
         if valid_mask.any():
-            if hasattr(self.loss, 'forward'):
-                # Custom loss function
-                loss = self.loss(y_hat[valid_mask], y[valid_mask])
-            else:
-                # Standard loss function
-                loss = self.loss(y_hat[valid_mask], y[valid_mask])
+            loss = self.loss(y_hat[valid_mask], y[valid_mask])
         else:
             # No valid pixels, return zero loss
+            self.nan_counter += 1
             loss = torch.tensor(0.0, device=x.device, requires_grad=True)
         
         # Log training loss
         self.log("train_loss", loss, on_step=True, on_epoch=True, prog_bar=True)
+        self.log("nan_count", loss, on_step=True, on_epoch=True, prog_bar=True)
         
         return loss
     
@@ -337,10 +311,7 @@ class CanopyHeightRegressionTask(PixelwiseRegressionTask):
         valid_mask = (y != self.nan_value_target) & input_mask
         
         if valid_mask.any():
-            if hasattr(self.loss, 'forward'):
-                loss = self.loss(y_hat[valid_mask], y[valid_mask])
-            else:
-                loss = self.loss(y_hat[valid_mask], y[valid_mask])
+            loss = self.loss(y_hat[valid_mask], y[valid_mask])
                 
             # Calculate basic metrics on valid pixels
             y_hat_valid = y_hat[valid_mask]
@@ -407,51 +378,6 @@ class CanopyHeightRegressionTask(PixelwiseRegressionTask):
                 for metric_name, metric_value in range_metrics.items():
                     self.log(metric_name, metric_value, on_epoch=True)
     
-    def configure_optimizers(self):
-        """
-        Configure optimizers and learning rate schedulers.
-        
-        Returns:
-            Optimizer and scheduler configuration
-        """
-        optimizer = torch.optim.AdamW(
-            self.parameters(),
-            lr=self.lr,
-            weight_decay=1e-4
-        )
-        
-        # Use ReduceLROnPlateau scheduler
-        scheduler = ReduceLROnPlateau(
-            optimizer,
-            mode='min',
-            factor=0.5,
-            patience=self.patience // 2,
-            verbose=True,
-            min_lr=1e-7
-        )
-        
-        return {
-            "optimizer": optimizer,
-            "lr_scheduler": {
-                "scheduler": scheduler,
-                "monitor": "val_mae",
-                "interval": "epoch",
-                "frequency": 1,
-            },
-        }
-    
-    def forward(self, x: Tensor) -> Tensor:
-        """
-        Forward pass through the model.
-        
-        Args:
-            x: Input tensor
-            
-        Returns:
-            Model predictions
-        """
-        return self.model(x)
-    
     def predict_step(self, batch: Dict[str, Tensor], batch_idx: int) -> Tensor:
         """
         Prediction step for inference.
@@ -465,13 +391,51 @@ class CanopyHeightRegressionTask(PixelwiseRegressionTask):
         """
         x = batch["image"]
         
-        # Handle NaN inputs
-        x_filled, _ = self._handle_nan_inputs(x)
+        # # Handle NaN inputs
+        # x_filled, _ = self._handle_nan_inputs(x)
         
         # Get predictions
-        y_hat = self(x_filled)
+        y_hat = self(x)
         
         # Convert from log space
         pred = torch.expm1(y_hat)
         
         return pred
+
+    def configure_optimizers(self):
+        """
+        Configure optimizers and learning rate schedulers.
+        
+        Returns:
+            Optimizer and scheduler configuration
+        """
+        optimizer = torch.optim.AdamW(
+            self.parameters(),
+            lr=self.config['optimizer']['max_lr'],
+            weight_decay=elf.config['optimizer']['weight_decay']
+        )
+        
+        total_steps = self.trainer.estimated_stepping_batches
+
+        scheduler = torch.optim.lr_scheduler.OneCycleLR(
+            optimizer,
+            max_lr=self.config['optimizer']['max_lr'],
+            epochs=self.trainer.max_epochs,
+            total_steps=total_steps,
+            pct_start=self.config['scheduler']['pct_start'],
+            div_factor=self.config['scheduler']['div_factor'],        
+            final_div_factor=self.config['scheduler']['final_div_factor'], 
+            three_phase=False,
+            anneal_strategy='cos'
+        )
+        
+        return {
+            "optimizer": optimizer,
+            "lr_scheduler": {
+                "scheduler": scheduler,
+                "interval": "step",
+                "frequency": 1,
+            },
+        }
+    
+
