@@ -51,6 +51,7 @@ SPAIN_BOUNDARIES_FILE = SPAIN_BOUNDARIES_DIR / "gadm41_ESP_0.shp"
 CLIMATE_RAW_DIR = RAW_DIR / "climate"
 
 CLIMATE_DIR = PROCESSED_DIR / "climate"
+CLIMATE_RASTERS_RAW_DIR = CLIMATE_DIR / "raw_rasters"
 CLIMATE_HARMONIZED_DIR = CLIMATE_DIR / "harmonized"
 BIOCLIM_VARIABLES_DIR = CLIMATE_DIR / "bioclimatic"
 BIOCLIM_ANOMALIES_DIR = CLIMATE_DIR / "bioclimatic_anomalies"
@@ -74,6 +75,7 @@ SENTINEL2_MERGED_DIR = SENTINEL2_PROCESSED_DIR / "merged"
 # Height model checkpoint
 PRETRAINED_HEIGHT_MODELS_DIR = DATA_ROOT / "pretrained_height_models"
 HEIGHT_MODEL_CHECKPOINT_FILE = PRETRAINED_HEIGHT_MODELS_DIR / "height_model_checkpoint.pkl"
+HEIGHT_EVALUATION_RESULTS_DIR = PRETRAINED_HEIGHT_MODELS_DIR / 'evaluation_results'
 
 # Height maps 
 HEIGHT_MAPS_DIR = PROCESSED_DIR / "height_maps"
@@ -129,8 +131,6 @@ BIOMASS_TRANSITIONS_DIR = RESULTS_DIR / "biomass_transitions"
 
 # Carbon changes stats
 CARBON_CHANGES_DIR = RESULTS_DIR / "carbon_changes"
-
-
 
 # Climate biomass results
 CLIMATE_BIOMASS_DATA_DIR = PROCESSED_DIR / "climate_biomass"

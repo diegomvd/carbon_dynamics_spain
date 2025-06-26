@@ -38,7 +38,11 @@ class ModelTrainingPipeline:
     - Checkpoint management
     """
     
-    def __init__(self, config_path: Optional[Union[str, Path]] = None):
+    def __init__(
+        self,
+        config_path: Optional[Union[str, Path]] = None,
+        checkpoint_path: Optional[Union[str, Path]] = None,
+    ):
         """
         Initialize the training pipeline.
         
@@ -63,6 +67,11 @@ class ModelTrainingPipeline:
         # Pipeline state
         self.start_time = None
         self.best_checkpoint = None
+
+        if checkpoint_path:
+            self.checkpoint_path = checkpoint_path
+        else:
+            self.checkpoint_path = None
         
         self.logger.info("ModelTrainingPipeline initialized")
         self.logger.info(f"Configuration loaded from: {self.config['_meta']['config_file']}")

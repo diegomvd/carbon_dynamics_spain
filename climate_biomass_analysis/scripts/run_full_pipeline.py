@@ -23,12 +23,12 @@ from typing import Dict, List, Optional
 # Add parent directory to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
-from climate_biomass_analysis.core.climate_raster_processing import ClimateProcessingPipeline
+from climate_biomass_analysis.core.climate_raster_conversion import ClimateRasterConversionPipeline
 from climate_biomass_analysis.core.bioclim_calculation import BioclimCalculationPipeline
 from climate_biomass_analysis.core.biomass_integration import BiomassIntegrationPipeline
 from climate_biomass_analysis.core.spatial_analysis import SpatialAnalysisPipeline
 from climate_biomass_analysis.core.optimization_pipeline import OptimizationPipeline
-from shared_utils.central_data_paths_constants import *
+from climate_biomass_analysis.core.shap_analysis import ShapAnalysisPipeline
 
 
 def parse_arguments():
@@ -61,41 +61,28 @@ def main():
     """Main entry point for complete pipeline script."""
     args = parse_arguments()
 
-    climate_processing = ClimateProcessingPipeline(args.config)
-    success_climate = ClimateProcessingPipeline.run_full_pipeline()
+    climate_raster_conversion = ClimateRasterConversionPipeline(args.config)
+    success_conversion = ClimateRasterConversionPipeline.run_full_pipeline()
 
     bioclim_processing = BioclimCalculationPipeline(args.config)
     success_bioclim = bioclim_processing.run_full_pipeline()
 
-    
-    try:
-        # Initialize orchestrator
-        orchestrator = PipelineOrchestrator(config_path=args.config, log_level=log_level)
-        
-        # Determine stages to run
-        if args.stages:
-            stages_to_run = args.stages
-        else:
-            all_stages = ['climate_processing', 'bioclim_calculation', 'biomass_integration', 
-                         'spatial_analysis', 'optimization']
-            stages_to_run = all_stages
-        
-        orchestrator.logger.info(f"Pipeline stages to execute: {', '.join(stages_to_run)}")
-        
-        # Run pipeline
-        results = orchestrator.run_full_pipeline(
-            stages=stages_to_run
-        )
-        
-        # Exit with appropriate code
-        if results['success']:
-            sys.exit(0)
-        else:
-            sys.exit(1)
-        
-    except Exception as e:
-        print(f"Pipeline orchestrator failed: {e}")
-        sys.exit(1)
+    biomass_integration = BiomassIntegrationPipeline(args.config)
+    success_integration = biomass_integration.run_full_pipeline()
+
+    spatial_analysis = SpatialAnalysisPipeline(args.config)
+    success_spatial = spatial_analysis.run_full_pipeline()
+
+    optimization = OptimizationPipeline(args.config)
+    success_optimization = optimization.run_full_pipeline()
+
+    shap_interpretation = ShapAnalysisPipeline(args.config)
+    success_shap = shap_interpretation.run_full_pipeline()
+
+    success = all([success_conversion,success_bioclim,success_integration,success_spatial,success_optimization,success_shap])
+
+    return success    
 
 if __name__ == "__main__":
-    main()
+    success = main()
+    sys.exit(0 if success else 1)

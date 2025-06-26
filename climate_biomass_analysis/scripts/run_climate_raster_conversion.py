@@ -19,7 +19,7 @@ from typing import Optional
 # Add parent directory to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
-from climate_biomass_analysis.core.climate_raster_processing import ClimateProcessor
+from climate_biomass_analysis.core.climate_raster_conversion import ClimateRasterConversionPipeline
 from shared_utils import setup_logging
 from shared_utils.central_data_paths_constants import *
 
@@ -44,7 +44,7 @@ def parse_arguments():
 def main():
     """Main entry point for climate processing script."""
     args = parse_arguments()
-    climate_processing = ClimateProcessingPipeline(args.config)
+    climate_processing = ClimateRasterConversionPipeline(args.config)
     success = ClimateProcessingPipeline.run_full_pipeline()
     return success
 

@@ -28,7 +28,7 @@ from shared_utils import setup_logging, get_logger, load_config, ensure_director
 warnings.filterwarnings('ignore')
 
 
-class ClimateProcessingPipeline:
+class ClimateRasterConversionPipeline:
     """
     Climate raster processing pipeline for GRIB to GeoTIFF conversion.
     
@@ -60,7 +60,7 @@ class ClimateProcessingPipeline:
         self.resampling_method = getattr(Resampling, self.climate_config['resampling_method'].upper())
         
         self.input_dir = CLIMATE_RAW_DIR
-        self.output_dir = CLIMATE_HARMONIZED_DIR
+        self.output_dir = CLIMATE_RASTERS_RAW_DIR
 
         self.logger.info(f"Initialized ClimateProcessingPipeline with target CRS: {self.target_crs}")
 

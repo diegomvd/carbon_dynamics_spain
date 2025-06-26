@@ -109,7 +109,7 @@ class ModelEvaluationPipeline:
     visualization, and performance analysis across different height ranges.
     """
     
-    def __init__(self, config_path: Optional[str] = None):
+    def __init__(self, config_path: Optional[Union[str, Path]] = None, checkpoint_path: Optional[Union[str, Path]] = None):
         """
         Initialize the evaluation pipeline.
         
@@ -125,9 +125,103 @@ class ModelEvaluationPipeline:
         self.datamodule = None
         self.model = None
         self.trainer = None
+
+        if not checkpoint_path:
+            self.checkpoint_path = HEIGHT_MODEL_CHECKPOINT_FILE
+        else:
+            self.checkpoint_path = checkpoint_path
+        self.output_dir = HEIGHT_EVALUATION_RESULTS_DIR
         
         self.logger.info("ModelEvaluationPipeline initialized")
     
+    def run_full_pipeline(self) -> bool:
+        """
+        Run complete model evaluation pipeline.
+        
+        Args:
+            checkpoint_path: Path to model checkpoint
+            output_dir: Output directory for results
+            
+        Returns:
+            Dictionary with evaluation results
+        """
+        self.logger.info(f"Starting model evaluation with checkpoint: {checkpoint_path}")
+        
+        output_dir = self.output_dir
+        checkpoint_path = self.checkpoint_path
+        
+        try:
+            # Setup components
+            self._setup_datamodule()
+            self._setup_model()
+            self._setup_trainer()
+            
+            # Load model from checkpoint
+            self.model = CanopyHeightRegressionTask.load_from_checkpoint(
+                checkpoint_path,
+                nan_value_target=self.datamodule.hparams['nan_target'],
+                nan_value_input=self.datamodule.hparams['nan_input']
+            )
+            
+            # Run evaluation
+            self.logger.info("Running model testing...")
+            self.trainer.test(self.model, datamodule=self.datamodule)
+            
+            # Get predictions and targets
+            predictions, targets = self.pred_collector.get_predictions_and_targets()
+            
+            self.logger.info(f"Collected {len(predictions)} prediction-target pairs")
+            
+            # Calculate metrics
+            metrics = self._calculate_metrics(predictions, targets, confidence_level=0.95)
+            
+            # Save metrics
+            metrics_file = output_dir / 'evaluation_metrics.json'
+            import json
+            with open(metrics_file, 'w') as f:
+                # Convert numpy types to Python types for JSON serialization
+                json_metrics = {k: float(v) if isinstance(v, (np.float32, np.float64)) else v 
+                              for k, v in metrics.items()}
+                json.dump(json_metrics, f, indent=2)
+            
+            # Save raw predictions and targets for visualization
+            import pickle
+            results_file = output_dir / 'evaluation_results.pkl'
+            evaluation_data = {
+                'predictions': predictions,
+                'targets': targets,
+                'metrics': metrics
+            }
+            with open(results_file, 'wb') as f:
+                pickle.dump(evaluation_data, f)
+            
+            self.logger.info(f"Raw evaluation data saved to: {results_file}")
+
+            # Create plots
+            self._create_evaluation_plots(predictions, targets, output_dir, metrics)
+            
+            # Save metrics
+            metrics_file = output_dir / 'evaluation_metrics.json'
+            import json
+            with open(metrics_file, 'w') as f:
+                # Convert numpy types to Python types for JSON serialization
+                json_metrics = {k: float(v) if isinstance(v, (np.float32, np.float64)) else v 
+                              for k, v in metrics.items()}
+                json.dump(json_metrics, f, indent=2)
+            
+            self.logger.info(f"Evaluation results saved to: {output_dir}")
+            self.logger.info("Evaluation Summary:")
+            self.logger.info(f"  MAE: {metrics['mae']:.3f} m")
+            self.logger.info(f"  RMSE: {metrics['rmse']:.3f} m")
+            self.logger.info(f"  R²: {metrics['r2']:.3f}")
+            self.logger.info(f"  Bias: {metrics['bias']:.3f} m")
+            
+            return True
+            
+        except Exception as e:
+            self.logger.error(f"Evaluation failed: {str(e)}")
+            raise
+
     def _setup_datamodule(self) -> None:
         """Initialize the data module."""
         self.datamodule = S2PNOAVegetationDataModule(
@@ -428,122 +522,3 @@ class ModelEvaluationPipeline:
         ax.set_title('Error by Height Range', fontsize=14, fontweight='bold')
         ax.legend()
         ax.grid(True, alpha=0.3)
-
-    def evaluate_model(
-        self, 
-        checkpoint_path: str, 
-        output_dir: Optional[str] = None
-    ) -> Dict[str, Any]:
-        """
-        Run complete model evaluation pipeline.
-        
-        Args:
-            checkpoint_path: Path to model checkpoint
-            output_dir: Output directory for results
-            
-        Returns:
-            Dictionary with evaluation results
-        """
-        self.logger.info(f"Starting model evaluation with checkpoint: {checkpoint_path}")
-        
-        # Setup output directory
-        if output_dir is None:
-            output_dir = PRETRAINED_HEIGHT_MODELS_DIR.parent / 'evaluation_results'
-        else:
-            output_dir = Path(output_dir)
-        
-        ensure_directory(output_dir)
-        
-        try:
-            # Setup components
-            self._setup_datamodule()
-            self._setup_model()
-            self._setup_trainer()
-            
-            # Load model from checkpoint
-            self.model = CanopyHeightRegressionTask.load_from_checkpoint(
-                checkpoint_path,
-                nan_value_target=self.datamodule.hparams['nan_target'],
-                nan_value_input=self.datamodule.hparams['nan_input']
-            )
-            
-            # Run evaluation
-            self.logger.info("Running model testing...")
-            self.trainer.test(self.model, datamodule=self.datamodule)
-            
-            # Get predictions and targets
-            predictions, targets = self.pred_collector.get_predictions_and_targets()
-            
-            self.logger.info(f"Collected {len(predictions)} prediction-target pairs")
-            
-            # Calculate metrics
-            metrics = self._calculate_metrics(predictions, targets, confidence_level=0.95)
-            
-            # Save metrics
-            metrics_file = output_dir / 'evaluation_metrics.json'
-            import json
-            with open(metrics_file, 'w') as f:
-                # Convert numpy types to Python types for JSON serialization
-                json_metrics = {k: float(v) if isinstance(v, (np.float32, np.float64)) else v 
-                              for k, v in metrics.items()}
-                json.dump(json_metrics, f, indent=2)
-            
-            # *** ADD THESE LINES TO SAVE PREDICTIONS AND TARGETS ***
-            # Save raw predictions and targets for visualization
-            import pickle
-            results_file = output_dir / 'evaluation_results.pkl'
-            evaluation_data = {
-                'predictions': predictions,
-                'targets': targets,
-                'metrics': metrics
-            }
-            with open(results_file, 'wb') as f:
-                pickle.dump(evaluation_data, f)
-            
-            self.logger.info(f"Raw evaluation data saved to: {results_file}")
-
-            # Create plots
-            self._create_evaluation_plots(predictions, targets, output_dir, metrics)
-            
-            # Save metrics
-            metrics_file = output_dir / 'evaluation_metrics.json'
-            import json
-            with open(metrics_file, 'w') as f:
-                # Convert numpy types to Python types for JSON serialization
-                json_metrics = {k: float(v) if isinstance(v, (np.float32, np.float64)) else v 
-                              for k, v in metrics.items()}
-                json.dump(json_metrics, f, indent=2)
-            
-            self.logger.info(f"Evaluation results saved to: {output_dir}")
-            self.logger.info("Evaluation Summary:")
-            self.logger.info(f"  MAE: {metrics['mae']:.3f} m")
-            self.logger.info(f"  RMSE: {metrics['rmse']:.3f} m")
-            self.logger.info(f"  R²: {metrics['r2']:.3f}")
-            self.logger.info(f"  Bias: {metrics['bias']:.3f} m")
-            
-            return {
-                'metrics': metrics,
-                'predictions': predictions,
-                'targets': targets,
-                'output_dir': str(output_dir)
-            }
-            
-        except Exception as e:
-            self.logger.error(f"Evaluation failed: {str(e)}")
-            raise
-
-
-def main():
-    """Main entry point for model evaluation."""
-    # This would be called from a script
-    evaluator = ModelEvaluationPipeline()
-    
-    # Example usage
-    checkpoint_path = "path/to/checkpoint.ckpt"
-    results = evaluator.evaluate_model(checkpoint_path)
-    
-    return results
-
-
-if __name__ == "__main__":
-    main()

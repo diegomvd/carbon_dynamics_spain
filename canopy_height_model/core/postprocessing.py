@@ -830,7 +830,11 @@ class PostProcessingPipeline:
     3. Downsample and create final country-wide mosaics
     """
     
-    def __init__(self, config_path: Optional[Union[str, Path]] = None):
+    def __init__(
+        self,
+        config_path: Optional[Union[str, Path]] = None,
+        steps: Optional[str] = None
+    ):
         """
         Initialize the post-processing pipeline.
         
@@ -851,9 +855,39 @@ class PostProcessingPipeline:
         self.merger = None
         self.sanitizer = None
         self.final_merger = None
+
+        if steps:
+            step_names = [s.strip().lower() for s in steps_str.split(',')]
+            steps_list = []
+            
+            for step_name in step_names:
+                try:
+                    if step_name == 'all':
+                        step = PipelineStep.ALL
+                    elif step_name == 'merge':
+                        step = PipelineStep.MERGE
+                    elif step_name == 'sanitize':
+                        step = PipelineStep.SANITIZE
+                    elif step_name in ['final_merge', 'final-merge', 'finalize']:
+                        step = PipelineStep.FINAL_MERGE
+                    else:
+                        raise ValueError(f"Unknown step: {step_name}")
+                    
+                    steps_list.append(step)
+                except ValueError as e:
+                    print(f"Warning: {e}")
+                    print(f"Available steps: merge, sanitize, final_merge, all")
+            self.steps = steps_list
+        else:
+            self.steps = [PipelineStep.ALL]
         
         self.logger.info("PostProcessingPipeline initialized")
     
+    def run_full_pipeline(self) -> bool:
+        all_results = self.run_pipeline()
+        overall_success = all(results.values())
+        return overall_success
+
     def validate_step_prerequisites(self, step: PipelineStep) -> bool:
         """Validate prerequisites for a specific step."""
         try:
@@ -978,9 +1012,8 @@ class PostProcessingPipeline:
     
     def run_pipeline(
         self, 
-        steps: Optional[List[PipelineStep]] = None,
         continue_on_error: bool = False
-    ) -> Dict[str, bool]:
+    ) -> bool:
         """
         Run the complete or partial post-processing pipeline.
         
@@ -991,6 +1024,9 @@ class PostProcessingPipeline:
         Returns:
             Dict mapping step names to success status
         """
+
+        steps = self.steps
+
         if steps is None:
             steps = [PipelineStep.ALL]
         
@@ -1030,10 +1066,11 @@ class PostProcessingPipeline:
             
             # Pipeline completion
             overall_success = all(results.values())
+            self.logger.info(f'Pipeline success: {results}')
             elapsed_time = time.time() - self.start_time
             log_pipeline_end(self.logger, "Canopy Height Post-Processing Pipeline", overall_success, elapsed_time)
             
-            return results
+            return overall_success
             
         except Exception as e:
             self.logger.error(f"Post-processing pipeline failed: {e}")

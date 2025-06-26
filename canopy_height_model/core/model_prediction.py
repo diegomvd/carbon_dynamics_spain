@@ -38,7 +38,12 @@ class ModelPredictionPipeline:
     - Output formatting and saving
     """
     
-    def __init__(self, config_path: Optional[Union[str, Path]] = None):
+    def __init__(
+        self, 
+        config_path: Optional[Union[str, Path]] = None,
+        checkpoint_path: Optional[Union[str, Path]] = None,
+        pattern: Optional[Union[str, Path]] = None
+    ):
         """
         Initialize the prediction pipeline.
         
@@ -61,9 +66,59 @@ class ModelPredictionPipeline:
         
         # Pipeline state
         self.start_time = None
-        
+
+        if checkpoint_path:
+            self.checkpoint_path = checkpoint_path
+        else:
+            self.checkpoint_path = HEIGHT_MODEL_CHECKPOINT_FILE
+
+        if pattern:
+            self.pattern = pattern
+        else:
+            self.pattern = '*.tif'
+
         self.logger.info("ModelPredictionPipeline initialized")
-    
+
+        
+    def run_full_pipeline(
+        self,
+        input_path: Union[str, Path],
+        output_path: Union[str, Path]
+    ) -> bool:
+        """
+        Run the complete prediction pipeline.
+        
+        Args:
+            checkpoint_path: Path to model checkpoint
+            input_path: Path to input raster(s)
+            output_path: Path to output location
+            is_directory: Whether input_path is a directory
+            
+        Returns:
+            bool: True if pipeline succeeded
+        """
+        self.start_time = time.time()
+        
+        # Log pipeline start
+        log_pipeline_start(self.logger, "Canopy Height Prediction", self.config)
+        
+        try:
+            # Load model
+            if not self.load_model(self.checkpoint_path):
+                return False
+            
+            success = self.predict_directory(input_path, output_path,self.pattern)
+            
+            # Pipeline completion
+            elapsed_time = time.time() - self.start_time
+            log_pipeline_end(self.logger, "Canopy Height Prediction", success, elapsed_time)
+            
+            return success
+            
+        except Exception as e:
+            self.logger.error(f"Prediction pipeline failed: {str(e)}")
+            return False
+
     def load_model(self, checkpoint_path: Union[str, Path]) -> bool:
         """
         Load trained model from checkpoint.
@@ -377,51 +432,6 @@ class ModelPredictionPipeline:
             
         except Exception as e:
             self.logger.error(f"Error predicting directory: {str(e)}")
-            return False
-    
-    def run_prediction_pipeline(
-        self,
-        checkpoint_path: Union[str, Path],
-        input_path: Union[str, Path],
-        output_path: Union[str, Path],
-        is_directory: bool = False
-    ) -> bool:
-        """
-        Run the complete prediction pipeline.
-        
-        Args:
-            checkpoint_path: Path to model checkpoint
-            input_path: Path to input raster(s)
-            output_path: Path to output location
-            is_directory: Whether input_path is a directory
-            
-        Returns:
-            bool: True if pipeline succeeded
-        """
-        self.start_time = time.time()
-        
-        # Log pipeline start
-        log_pipeline_start(self.logger, "Canopy Height Prediction", self.config)
-        
-        try:
-            # Load model
-            if not self.load_model(checkpoint_path):
-                return False
-            
-            # Run prediction
-            if is_directory:
-                success = self.predict_directory(input_path, output_path)
-            else:
-                success = self.predict_raster(Path(input_path), Path(output_path))
-            
-            # Pipeline completion
-            elapsed_time = time.time() - self.start_time
-            log_pipeline_end(self.logger, "Canopy Height Prediction", success, elapsed_time)
-            
-            return success
-            
-        except Exception as e:
-            self.logger.error(f"Prediction pipeline failed: {str(e)}")
             return False
     
     def get_prediction_summary(self) -> Dict[str, Any]:

@@ -64,7 +64,7 @@ class BioclimCalculationPipeline:
         self.temp_conversion = self.bioclim_config['temp_conversion']
         self.precip_scaling = self.bioclim_config['precip_scaling']
         
-        self.data_dir = CLIMATE_RAW_DIR
+        self.data_dir = CLIMATE_RASTERS_RAW_DIR
         self.harmonized_dir = CLIMATE_HARMONIZED_DIR
         self.bioclim_dir = BIOCLIM_VARIABLES_DIR
         self.anomalies_dir = BIOCLIM_ANOMALIES_DIR

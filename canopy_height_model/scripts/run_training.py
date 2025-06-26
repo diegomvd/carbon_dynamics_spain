@@ -54,27 +54,7 @@ def parse_arguments() -> argparse.Namespace:
         help='Path to checkpoint to resume training from'
     )
     
-    parser.add_argument(
-        '--fast-dev-run',
-        action='store_true',
-        help='Run fast development run (single batch)'
-    )
-    
     return parser.parse_args()
-
-
-def validate_arguments(args: argparse.Namespace) -> bool:
-    """Validate command line arguments."""
-    if args.config and not Path(args.config).exists():
-        print(f"Error: Config file not found: {args.config}")
-        return False
-    
-    if args.resume and not Path(args.resume).exists():
-        print(f"Error: Resume checkpoint not found: {args.resume}")
-        return False
-    
-    return True
-
 
 def apply_argument_overrides(pipeline: ModelTrainingPipeline, args: argparse.Namespace) -> None:
     """Apply command line argument overrides to pipeline configuration."""
@@ -91,67 +71,10 @@ def main():
     
     # Parse arguments
     args = parse_arguments()
-    
-    if not validate_arguments(args):
-        sys.exit(1)
-    
-    # Setup logging
-    logger = setup_logging(
-        level='INFO',
-        component_name='canopy_height_training',
-    )
-    
-    try:
-        # Initialize pipeline
-        logger.info("Initializing Canopy Height Training Pipeline...")
-        pipeline = ModelTrainingPipeline(config_path=args.config)
-        
-        # Apply command line overrides
-        apply_argument_overrides(pipeline, args)
-        
-        # Log pipeline start
-        log_pipeline_start(logger, "Canopy Height DL Training", pipeline.config)
-        
-        # Handle resume training
-        if args.resume:
-            logger.info(f"Resuming training from: {args.resume}")
-            pipeline.config['data']['checkpoint_path'] = args.resume
-        
-        # Run pipeline based on mode
-        success = pipeline.run_full_pipeline()
-        
-        # Get and log training summary
-        summary = pipeline.get_training_summary()
-        logger.info("Training Summary:")
-        for section, details in summary.items():
-            if isinstance(details, dict):
-                logger.info(f"  {section}:")
-                for key, value in details.items():
-                    logger.info(f"    {key}: {value}")
-            else:
-                logger.info(f"  {section}: {details}")
-        
-        # Pipeline completion
-        elapsed_time = time.time() - start_time
-        log_pipeline_end(logger, "Canopy Height DL Training", success, elapsed_time)
-        
-        if success:
-            logger.info("🎉 Training pipeline completed successfully!")
-            if pipeline.best_checkpoint:
-                logger.info(f"Best model checkpoint: {pipeline.best_checkpoint}")
-            sys.exit(0)
-        else:
-            logger.error("💥 Training pipeline failed!")
-            sys.exit(1)
-            
-    except KeyboardInterrupt:
-        logger.info("Training interrupted by user")
-        sys.exit(1)
-        
-    except Exception as e:
-        logger.error(f"Training pipeline failed with unexpected error: {str(e)}")
-        sys.exit(1)
-
+    model_training = ModelTrainingPipeline(args.config,args.resume)
+    success = model_training.run_full_pipeline()
+    return success
 
 if __name__ == "__main__":
-    main()
+    success = main()
+    sys.exit(0 if success else 1)
