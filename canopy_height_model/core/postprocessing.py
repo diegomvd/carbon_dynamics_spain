@@ -9,8 +9,6 @@ Complete multi-step post-processing pipeline for canopy height predictions inclu
 Contains the complete refactored logic from the original merge_predictions.py,
 sanitize_predictions.py, and downsample_merge.py implementations.
 
-TODO: still some issue with output data paths in the sanitization!!
-
 Author: Diego Bengochea
 """
 
@@ -83,35 +81,60 @@ class PredictionMerger:
     def _load_spain_boundaries(self) -> None:
         """Load and prepare Spain boundaries for geographic masking."""
         try:
-            spain_file = self.config.get('spain_shapefile', '/path/to/spain.shp')
-            self.spain = gpd.read_file(spain_file)
-            self.spain = self.spain.to_crs(self.merge_config['target_crs'])
-            self.logger.info(f"Loaded Spain boundaries from {spain_file}")
-        except Exception as e:
-            self.logger.warning(f"Could not load Spain boundaries: {e}")
-            self.spain = None
-    
-    def _create_geographic_grid(self) -> None:
-        """Create geographic grid for tile organization."""
-        try:
-            # Spain bounding box in EPSG:25830
-            spain_bounds = (0, 3800000, 1200000, 4900000)  # Approximate
-            tile_size_m = self.merge_config['tile_size_km'] * 1000
+            # Get shapefile path from configuration
+            spain_shapefile = self.merge_config.get('spain_shapefile')
+            if not spain_shapefile:
+                raise ValueError("Spain shapefile path not found in configuration")
             
-            # Create grid tiles
-            geotiles = odc.geo.geobox.make_geobox_grid(
-                bbox=spain_bounds,
-                tile_size=(tile_size_m, tile_size_m),
+            # Load Spain boundaries
+            self.spain = gpd.read_file(spain_shapefile)
+            self.spain = self.spain[['geometry', 'COUNTRY']].to_crs(
+                epsg=self.merge_config['target_crs'].split(':')[1]
+            )
+            
+            # Create geometry for odc.geo - THIS WAS MISSING IN REFACTORED VERSION
+            self.spain_geometry = odc.geo.geom.Geometry(
+                self.spain.geometry[0], 
                 crs=self.merge_config['target_crs']
             )
             
-            self.geotiles_list = list(geotiles.values())
-            self.logger.info(f"Created geographic grid with {len(self.geotiles_list)} tiles")
+            self.logger.info(f"Spain boundaries loaded from: {spain_shapefile}")
             
         except Exception as e:
-            self.logger.error(f"Failed to create geographic grid: {e}")
-            self.geotiles_list = []
-    
+            self.logger.error(f"Failed to load Spain boundaries: {str(e)}")
+            raise  # Don't continue with invalid boundaries!
+
+    def _create_geographic_grid(self) -> None:
+        """Create geographic grid using Spain boundaries."""
+        try:
+            # Create a GeoBox for all continental Spain using REAL boundaries
+            geobox_spain = odc.geo.geobox.GeoBox.from_geopolygon(
+                self.spain_geometry,  # Use REAL Spain geometry, not hardcoded bounds!
+                resolution=self.merge_config['resolution_meters']
+            )
+            
+            # Calculate tile size in grid units
+            tile_size_meters = self.merge_config['tile_size_km'] * 1000
+            tile_size_grid = tile_size_meters // self.merge_config['resolution_meters']
+            
+            # Divide the full geobox into tiles
+            self.geotiles = odc.geo.geobox.GeoboxTiles(
+                geobox_spain, 
+                (tile_size_grid, tile_size_grid)
+            )
+            
+            # Extract all tiles
+            self.geotiles_list = [
+                self.geotiles.__getitem__(tile) 
+                for tile in self.geotiles._all_tiles()
+            ]
+            
+            self.logger.info(f"Created {len(self.geotiles_list)} geographic tiles")
+            
+        except Exception as e:
+            self.logger.error(f"Failed to create geographic grid: {str(e)}")
+            raise  # Don't continue with invalid grid!
+
     def _convert_timestamp_to_year(self, timestamp: int) -> int:
         """Convert timestamp to year using mapping."""
         year_mapping = self.merge_config.get('year_timestamps', {})
@@ -127,36 +150,65 @@ class PredictionMerger:
         filename = f"canopy_height_{year}_{lat_dir}{abs_lat:.1f}_{lon_dir}{abs_lon:.1f}.tif"
         return str(HEIGHT_MAPS_TMP_120KM_DIR / filename)
     
-    def _find_intersecting_files(self, tile_box, year: int) -> List[str]:
-        """Find prediction files that intersect with the tile."""
-        input_dir = HEIGHT_MAPS_TMP_RAW_DIR
+    def _find_intersecting_files(self, tile_shapely_box: shapely.geometry.box, year: int) -> List[str]:
+        """Find prediction files that intersect with the given tile using spatial intersection."""
+        # Use the original directory structure: input_dir/year.0/files
+        predictions_dir = HEIGHT_MAPS_TMP_RAW_DIR / f'{year}.0'
         
-        # Find all prediction files for the year
-        pattern = f"*{year}*.tif"
-        files = list(input_dir.glob(pattern))
+        if not predictions_dir.exists():
+            return []
         
-        # Simple spatial filtering - in production would use actual bounds checking
-        return [str(f) for f in files[:10]]  # Simplified for this refactor
-    
-    def _merge_tile_files(self, files: List[str], bounds: Tuple[float, float, float, float]):
-        """Merge files for a single tile."""
+        # Find all prediction files for this year
+        all_files = list(predictions_dir.glob(f'*{year}.0.tif'))
+        files_to_merge = []
+        
+        for fname in all_files:
+            try:
+                with rasterio.open(fname) as src:
+                    bounds = src.bounds
+                    prediction_shapely_box = shapely.box(
+                        bounds.left, bounds.bottom, bounds.right, bounds.top
+                    )
+                    
+                    # REAL spatial intersection test (not placeholder!)
+                    if shapely.intersects(tile_shapely_box, prediction_shapely_box):
+                        files_to_merge.append(str(fname))
+                        
+            except Exception as e:
+                self.logger.warning(f"Error reading {fname}: {str(e)}")
+                continue
+        
+        return files_to_merge
+
+    def _merge_tile_files(self, files_to_merge: List[str], original_bounds: Tuple[float, float, float, float]):
+        """Merge files for a single tile using overlap averaging."""
         try:
-            datasets = [rasterio.open(f) for f in files]
+            datasets = [rasterio.open(f) for f in files_to_merge]
             
-            # Merge with bounds
-            merged_data, merged_transform = merge(
-                datasets, 
-                bounds=bounds,
-                method='first',
-                nodata=self.merge_config['nodata_value']
-            )
-            
-            # Close datasets
-            for ds in datasets:
-                ds.close()
-            
-            return merged_data.squeeze(), merged_transform
-            
+            try:
+                # Use SUM and COUNT methods to handle overlaps properly (not 'first'!)
+                image_sum, transform_sum = merge(
+                    datasets, 
+                    bounds=original_bounds, 
+                    method='sum'
+                )
+                image_count, transform_count = merge(
+                    datasets, 
+                    bounds=original_bounds, 
+                    method='count'
+                )
+                
+                # Average overlapping areas - PROPER overlap handling
+                image = image_sum / image_count
+                image = image[0, :, :]  # Remove band dimension
+                
+                return image, transform_count
+                
+            finally:
+                # Close datasets
+                for ds in datasets:
+                    ds.close()
+                
         except Exception as e:
             self.logger.error(f"Error merging files: {e}")
             return None, None
@@ -278,7 +330,7 @@ class PredictionMerger:
         # Create task list
         years = list(self.merge_config.get('year_timestamps', {}).keys())
         if not years:
-            years = [2020, 2021, 2022]  # Default years
+            years = [2017, 2018, 2019, 2020, 2021, 2022, 2023, 2024]  # Default years
             
         args_list = list(itertools.product(self.geotiles_list, years))
         
@@ -339,9 +391,9 @@ class HeightSanitizer:
         
         # Create output directories
         output_dirs = [
-            self.sanitize_config.get('processed_dir', 'processed'),
-            self.sanitize_config.get('interpolated_dir', 'interpolated'),
-            self.sanitize_config.get('interpolation_masks_dir', 'masks')
+            HEIGHT_MAPS_TMP_120KM_DIR,
+            HEIGHT_MAPS_10M_DIR,
+            HEIGHT_MAPS_TMP_INTERPOLATION_MASKS_DIR
         ]
         
         for directory in output_dirs:
@@ -394,18 +446,38 @@ class HeightSanitizer:
         
         return outlier_mask, nodata_mask
     
-    def calculate_statistics(self, data: np.ndarray, nodata_mask: np.ndarray) -> Dict[str, float]:
-        """Calculate statistics for valid data."""
+    def calculate_statistics(
+        self, 
+        data: np.ndarray, 
+        nodata_mask: np.ndarray
+    ) -> Dict[str, Any]:
+        """
+        Calculate comprehensive statistics for raster data.
+        
+        Args:
+            data (np.ndarray): Raster data array
+            nodata_mask (np.ndarray): Boolean mask for NoData values
+            
+        Returns:
+            Dict[str, Any]: Dictionary containing comprehensive statistics
+        """
         valid_data = data[~nodata_mask]
         
         if len(valid_data) == 0:
-            return {"min": np.nan, "max": np.nan, "mean": np.nan, "std": np.nan}
+            return {
+                "min": None, 
+                "max": None, 
+                "mean": None, 
+                "std": None, 
+                "num_pixels": 0
+            }
         
         return {
             "min": float(np.min(valid_data)),
             "max": float(np.max(valid_data)),
             "mean": float(np.mean(valid_data)),
-            "std": float(np.std(valid_data))
+            "std": float(np.std(valid_data)),
+            "num_pixels": int(valid_data.size)
         }
     
     def process_raster_file(self, filepath: str) -> Tuple[str, Dict[str, Any]]:
@@ -468,7 +540,19 @@ class HeightSanitizer:
                     data[nodata_mask] = nodata_value
                 
                 # Calculate processed statistics
-                processed_stats = self.calculate_statistics(data, nodata_mask)
+                # Create updated nodata mask for processed data
+                if nodata_value is not None:
+                    valid_processed = data[
+                        ~np.isnan(data) & ~np.isclose(data, nodata_value, rtol=1e-5)
+                    ]
+                    processed_nodata_mask = (
+                        np.isnan(data) | np.isclose(data, nodata_value, rtol=1e-5)
+                    )
+                else:
+                    valid_processed = data[~np.isnan(data)]
+                    processed_nodata_mask = np.isnan(data)
+                
+                processed_stats = self.calculate_statistics(data, processed_nodata_mask)
                 processed_stats.update({
                     "num_outliers": int(num_outliers),
                     "outlier_percent": float(outlier_percent),
@@ -476,8 +560,15 @@ class HeightSanitizer:
                     "negative_percent": float(negative_percent)
                 })
                 
+                # Update metadata - use rasterio constant instead of string
+                meta.update(dtype=rasterio.float32)
+                if nodata_value is not None:
+                    meta.update(nodata=nodata_value)
+                
+                # Create output directory before writing
+                os.makedirs(os.path.dirname(output_filename), exist_ok=True)
+                
                 # Write processed file
-                meta.update(dtype='float32')
                 with rasterio.open(output_filename, 'w', **meta) as dst:
                     dst.write(data, 1)
                 
@@ -491,48 +582,272 @@ class HeightSanitizer:
         except Exception as e:
             return filepath, {"error": str(e)}
     
-    def interpolate_location(self, location_data) -> Tuple[Tuple[float, float], List[str]]:
-        """Perform temporal interpolation for a single location."""
-        location, year_files = location_data
+    def _perform_temporal_interpolation(
+        self,
+        raster_data: Dict[int, np.ndarray],
+        nodata_values: Dict[int, float],
+        meta: Dict[str, Any],
+        years: List[int],
+        lat: float,
+        lon: float
+    ) -> List[Tuple[int, str]]:
+        """
+        Perform temporal interpolation on raster time series (pixel-wise).
+        
+        This is the sophisticated algorithm that was replaced with a simple file copy!
+        """
+        years_array = np.array(sorted(years))
+        shape = next(iter(raster_data.values())).shape
+        
+        # Create data and mask stacks (3D: time × height × width)
+        data_stack = np.zeros((len(years), shape[0], shape[1]), dtype=np.float32)
+        mask_stack = np.zeros((len(years), shape[0], shape[1]), dtype=bool)
+        
+        # Fill stacks with data and validity masks
+        for i, year in enumerate(years_array):
+            data = raster_data[year]
+            nodata_value = nodata_values[year]
+            
+            # Create valid data mask
+            valid_mask = ~np.isnan(data)
+            if nodata_value is not None:
+                valid_mask &= ~np.isclose(data, nodata_value, rtol=1e-5)
+            
+            data_stack[i] = data
+            mask_stack[i] = valid_mask
+        
+        # Initialize interpolated stack
+        interpolated_stack = data_stack.copy()
+        
+        # Identify pixels needing interpolation
+        has_valid_data = np.any(mask_stack, axis=0)
+        
+        # Identify pixels that are NoData in all years
+        all_nodata = np.zeros(shape, dtype=bool)
+        for year, data in raster_data.items():
+            nodata_value = nodata_values[year]
+            if nodata_value is not None:
+                all_nodata |= np.isclose(data, nodata_value, rtol=1e-5)
+        
+        # Get pixels to interpolate
+        pixels_to_interpolate = has_valid_data & ~all_nodata
+        y_coords, x_coords = np.where(pixels_to_interpolate)
+        
+        self.logger.info(f"Interpolating {len(y_coords)} pixels for location: {lat}, {lon}")
+        
+        # Perform PIXEL-WISE interpolation
+        for idx in tqdm(range(len(y_coords)), desc=f"Interpolating pixels for {lat},{lon}", leave=False):
+            y, x = y_coords[idx], x_coords[idx]
+            
+            for i, year in enumerate(years_array):
+                # Skip if already valid or NoData
+                if (mask_stack[i, y, x] or 
+                    (nodata_values[year] is not None and 
+                    np.isclose(data_stack[i, y, x], nodata_values[year], rtol=1e-5))):
+                    continue
+                
+                # Interpolation logic for edge and interior years
+                if i == 0 and i+1 < len(years_array) and mask_stack[i+1, y, x]:
+                    # First year: use next year
+                    interpolated_stack[i, y, x] = data_stack[i+1, y, x]
+                elif (i == len(years_array) - 1 and i-1 >= 0 and 
+                    mask_stack[i-1, y, x]):
+                    # Last year: use previous year
+                    interpolated_stack[i, y, x] = data_stack[i-1, y, x]
+                elif (i > 0 and i < len(years_array) - 1 and 
+                    mask_stack[i-1, y, x] and mask_stack[i+1, y, x]):
+                    # Interior years: average adjacent years
+                    interpolated_stack[i, y, x] = (
+                        data_stack[i-1, y, x] + data_stack[i+1, y, x]
+                    ) / 2
+        
+        # Save interpolated rasters
+        return self._save_interpolated_rasters(
+            interpolated_stack, years_array, raster_data, 
+            nodata_values, meta, lat, lon
+        )
+
+    def interpolate_location(
+        self, 
+        location_data: Tuple[Tuple[float, float], List[Tuple[int, str]]]
+    ) -> Tuple[Tuple[float, float], List[Tuple[int, str]]]:
+        """
+        Interpolate NaN values in time series for a single location using pixel-wise interpolation.
+        
+        Args:
+            location_data: Tuple of (location, tiles) where tiles are (year, filepath) tuples
+            
+        Returns:
+            Tuple of (location, interpolated_files)
+        """
+        location, tiles = location_data
         lat, lon = location
         
+        self.logger.info(f"Interpolating time series for location: {lat}, {lon}")
+        
+        # Sort tiles by year
+        tiles.sort()
+        
+        # Load all rasters for this location
+        years = []
+        raster_data = {}
+        nodata_values = {}
+        meta = None
+        
+        for year, filepath in tqdm(tiles, desc=f"Loading tiles for {lat},{lon}", leave=False):
+            try:
+                with rasterio.open(filepath) as src:
+                    data = src.read(1)
+                    raster_data[year] = data
+                    nodata_values[year] = src.nodata
+                    if meta is None:
+                        meta = src.meta.copy()
+                    years.append(year)
+            except Exception as e:
+                self.logger.error(f"Error loading {filepath}: {str(e)}")
+                continue
+        
+        if not raster_data or meta is None:
+            self.logger.warning(f"No valid data for location: {lat}, {lon}")
+            return location, []
+        
+        # Perform temporal interpolation
+        interpolated_files = self._perform_temporal_interpolation(
+            raster_data, nodata_values, meta, years, lat, lon
+        )
+        
+        return location, interpolated_files
+    
+    def get_interpolated_filename(self, year: int, lat: float, lon: float) -> str:
+        """Get the expected interpolated filename for given parameters."""
+        lat_dir = 'N' if lat >= 0 else 'S'
+        lon_dir = 'E' if lon >= 0 else 'W'
+        abs_lat = abs(lat)
+        abs_lon = abs(lon)
+        
+        interpolated_dir = self.sanitize_config.get('interpolated_dir', 'interpolated')
+        return os.path.join(
+            interpolated_dir, 
+            f"canopy_height_{year}_{lat_dir}{abs_lat:.1f}_{lon_dir}{abs_lon:.1f}_interpolated.tif"
+        )
+
+    def _create_interpolation_mask(
+        self,
+        data: np.ndarray,
+        original_data: np.ndarray,
+        nodata_value: Optional[float]
+    ) -> np.ndarray:
+        """
+        Create mask showing interpolation results.
+        
+        Mask values: 0=Original, 1=NoData, 2=Interpolated, 3=Failed
+        """
+        interp_mask = np.zeros_like(data, dtype=np.uint8)
+        
+        if nodata_value is not None:
+            # NoData values
+            nodata_mask = np.isclose(original_data, nodata_value, rtol=1e-5)
+            interp_mask[nodata_mask] = 1
+            
+            # Successfully interpolated pixels
+            successful_interp = (
+                ~np.isclose(data, nodata_value, rtol=1e-5) & 
+                ~nodata_mask & 
+                np.isnan(original_data)
+            )
+            interp_mask[successful_interp] = 2
+            
+            # Failed to interpolate
+            failed_interp = np.isnan(data) & ~nodata_mask
+            interp_mask[failed_interp] = 3
+        else:
+            # Successfully interpolated pixels
+            successful_interp = ~np.isnan(data) & np.isnan(original_data)
+            interp_mask[successful_interp] = 2
+            
+            # Failed to interpolate
+            failed_interp = np.isnan(data) & np.isnan(original_data)
+            interp_mask[failed_interp] = 3
+        
+        return interp_mask
+
+    def _save_interpolation_mask(
+        self,
+        interp_mask: np.ndarray,
+        meta: Dict[str, Any],
+        year: int,
+        lat: float,
+        lon: float
+    ) -> None:
+        """Save interpolation mask to file."""
+        lat_dir = 'N' if lat >= 0 else 'S'
+        lon_dir = 'E' if lon >= 0 else 'W'
+        abs_lat = abs(lat)
+        abs_lon = abs(lon)
+        
+        masks_dir = self.sanitize_config.get('interpolation_masks_dir', 'masks')
+        mask_filename = os.path.join(
+            masks_dir,
+            f"canopy_height_{year}_{lat_dir}{abs_lat:.1f}_{lon_dir}{abs_lon:.1f}_interp_mask.tif"
+        )
+        
+        mask_meta = meta.copy()
+        mask_meta.update(dtype=rasterio.uint8, nodata=None)
+        
+        os.makedirs(os.path.dirname(mask_filename), exist_ok=True)
+        with rasterio.open(mask_filename, 'w', **mask_meta) as dst:
+            dst.write(interp_mask, 1)
+
+    def _save_interpolated_rasters(
+        self,
+        interpolated_stack: np.ndarray,
+        years_array: np.ndarray,
+        raster_data: Dict[int, np.ndarray],
+        nodata_values: Dict[int, float],
+        meta: Dict[str, Any],
+        lat: float,
+        lon: float
+    ) -> List[Tuple[int, str]]:
+        """
+        Save interpolated rasters and create interpolation masks.
+        """
         interpolated_files = []
         
-        try:
-            # Sort by year
-            year_files = sorted(year_files, key=lambda x: x[0])
-            years = [y for y, _ in year_files]
+        for i, year in enumerate(tqdm(years_array, desc=f"Saving interpolated tiles for {lat},{lon}", leave=False)):
+            data = interpolated_stack[i]
+            original_data = raster_data[year]
+            nodata_value = nodata_values[year]
             
-            # Simple linear interpolation logic (simplified for refactor)
-            for year, filepath in year_files:
-                interpolated_dir = self.sanitize_config.get('interpolated_dir', 'interpolated')
-                lat_dir = 'N' if lat >= 0 else 'S'
-                lon_dir = 'E' if lon >= 0 else 'W'
-                abs_lat = abs(lat)
-                abs_lon = abs(lon)
+            # Generate output filename
+            output_filename = self.get_interpolated_filename(year, lat, lon)
+            
+            # Create interpolation mask
+            interp_mask = self._create_interpolation_mask(
+                data, original_data, nodata_value
+            )
+            
+            # Save interpolated data
+            try:
+                interp_meta = meta.copy()
+                if nodata_value is not None:
+                    interp_meta.update(nodata=nodata_value)
                 
-                output_filename = os.path.join(
-                    interpolated_dir,
-                    f"canopy_height_{year}_{lat_dir}{abs_lat:.1f}_{lon_dir}{abs_lon:.1f}_interpolated.tif"
+                os.makedirs(os.path.dirname(output_filename), exist_ok=True)
+                with rasterio.open(output_filename, 'w', **interp_meta) as dst:
+                    dst.write(data, 1)
+                
+                # Save interpolation mask
+                self._save_interpolation_mask(
+                    interp_mask, meta, year, lat, lon
                 )
                 
-                # Simple copy for now (in production would do actual interpolation)
-                if os.path.exists(filepath) and not os.path.exists(output_filename):
-                    with rasterio.open(filepath) as src:
-                        meta = src.meta.copy()
-                        data = src.read(1)
-                        
-                        with rasterio.open(output_filename, 'w', **meta) as dst:
-                            dst.write(data, 1)
-                    
-                    interpolated_files.append(output_filename)
-            
-            return location, interpolated_files
-            
-        except Exception as e:
-            self.logger.error(f"Error interpolating location {location}: {e}")
-            return location, []
-    
+                interpolated_files.append((year, output_filename))
+                
+            except Exception as e:
+                self.logger.error(f"Error saving {output_filename}: {str(e)}")
+        
+        return interpolated_files
+
     def run_sanitization_pipeline(self) -> bool:
         """Run the complete sanitization and interpolation pipeline."""
         try:
@@ -670,6 +985,15 @@ class FinalMerger:
                 0, -target_resolution, src.bounds.top
             )
             
+            # Update profile for output using ORIGINAL approach
+            profile = src.profile.copy()
+            profile.update({
+                'height': new_height,
+                'width': new_width,
+                'transform': new_transform,
+                'compress': self.merge_config.get('compression', 'lzw')
+            })
+
             # Use WarpedVRT for resampling
             with WarpedVRT(
                 src,
@@ -678,18 +1002,10 @@ class FinalMerger:
                 transform=new_transform,
                 resampling=self.resampling_method
             ) as vrt:
-                data = vrt.read(1)
-                
+                data = vrt.read()
                 # Write downsampled raster
-                meta = src.meta.copy()
-                meta.update({
-                    'width': new_width,
-                    'height': new_height,
-                    'transform': new_transform
-                })
-                
-                with rasterio.open(output_file, 'w', **meta) as dst:
-                    dst.write(data, 1)
+                with rasterio.open(output_path, 'w', **profile) as dst:
+                    dst.write(data)
     
     def merge_rasters(self, raster_files: List[str], output_file: str) -> None:
         """Merge multiple rasters into a single output."""
@@ -697,11 +1013,7 @@ class FinalMerger:
         
         try:
             # Merge datasets
-            merged_data, merged_transform = merge(
-                datasets,
-                method='first',
-                nodata=-9999
-            )
+            merged_data, merged_transform = merge(datasets)
             
             # Get metadata from first dataset
             meta = datasets[0].meta.copy()
@@ -710,12 +1022,14 @@ class FinalMerger:
                 'width': merged_data.shape[2],
                 'transform': merged_transform,
                 'compress': self.merge_config.get('compression', 'lzw'),
-                'tiled': True
+                'tiled': True,
+                "blockxsize": 256, 
+                "blockysize": 256   
             })
             
             # Write merged raster
             with rasterio.open(output_file, 'w', **meta) as dst:
-                dst.write(merged_data.squeeze(), 1)
+                dst.write(merged_data)
                 
         finally:
             # Close datasets
@@ -857,7 +1171,7 @@ class PostProcessingPipeline:
         self.final_merger = None
 
         if steps:
-            step_names = [s.strip().lower() for s in steps_str.split(',')]
+            step_names = [s.strip().lower() for s in steps.split(',')]
             steps_list = []
             
             for step_name in step_names:
