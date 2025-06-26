@@ -143,25 +143,18 @@ class AllometryFittingPipeline:
             
             # Extract parameters: log(biomass) = log(a) + b * log(height)
             log_a = model.intercept_
-            b_param = model.coef_[0]
-            a_param = np.exp(log_a)
+            slope = model.coef_[0]
+            r2 = model.score(log_height.reshape(-1, 1), log_biomass)
+
+            log_predictions = model.predict(log_height.reshape(-1, 1))
+            predictions = np.exp(log_predictions)
+            rmse = np.sqrt(np.mean((biomass - predictions)**2))
             
-            # Calculate fit statistics
-            log_biomass_pred = model.predict(log_height.reshape(-1, 1))
-            
-            # R-squared on log scale
-            ss_res = np.sum((log_biomass - log_biomass_pred) ** 2)
-            ss_tot = np.sum((log_biomass - np.mean(log_biomass)) ** 2)
-            r2 = 1 - (ss_res / ss_tot) if ss_tot > 0 else 0
-            
-            # RMSE on log scale
-            rmse = np.sqrt(np.mean((log_biomass - log_biomass_pred) ** 2))
-            
-            return a_param, b_param, r2, rmse
+            return (slope, intercept, r2), rmse 
             
         except Exception as e:
             # Return default values if fitting fails
-            return 1.0, 1.0, 0.0, float('inf')
+            return (1.0, 1.0, 0.0), float('inf')
 
     def _fit_height_agb_allometry(self, data: pd.DataFrame, forest_type: str, tier: int, config: dict) -> Optional[AllometryResults]:
         """
@@ -216,28 +209,12 @@ class AllometryFittingPipeline:
             height = clean_data['height'].values
             agb = clean_data['AGB'].values
             
-            # Fit quantile regression models for specified quantiles
-            fit_results = {}
-            for q in quantiles:
-                a_param, b_param, r2, rmse = self._fit_power_law_quantile(height, agb, q, alpha)
-                fit_results[q] = {
-                    'a_param': a_param,
-                    'b_param': b_param,
-                    'r2': r2,
-                    'rmse': rmse
-                }
+            # Fit power law for median (0.5 quantile)
+            median_params, rmse = _fit_power_law_quantile(height, biomass, 0.5, alpha)
             
-            # Use median quantile (or middle quantile) as primary fit
-            median_q = 0.5 if 0.5 in quantiles else quantiles[len(quantiles) // 2]
-            if median_q not in fit_results:
-                # Fit median separately if not in original quantiles
-                a_param, b_param, r2, rmse = self._fit_power_law_quantile(height, agb, median_q, alpha)
-                fit_results[median_q] = {
-                    'a_param': a_param,
-                    'b_param': b_param,
-                    'r2': r2,
-                    'rmse': rmse
-                }
+            # Fit for confidence interval bounds
+            lower_params, _ = _fit_power_law_quantile(height, biomass, quantiles[0], alpha)
+            upper_params, _ = _fit_power_law_quantile(height, biomass, quantiles[1], alpha)
             
             primary_fit = fit_results[median_q]
             
@@ -245,34 +222,32 @@ class AllometryFittingPipeline:
             min_r2 = config['fitting']['min_r2']
             min_slope = config['fitting']['min_slope']
             
-            if primary_fit['r2'] < min_r2:
-                logger.debug(f"R² too low for {forest_type}: {primary_fit['r2']:.3f} < {min_r2}")
+            if median_params[2] < min_r2:
+                logger.debug(f"R² too low for {forest_type}: {median_params[2]:.3f} < {min_r2}")
                 return None
             
-            if primary_fit['b_param'] < min_slope:
-                logger.debug(f"Slope too low for {forest_type}: {primary_fit['b_param']:.3f} < {min_slope}")
+            if median_params[0] < min_slope:
+                logger.debug(f"Slope too low for {forest_type}: {median_params[0]:.3f} < {min_slope}")
                 return None
-            
-            # Calculate parameter uncertainties (simplified approach)
-            # In practice, this would use bootstrap or other methods
-            a_std = 0.1 * primary_fit['a_param']  # 10% relative uncertainty
-            b_std = 0.05  # Fixed uncertainty for exponent
             
             # Create results object
             result = AllometryResults(
                 forest_type=forest_type,
                 tier=tier,
                 n_samples=len(clean_data),
-                a_param=primary_fit['a_param'],
-                b_param=primary_fit['b_param'],
-                r2=primary_fit['r2'],
-                rmse=primary_fit['rmse'],
-                a_std=a_std,
-                b_std=b_std
+                function_type='power',
+                median_intercept=median_params[1],
+                median_slope=median_params[0],
+                low_bound_intercept=lower_params[1],
+                low_bound_slope=lower_params[0],
+                upper_bound_intercept=upper_params[1],
+                upper_bound_slope=upper_params[0],
+                r2=median_params[2],
+                rmse=rmse
             )
             
             logger.debug(f"Successfully fitted allometry for {forest_type}: "
-                        f"a={result.a_param:.3f}, b={result.b_param:.3f}, R²={result.r2:.3f}")
+                        f"a={result.median_intercept:.3f}, b={result.median_slope:.3f}, R²={result.r2:.3f}")
             
             return result
             
@@ -435,46 +410,6 @@ class AllometryFittingPipeline:
             logger.info(f"Successfully calculated {len(ratio_df)} BGB ratio relationships")
         else:
             ratio_df = pd.DataFrame()
-        
-        # VERIFICATION: Check independence of results
-        logger.info("\n" + "="*60)
-        logger.info("INDEPENDENCE VERIFICATION:")
-        logger.info("="*60)
-        
-        if len(allometry_df) > 0:
-            allometry_types = set(allometry_df['forest_type'])
-            logger.info(f"Height-AGB allometries fitted for {len(allometry_types)} forest types:")
-            for ftype in sorted(allometry_types):
-                logger.info(f"  - {ftype}")
-        else:
-            allometry_types = set()
-            logger.info("No height-AGB allometries fitted")
-        
-        if len(ratio_df) > 0:
-            ratio_types = set(ratio_df['forest_type'])
-            logger.info(f"BGB ratios calculated for {len(ratio_types)} forest types:")
-            for ftype in sorted(ratio_types):
-                logger.info(f"  - {ftype}")
-        else:
-            ratio_types = set()
-            logger.info("No BGB ratios calculated")
-        
-        # Check for differences (proving independence)
-        only_allometry = allometry_types - ratio_types
-        only_ratios = ratio_types - allometry_types
-        both = allometry_types & ratio_types
-        
-        logger.info(f"\nIndependence verification:")
-        logger.info(f"  Both allometry & ratios: {len(both)} forest types")
-        logger.info(f"  Only allometry fitted: {len(only_allometry)} forest types")
-        logger.info(f"  Only ratios calculated: {len(only_ratios)} forest types")
-        
-        if only_allometry:
-            logger.info(f"  Forest types with only allometry: {sorted(only_allometry)}")
-        if only_ratios:
-            logger.info(f"  Forest types with only ratios: {sorted(only_ratios)}")
-        
-        logger.info("="*60)
         
         return allometry_df, ratio_df
 
