@@ -56,13 +56,6 @@ def parse_arguments() -> argparse.Namespace:
         help='Path to configuration file (uses component default if not specified)'
     )
 
-    parser.add_argument(
-        '--pattern',
-        type=str,
-        default='*.tif',
-        help='File pattern for directory processing (default: *.tif)'
-    )
-    
     return parser.parse_args()
 
 
@@ -72,7 +65,7 @@ def main():
     
     # Parse arguments
     args = parse_arguments()
-    model_prediction = ModelPredictionPipeline(args.config, args.checkpoint, args.pattern)
+    model_prediction = ModelPredictionPipeline(args.config, args.checkpoint)
     success = model_prediction.run_full_pipeline(SENTINEL2_MOSAICS_DIR,HEIGHT_MAPS_TMP_RAW_DIR)
 
 

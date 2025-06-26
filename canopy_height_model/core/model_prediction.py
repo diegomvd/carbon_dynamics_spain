@@ -1,8 +1,8 @@
 """
 Model Prediction Pipeline
 
-Large-scale prediction pipeline for canopy height estimation using trained models.
-Handles tiled prediction over large geographical areas with memory management.
+Simplified, framework-native prediction pipeline for canopy height estimation.
+Uses TorchGeo and PyTorch Lightning as intended while maintaining configuration-driven flexibility.
 
 Author: Diego Bengochea
 """
@@ -10,45 +10,48 @@ Author: Diego Bengochea
 import os
 import time
 from pathlib import Path
-from typing import Dict, Any, Optional, Union, List, Tuple
-import numpy as np
+from typing import Dict, Any, Optional, Union
 import torch
-import rasterio
-from rasterio.windows import Window
-from torch.utils.data import DataLoader
-import lightning as L
+from lightning.pytorch import Trainer
 
 # Shared utilities
 from shared_utils import setup_logging, get_logger, load_config, ensure_directory
-from shared_utils import find_files, validate_file_exists, log_pipeline_start, log_pipeline_end
+from shared_utils import log_pipeline_start, log_pipeline_end
 from shared_utils.central_data_paths_constants import HEIGHT_MODEL_CHECKPOINT_FILE
 
 # Component imports
+from .s2_pnoa_vegetation_datamodule import S2PNOAVegetationDataModule
 from .canopy_height_regression import CanopyHeightRegressionTask
+from .prediction_writer import CanopyHeightRasterWriter
 
 
 class ModelPredictionPipeline:
     """
-    Pipeline for large-scale canopy height prediction.
+    Simplified prediction pipeline using TorchGeo and Lightning framework.
     
-    Handles:
-    - Loading trained models from checkpoints
-    - Tiled prediction over large rasters
-    - Memory-efficient processing
-    - Output formatting and saving
+    This pipeline leverages the built-in capabilities of TorchGeo for data discovery
+    and Lightning for prediction orchestration, resulting in cleaner, more maintainable
+    code while preserving full configurability.
+    
+    Key Design Decisions:
+    - Uses S2PNOAVegetationDataModule for automatic file discovery (no manual loops)
+    - Uses Lightning Trainer.predict() as intended (no manual tiling logic)
+    - Uses CanopyHeightRasterWriter callback for output handling
+    - Configuration-driven for all parameters
     """
     
     def __init__(
         self, 
         config_path: Optional[Union[str, Path]] = None,
-        checkpoint_path: Optional[Union[str, Path]] = None,
-        pattern: Optional[Union[str, Path]] = None
+        checkpoint_path: Optional[Union[str, Path]] = None
     ):
         """
         Initialize the prediction pipeline.
         
         Args:
             config_path: Path to configuration file
+            checkpoint_path: Path to model checkpoint (overrides config)
+            pattern: File pattern for input files (overrides config)
         """
         # Load configuration
         self.config = load_config(config_path, component_name="canopy_height_dl")
@@ -60,26 +63,22 @@ class ModelPredictionPipeline:
             log_file=self.config['logging'].get('log_file')
         )
         
-        # Initialize components
-        self.model = None
-        self.device = None
+        # Set checkpoint path
+        if checkpoint_path:
+            self.checkpoint_path = Path(checkpoint_path)
+        else:
+            self.checkpoint_path = Path(HEIGHT_MODEL_CHECKPOINT_FILE)
+                    
+        # Validate checkpoint exists
+        if not self.checkpoint_path.exists():
+            raise FileNotFoundError(f"Checkpoint not found: {self.checkpoint_path}")
         
         # Pipeline state
         self.start_time = None
-
-        if checkpoint_path:
-            self.checkpoint_path = checkpoint_path
-        else:
-            self.checkpoint_path = HEIGHT_MODEL_CHECKPOINT_FILE
-
-        if pattern:
-            self.pattern = pattern
-        else:
-            self.pattern = '*.tif'
-
-        self.logger.info("ModelPredictionPipeline initialized")
-
         
+        self.logger.info("ModelPredictionPipeline initialized")
+        self.logger.info(f"Checkpoint: {self.checkpoint_path}")
+
     def run_full_pipeline(
         self,
         input_path: Union[str, Path],
@@ -89,373 +88,196 @@ class ModelPredictionPipeline:
         Run the complete prediction pipeline.
         
         Args:
-            checkpoint_path: Path to model checkpoint
-            input_path: Path to input raster(s)
-            output_path: Path to output location
-            is_directory: Whether input_path is a directory
-            
-        Returns:
-            bool: True if pipeline succeeded
-        """
-        self.start_time = time.time()
-        
-        # Log pipeline start
-        log_pipeline_start(self.logger, "Canopy Height Prediction", self.config)
-        
-        try:
-            # Load model
-            if not self.load_model(self.checkpoint_path):
-                return False
-            
-            success = self.predict_directory(input_path, output_path,self.pattern)
-            
-            # Pipeline completion
-            elapsed_time = time.time() - self.start_time
-            log_pipeline_end(self.logger, "Canopy Height Prediction", success, elapsed_time)
-            
-            return success
-            
-        except Exception as e:
-            self.logger.error(f"Prediction pipeline failed: {str(e)}")
-            return False
-
-    def load_model(self, checkpoint_path: Union[str, Path]) -> bool:
-        """
-        Load trained model from checkpoint.
-        
-        Args:
-            checkpoint_path: Path to model checkpoint
-            
-        Returns:
-            bool: True if model loaded successfully
-        """
-        try:
-            checkpoint_path = Path(checkpoint_path)
-            validate_file_exists(checkpoint_path, "Model checkpoint")
-            
-            self.logger.info(f"Loading model from: {checkpoint_path}")
-            
-            # Load model
-            self.model = CanopyHeightRegressionTask.load_from_checkpoint(checkpoint_path)
-            self.model.eval()
-            
-            # Setup device
-            if torch.cuda.is_available():
-                self.device = torch.device('cuda')
-                self.model = self.model.cuda()
-                self.logger.info("Using GPU for prediction")
-            elif hasattr(torch.backends, 'mps') and torch.backends.mps.is_available():
-                self.device = torch.device('mps')
-                self.model = self.model.to(self.device)
-                self.logger.info("Using MPS (Apple Silicon) for prediction")
-            else:
-                self.device = torch.device('cpu')
-                self.logger.info("Using CPU for prediction")
-            
-            self.logger.info("Model loaded successfully")
-            return True
-            
-        except Exception as e:
-            self.logger.error(f"Error loading model: {str(e)}")
-            return False
-    
-    def validate_input_raster(self, raster_path: Path) -> bool:
-        """
-        Validate input raster for prediction.
-        
-        Args:
-            raster_path: Path to input raster
-            
-        Returns:
-            bool: True if raster is valid
-        """
-        try:
-            with rasterio.open(raster_path) as src:
-                # Check number of bands
-                expected_bands = self.config['model']['in_channels']
-                if src.count != expected_bands:
-                    self.logger.error(f"Expected {expected_bands} bands, found {src.count} in {raster_path}")
-                    return False
-                
-                # Check data type
-                if src.dtypes[0] not in ['float32', 'float64', 'uint16', 'int16']:
-                    self.logger.warning(f"Unexpected data type {src.dtypes[0]} in {raster_path}")
-                
-                # Check spatial reference
-                if src.crs is None:
-                    self.logger.warning(f"No CRS found in {raster_path}")
-                
-                self.logger.debug(f"Raster validation passed: {raster_path.name}")
-                return True
-                
-        except Exception as e:
-            self.logger.error(f"Error validating raster {raster_path}: {str(e)}")
-            return False
-    
-    def create_prediction_tiles(
-        self, 
-        raster_shape: Tuple[int, int],
-        tile_size: int,
-        overlap: int
-    ) -> List[Tuple[Window, Tuple[int, int]]]:
-        """
-        Create prediction tiles with overlap.
-        
-        Args:
-            raster_shape: Shape of input raster (height, width)
-            tile_size: Size of prediction tiles
-            overlap: Overlap between tiles
-            
-        Returns:
-            List of (window, tile_shape) tuples
-        """
-        height, width = raster_shape
-        tiles = []
-        
-        step_size = tile_size - overlap
-        
-        for row in range(0, height, step_size):
-            for col in range(0, width, step_size):
-                # Calculate actual tile dimensions
-                tile_height = min(tile_size, height - row)
-                tile_width = min(tile_size, width - col)
-                
-                # Create window
-                window = Window(col, row, tile_width, tile_height)
-                tile_shape = (tile_height, tile_width)
-                
-                tiles.append((window, tile_shape))
-        
-        self.logger.debug(f"Created {len(tiles)} prediction tiles")
-        return tiles
-    
-    def predict_tile(
-        self, 
-        input_data: np.ndarray,
-        tile_shape: Tuple[int, int]
-    ) -> Optional[np.ndarray]:
-        """
-        Predict canopy height for a single tile.
-        
-        Args:
-            input_data: Input data array (bands, height, width)
-            tile_shape: Expected tile shape
-            
-        Returns:
-            Prediction array or None if failed
-        """
-        try:
-            # Prepare input tensor
-            input_tensor = torch.from_numpy(input_data).float()
-            
-            # Add batch dimension
-            input_tensor = input_tensor.unsqueeze(0)
-            
-            # Move to device
-            input_tensor = input_tensor.to(self.device)
-            
-            # Run prediction
-            with torch.no_grad():
-                prediction = self.model(input_tensor)
-            
-            # Convert to numpy
-            prediction_np = prediction.cpu().numpy().squeeze()
-            
-            # Handle NaN values
-            nan_value = self.config['model']['nan_value_target']
-            prediction_np = np.where(np.isnan(prediction_np), nan_value, prediction_np)
-            
-            return prediction_np
-            
-        except Exception as e:
-            self.logger.error(f"Error predicting tile: {str(e)}")
-            return None
-    
-    def predict_raster(
-        self,
-        input_raster_path: Path,
-        output_raster_path: Path
-    ) -> bool:
-        """
-        Predict canopy height for entire raster using tiled approach.
-        
-        Args:
-            input_raster_path: Path to input Sentinel-2 raster
-            output_raster_path: Path to output prediction raster
-            
-        Returns:
-            bool: True if prediction succeeded
-        """
-        try:
-            self.logger.info(f"Predicting: {input_raster_path.name}")
-            
-            # Validate input
-            if not self.validate_input_raster(input_raster_path):
-                return False
-            
-            # Read input raster metadata
-            with rasterio.open(input_raster_path) as src:
-                input_profile = src.profile.copy()
-                raster_shape = (src.height, src.width)
-                input_transform = src.transform
-                input_crs = src.crs
-            
-            # Create prediction tiles
-            tile_size = self.config['prediction']['tile_size']
-            overlap = self.config['prediction']['overlap']
-            tiles = self.create_prediction_tiles(raster_shape, tile_size, overlap)
-            
-            # Setup output raster
-            output_profile = input_profile.copy()
-            output_profile.update({
-                'count': 1,
-                'dtype': self.config['prediction']['output_dtype'],
-                'nodata': self.config['post_processing']['merge']['nodata_value'],
-                'compress': self.config['prediction']['compress'],
-                'tiled': self.config['prediction']['tiled']
-            })
-            
-            # Ensure output directory
-            ensure_directory(output_raster_path.parent)
-            
-            # Initialize output array
-            output_array = np.full(
-                raster_shape, 
-                self.config['post_processing']['merge']['nodata_value'],
-                dtype=output_profile['dtype']
-            )
-            
-            # Process tiles
-            successful_tiles = 0
-            total_tiles = len(tiles)
-            
-            with rasterio.open(input_raster_path) as src:
-                for i, (window, tile_shape) in enumerate(tiles):
-                    if i % 10 == 0:  # Progress logging
-                        self.logger.info(f"Processing tile {i+1}/{total_tiles}")
-                    
-                    # Read input tile
-                    input_tile = src.read(window=window)
-                    
-                    # Skip if tile is empty/invalid
-                    if input_tile.size == 0:
-                        continue
-                    
-                    # Predict tile
-                    prediction_tile = self.predict_tile(input_tile, tile_shape)
-                    
-                    if prediction_tile is not None:
-                        # Handle overlap by taking average
-                        tile_slice = (
-                            slice(window.row_off, window.row_off + window.height),
-                            slice(window.col_off, window.col_off + window.width)
-                        )
-                        
-                        # Simple approach: overwrite (could be improved with overlap blending)
-                        output_array[tile_slice] = prediction_tile
-                        successful_tiles += 1
-            
-            # Write output raster
-            with rasterio.open(output_raster_path, 'w', **output_profile) as dst:
-                dst.write(output_array, 1)
-                
-                # Add metadata
-                dst.update_tags(
-                    MODEL_CHECKPOINT=str(HEIGHT_MODEL_CHECKPOINT_FILE),
-                    TILE_SIZE=str(tile_size),
-                    OVERLAP=str(overlap),
-                    PROCESSED_TILES=str(successful_tiles),
-                    TOTAL_TILES=str(total_tiles)
-                )
-            
-            self.logger.info(f"Prediction completed: {successful_tiles}/{total_tiles} tiles successful")
-            self.logger.info(f"Output saved to: {output_raster_path}")
-            
-            return successful_tiles > 0
-            
-        except Exception as e:
-            self.logger.error(f"Error predicting raster: {str(e)}")
-            return False
-    
-    def predict_directory(
-        self,
-        input_dir: Union[str, Path],
-        output_dir: Union[str, Path],
-        file_pattern: str = "*.tif"
-    ) -> bool:
-        """
-        Predict canopy height for all rasters in a directory.
-        
-        Args:
-            input_dir: Input directory containing Sentinel-2 rasters
-            output_dir: Output directory for predictions
-            file_pattern: File pattern to match
+            input_path: Input directory containing Sentinel-2 rasters
+            output_path: Output directory for predictions
             
         Returns:
             bool: True if processing succeeded
         """
+        self.start_time = time.time()
+        log_pipeline_start(self.logger, "Model Prediction Pipeline")
+        
         try:
-            input_path = Path(input_dir)
-            output_path = Path(output_dir)
+            input_dir = Path(input_path)
+            output_dir = Path(output_path)
             
-            # Find input files
-            input_files = find_files(input_path, file_pattern)
+            # Validate input directory
+            if not input_dir.exists():
+                raise FileNotFoundError(f"Input directory not found: {input_dir}")
             
-            if not input_files:
-                self.logger.error(f"No input files found in {input_dir}")
-                return False
+            # Create output directory
+            ensure_directory(output_dir)
             
-            self.logger.info(f"Found {len(input_files)} files to process")
+            self.logger.info(f"Input directory: {input_dir}")
+            self.logger.info(f"Output directory: {output_dir}")
             
-            # Process each file
-            successful = 0
-            failed = 0
+            # Setup pipeline components
+            self._setup_datamodule(input_dir)
+            self._setup_model()
+            self._setup_trainer(output_dir)
             
-            for input_file in input_files:
-                # Generate output filename
-                output_filename = f"canopy_height_pred_{input_file.stem}.tif"
-                output_file = output_path / output_filename
-                
-                # Skip if output already exists
-                if output_file.exists():
-                    self.logger.info(f"Output exists, skipping: {output_filename}")
-                    continue
-                
-                # Run prediction
-                if self.predict_raster(input_file, output_file):
-                    successful += 1
-                else:
-                    failed += 1
+            # Run predictions
+            self.logger.info("Starting predictions...")
+            predictions = self.trainer.predict(
+                self.model,
+                datamodule=self.datamodule
+            )
             
-            self.logger.info(f"Directory prediction complete: {successful} successful, {failed} failed")
-            return successful > 0
+            # Log completion
+            elapsed_time = time.time() - self.start_time
+            self.logger.info(f"Predictions completed successfully in {elapsed_time:.1f} seconds")
+            log_pipeline_end(self.logger, "Model Prediction Pipeline", True, elapsed_time)
+            
+            return True
             
         except Exception as e:
-            self.logger.error(f"Error predicting directory: {str(e)}")
-            return False
+            elapsed_time = time.time() - self.start_time if self.start_time else 0
+            self.logger.error(f"Prediction pipeline failed: {str(e)}")
+            log_pipeline_end(self.logger, "Model Prediction Pipeline", False, elapsed_time)
+            raise e
+
+    def _setup_datamodule(self, input_dir: Path) -> None:
+        """
+        Initialize the data module for prediction.
+        
+        This uses TorchGeo's built-in file discovery and processing capabilities.
+        The datamodule automatically finds all matching files in the input directory
+        and handles the tiling/batching internally.
+        """
+        prediction_config = self.config.get('prediction', {})
+        
+        self.datamodule = S2PNOAVegetationDataModule(
+            sentinel2_dir=str(input_dir),
+            predict_patch_size=prediction_config.get('tile_size', 6144),
+            batch_size=prediction_config.get('batch_size', 8),
+            num_workers=prediction_config.get('num_workers', 4)
+        )
+        
+        self.logger.info("Datamodule initialized for prediction")
+        self.logger.info(f"  Tile size: {prediction_config.get('tile_size', 6144)}")
+        self.logger.info(f"  Batch size: {prediction_config.get('batch_size', 8)}")
+        self.logger.info(f"  Num workers: {prediction_config.get('num_workers', 4)}")
+        
+    def _setup_model(self) -> None:
+        """
+        Load the model from checkpoint.
+        
+        Uses Lightning's built-in checkpoint loading with proper device handling.
+        """
+        # Get model configuration
+        model_config = self.config.get('model', {})
+        
+        self.model = CanopyHeightRegressionTask.load_from_checkpoint(
+            self.checkpoint_path,
+            nan_value_target=model_config.get('nan_value_target', -1.0),
+            nan_value_input=model_config.get('nan_value_input', 0.0),
+            config_path=None  # Model will use its own config
+        )
+        
+        # Set to evaluation mode
+        self.model.eval()
+        
+        self.logger.info(f"Model loaded from checkpoint: {self.checkpoint_path}")
+        
+    def _setup_trainer(self, output_dir: Path) -> None:
+        """
+        Configure trainer for prediction with output handling.
+        
+        Uses Lightning's callback system for clean output handling.
+        """
+        # Get training configuration for device settings
+        training_config = self.config.get('training', {})
+        prediction_config = self.config.get('prediction', {})
+        
+        # Setup prediction writer callback
+        pred_writer = CanopyHeightRasterWriter(
+            output_dir=str(output_dir),
+            write_interval="batch",
+            output_dtype=prediction_config.get('output_dtype', 'float32'),
+            compress=prediction_config.get('compress', 'lzw'),
+            tiled=prediction_config.get('tiled', True)
+        )
+        
+        # Auto-detect accelerator based on availability and config
+        accelerator = self._get_accelerator(training_config.get('accelerator', 'auto'))
+        
+        self.trainer = Trainer(
+            accelerator=accelerator,
+            devices=training_config.get('devices', 'auto'),
+            callbacks=[pred_writer],
+            enable_checkpointing=False,
+            enable_progress_bar=True,
+            inference_mode=True,  # Memory optimization for prediction
+            logger=False  # No need for logging during prediction
+        )
+        
+        self.logger.info(f"Trainer configured for prediction")
+        self.logger.info(f"  Accelerator: {accelerator}")
+        self.logger.info(f"  Output format: {prediction_config.get('output_dtype', 'float32')}")
+        
+    def _get_accelerator(self, config_accelerator: str) -> str:
+        """
+        Determine the best accelerator to use based on availability and configuration.
+        
+        Args:
+            config_accelerator: Accelerator preference from configuration
+            
+        Returns:
+            str: Accelerator to use ('gpu', 'mps', 'cpu')
+        """
+        if config_accelerator == 'auto':
+            # Auto-detect best available accelerator
+            if torch.cuda.is_available():
+                return 'gpu'
+            elif hasattr(torch.backends, 'mps') and torch.backends.mps.is_available():
+                return 'mps'
+            else:
+                return 'cpu'
+        else:
+            # Use configured accelerator (with validation)
+            if config_accelerator == 'gpu' and not torch.cuda.is_available():
+                self.logger.warning("GPU requested but not available, falling back to CPU")
+                return 'cpu'
+            elif config_accelerator == 'mps' and not (hasattr(torch.backends, 'mps') and torch.backends.mps.is_available()):
+                self.logger.warning("MPS requested but not available, falling back to CPU")
+                return 'cpu'
+            else:
+                return config_accelerator
     
     def get_prediction_summary(self) -> Dict[str, Any]:
         """
-        Get summary of prediction pipeline.
+        Get summary of prediction pipeline configuration and state.
         
         Returns:
             Dictionary with prediction summary
         """
+        prediction_config = self.config.get('prediction', {})
+        model_config = self.config.get('model', {})
+        
         summary = {
-            'config': {
-                'tile_size': self.config['prediction']['tile_size'],
-                'overlap': self.config['prediction']['overlap'],
-                'batch_size': self.config['prediction']['batch_size'],
-                'output_dtype': self.config['prediction']['output_dtype']
+            'pipeline': {
+                'checkpoint_path': str(self.checkpoint_path),
+                'file_pattern': self.pattern,
+                'framework': 'TorchGeo + Lightning'
+            },
+            'prediction_config': {
+                'tile_size': prediction_config.get('tile_size', 6144),
+                'batch_size': prediction_config.get('batch_size', 8),
+                'num_workers': prediction_config.get('num_workers', 4),
+                'output_dtype': prediction_config.get('output_dtype', 'float32'),
+                'compress': prediction_config.get('compress', 'lzw')
+            },
+            'model_config': {
+                'model_type': model_config.get('model_type', 'unet'),
+                'backbone': model_config.get('backbone', 'efficientnet-b4'),
+                'in_channels': model_config.get('in_channels', 10)
             }
         }
         
-        if self.model:
-            summary['model'] = {
-                'model_type': self.config['model']['model_type'],
-                'backbone': self.config['model']['backbone'],
-                'in_channels': self.config['model']['in_channels'],
-                'device': str(self.device) if self.device else 'unknown'
+        if self.trainer:
+            summary['runtime'] = {
+                'accelerator': self.trainer.accelerator.__class__.__name__,
+                'devices': str(self.trainer.num_devices)
             }
         
         return summary

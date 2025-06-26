@@ -69,18 +69,6 @@ training:
   devices: 1
   precision: 32
 
-# Prediction configuration  
-prediction:
-  # Processing
-  batch_size: 8
-  tile_size: 512
-  overlap: 64
-  
-  # Output format
-  output_dtype: 'float32'
-  compress: 'lzw'
-  tiled: true
-
 augmentation:
   # Height filtering
   max_height_threshold: 60.0  # Remove vegetation heights above this threshold
@@ -119,6 +107,18 @@ scheduler:
   pct_start: 0.2
   div_factor: 15
   final_div_factor: 100 
+
+prediction:
+  tile_size: 6144               # Patch size for prediction (was PREDICTION_PATCH_SIZE)
+  batch_size: 8                 # Batch size for prediction
+  num_workers: 4                # Number of data loading workers
+
+  output_dtype: 'float32'       # Output raster data type
+  compress: 'lzw'               # Compression method
+  tiled: true                   # Create tiled rasters for better performance
+  
+  inference_mode: true          # Use inference mode for memory efficiency
+  enable_progress_bar: true     # Show progress during prediction
 
 # Post-processing configuration
 post_processing:
