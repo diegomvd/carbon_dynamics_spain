@@ -35,22 +35,15 @@ from torchgeo.datamodules import GeoDataModule
 from shared_utils import load_config, get_logger
 from shared_utils.central_data_paths_constants import SENTINEL2_MOSAICS_DIR, ALS_CANOPY_HEIGHT_PROCESSED_DIR
 
-# Component imports (these would be additional modules in the same core/ directory)
-try:
-    from .datasets import S2Mosaic, PNOAVegetation, KorniaIntersectionDataset
-    from .balanced_geo_samplers import HeightDiversityBatchSampler
-    from .pnoa_vegetation_transforms import (
-        PNOAVegetationInput0InArtificialSurfaces, 
-        PNOAVegetationRemoveAbnormalHeight, 
-        PNOAVegetationLogTransform, 
-        S2Scaling
-    )
-except ImportError:
-    # Fallback imports if modules don't exist yet
-    S2Mosaic = None
-    PNOAVegetation = None
-    KorniaIntersectionDataset = None
-    HeightDiversityBatchSampler = None
+
+from .datasets import S2Mosaic, PNOAVegetation, KorniaIntersectionDataset
+from .balanced_geo_samplers import HeightDiversityBatchSampler
+from .pnoa_vegetation_transforms import (
+    PNOAVegetationInput0InArtificialSurfaces, 
+    PNOAVegetationRemoveAbnormalHeight, 
+    PNOAVegetationLogTransform, 
+    S2Scaling
+)
 
 
 class S2PNOAVegetationDataModule(GeoDataModule):
@@ -69,7 +62,7 @@ class S2PNOAVegetationDataModule(GeoDataModule):
         patch_size: int = None,
         batch_size: int = None,
         length: int = None, 
-        num_workers: int = None, 
+        num_workers: int = 0, 
         seed: int = None, 
         predict_patch_size: int = None,
         nan_target: float = None,
@@ -147,47 +140,84 @@ class S2PNOAVegetationDataModule(GeoDataModule):
         """Initialize all augmentation pipelines with configuration parameters."""
         self.logger.info("Setting up augmentation pipelines...")
         
-        # Training augmentations
+        # Load augmentation configuration
+        aug_config = self.config['augmentation']
+        
+        # Base normalization and mask transforms - CRITICAL for PNOA data
+        base_mask_transforms = K.AugmentationSequential(
+            PNOAVegetationRemoveAbnormalHeight(
+                hmax=aug_config['max_height_threshold'],
+                nan_target=self.hparams['nan_target']
+            ),
+            PNOAVegetationInput0InArtificialSurfaces(),
+            PNOAVegetationLogTransform(),
+            data_keys=None,
+            keepdim=True
+        )
+        
+        # Training augmentations - RESTORED original sophisticated pipeline
         self.train_aug = {
+            'general': K.AugmentationSequential(
+                # Geometric augmentations
+                K.RandomHorizontalFlip(p=aug_config['horizontal_flip_p']),
+                K.RandomVerticalFlip(p=aug_config['vertical_flip_p']),
+                K.RandomRotation(degrees=aug_config['rotation_degrees'], p=aug_config['rotation_p']),
+                data_keys=None,
+                keepdim=True,
+                same_on_batch=False,
+            ),
             'image': K.AugmentationSequential(
-                K.RandomHorizontalFlip(p=0.5),
-                K.RandomVerticalFlip(p=0.5),
-                K.RandomRotation(degrees=90, p=0.5),
-                data_keys=['image'],
-                same_on_batch=False
+                S2Scaling(),  
+                # Intensity augmentations for mosaiced data
+                K.RandomGaussianNoise(
+                    mean=0.0, 
+                    std=aug_config['gaussian_noise_std'], 
+                    p=aug_config['gaussian_noise_p']
+                ),
+                K.RandomBrightness(
+                    brightness=aug_config['brightness_factor'], 
+                    p=aug_config['brightness_p']
+                ),
+                K.RandomContrast(
+                    contrast=aug_config['contrast_factor'], 
+                    p=aug_config['contrast_p']
+                ),
+                data_keys=None,
+                keepdim=True,
             ),
             'mask': K.AugmentationSequential(
-                K.RandomHorizontalFlip(p=0.5),
-                K.RandomVerticalFlip(p=0.5),
-                K.RandomRotation(degrees=90, p=0.5),
-                data_keys=['image'],
-                same_on_batch=False
+                base_mask_transforms,
+                K.RandomGaussianNoise(
+                    mean=0.0,
+                    std=aug_config['mask_noise_std'],
+                    p=aug_config['mask_noise_p']
+                ),
+                data_keys=None,
+                keepdim=True
             )
         }
+
+        # Validation/Test augmentations 
+        self.val_aug = self.test_aug = {
+            'image': K.AugmentationSequential(S2Scaling(), data_keys=None, keepdim=True),
+            'mask': base_mask_transforms 
+        }
         
-        # Add custom transformations if available
-        try:
-            self.train_aug['general'] = self._create_general_transforms()
-        except Exception as e:
-            self.logger.warning(f"Could not setup general transforms: {e}")
-        
-        # Validation/test augmentations (minimal)
-        self.val_aug = {'image': None, 'mask': None}
-        self.test_aug = {'image': None, 'mask': None}
-        self.predict_aug = {'image': None}
+        # Prediction augmentations - Only S2 scaling needed
+        self.predict_aug = {
+            'image': K.AugmentationSequential(S2Scaling(), data_keys=None, keepdim=True)
+        }
         
         self.logger.info("Augmentation pipelines configured")
-    
-    def _create_general_transforms(self):
-        """Create general transformations pipeline."""
-        # This would use the custom transform classes
-        # For now, return a simple pass-through
-        return lambda x: x
+
     
     def _valid_attribute(self, name: str, fallback: str):
         """Get valid attribute with fallback."""
         if hasattr(self, name):
-            return getattr(self, name)
+            attr = getattr(self, name)
+            # Return the attribute if it exists and is not None
+            if attr is not None:
+                return attr
         return getattr(self, fallback, {})
     
     def setup(self, stage: str) -> None:
@@ -313,65 +343,6 @@ class S2PNOAVegetationDataModule(GeoDataModule):
             return 'predict'
         return 'val'  # default
 
-    def train_dataloader(self) -> DataLoader:
-        """Create training dataloader."""
-        if self.train_batch_sampler is None:
-            self.logger.error("Training batch sampler not initialized")
-            raise RuntimeError("Training batch sampler not initialized - call setup() first")
-        
-        return DataLoader(
-            self.train_dataset,
-            batch_sampler=self.train_batch_sampler,
-            num_workers=self.hparams['num_workers'],
-            collate_fn=self.collate_geo,
-            persistent_workers=True if self.hparams['num_workers'] > 0 else False
-        )
-    
-    def val_dataloader(self) -> DataLoader:
-        """Create validation dataloader."""
-        if self.val_sampler is None:
-            self.logger.error("Validation sampler not initialized")
-            raise RuntimeError("Validation sampler not initialized - call setup() first")
-        
-        return DataLoader(
-            self.val_dataset,
-            sampler=self.val_sampler,
-            batch_size=self.hparams['batch_size'],
-            num_workers=self.hparams['num_workers'],
-            collate_fn=self.collate_geo,
-            persistent_workers=True if self.hparams['num_workers'] > 0 else False
-        )
-    
-    def test_dataloader(self) -> DataLoader:
-        """Create test dataloader."""
-        if self.test_sampler is None:
-            self.logger.error("Test sampler not initialized")
-            raise RuntimeError("Test sampler not initialized - call setup() first")
-        
-        return DataLoader(
-            self.test_dataset,
-            sampler=self.test_sampler,
-            batch_size=self.hparams['batch_size'],
-            num_workers=self.hparams['num_workers'],
-            collate_fn=self.collate_geo,
-            persistent_workers=True if self.hparams['num_workers'] > 0 else False
-        )
-    
-    def predict_dataloader(self) -> DataLoader:
-        """Create prediction dataloader."""
-        if self.predict_sampler is None:
-            self.logger.error("Prediction sampler not initialized")
-            raise RuntimeError("Prediction sampler not initialized - call setup() first")
-        
-        return DataLoader(
-            self.predict_dataset,
-            sampler=self.predict_sampler,
-            batch_size=self.hparams['batch_size'],
-            num_workers=self.hparams['num_workers'],
-            collate_fn=self.collate_geo,
-            persistent_workers=True if self.hparams['num_workers'] > 0 else False
-        )
-
     def transfer_batch_to_device(
         self, batch: Dict[str, Tensor], device: torch.device, dataloader_idx: int
     ) -> Dict[str, Tensor]:
@@ -413,24 +384,27 @@ class S2PNOAVegetationDataModule(GeoDataModule):
             
         # Determine split and get corresponding augmentations
         split = self._get_current_split()
-        aug = self._valid_attribute(f"{split}_aug", "val_aug")
+        aug = self._valid_attribute(f"{split}_aug", "aug")
         
         # Remove geo information that can't be processed by augmentations
-        geo_keys = ['crs', 'bbox']
-        geo_info = {k: batch.pop(k) for k in geo_keys if k in batch}
+        batch = {k: v for k, v in batch.items() if k not in ['crs', 'bbox']}
+        
+        # Apply augmentations based on split
+        if 'image' in aug and 'image' in batch:
+            batch['image'] = aug['image']({'image': batch['image']})['image']
+        if 'mask' in aug and 'mask' in batch:
+            batch['mask'] = aug['mask']({'image': batch['mask']})['image']
         
         # Apply augmentations
-        if isinstance(aug, dict):
-            if 'image' in aug and aug['image'] is not None and 'image' in batch:
-                batch['image'] = aug['image']({'image': batch['image']})['image']
-            if 'mask' in aug and aug['mask'] is not None and 'mask' in batch:
-                batch['mask'] = aug['mask']({'image': batch['mask']})['image']
-            
-            if 'general' in aug and aug['general'] is not None:
-                batch = aug['general'](batch)
-        
-        # Restore geo information
-        batch.update(geo_info)
+        if 'general' in aug:
+            batch = aug['general'](batch)
+            # Hardware-specific optimization - ensure tensors are on correct device
+            if 'image' in batch and hasattr(batch['image'], 'device'):
+                # Keep tensors on their current device (MPS, CUDA, or CPU)
+                current_device = batch['image'].device
+                for key in batch:
+                    if hasattr(batch[key], 'to'):
+                        batch[key] = batch[key].to(current_device)
         
         return batch
 

@@ -81,6 +81,28 @@ prediction:
   compress: 'lzw'
   tiled: true
 
+augmentation:
+  # Height filtering
+  max_height_threshold: 60.0  # Remove vegetation heights above this threshold
+  
+  # Geometric augmentation probabilities
+  horizontal_flip_p: 0.5
+  vertical_flip_p: 0.5
+  rotation_degrees: 90.0
+  rotation_p: 0.5
+  
+  # Intensity augmentations for Sentinel-2 imagery
+  gaussian_noise_std: 0.02
+  gaussian_noise_p: 0.3
+  brightness_factor: 0.15
+  brightness_p: 0.3
+  contrast_factor: 0.15
+  contrast_p: 0.3
+  
+  # PNOA mask augmentations
+  mask_noise_std: 0.05
+  mask_noise_p: 0.2
+
 # Post-processing configuration
 post_processing:
   # Step 1: Merge predictions
