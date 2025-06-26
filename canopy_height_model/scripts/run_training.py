@@ -72,7 +72,7 @@ def main():
     # Parse arguments
     args = parse_arguments()
     model_training = ModelTrainingPipeline(args.config,args.resume)
-    success = model_training.run_full_pipeline()
+    success = model_training.run()
     return success
 
 if __name__ == "__main__":

@@ -64,7 +64,8 @@ class S2PNOAVegetationDataModule(GeoDataModule):
 
     def __init__(
         self,
-        data_dir: str = None,
+        sentinel2_dir: str = None,
+        pnoa_dir: str = None,
         patch_size: int = None,
         batch_size: int = None,
         length: int = None, 
@@ -95,10 +96,11 @@ class S2PNOAVegetationDataModule(GeoDataModule):
         self.logger = get_logger('canopy_height_dl.datamodule')
         
         # Use provided values or fall back to configuration
-        data_dir = data_dir or str(SENTINEL2_MOSAICS_DIR.parent)
-        patch_size = patch_size or self.config['training'].get('patch_size', 512)
+        sentinel2_dir = sentinel2_dir or str(SENTINEL2_MOSAICS_DIR)
+        pnoa_dir = pnoa_dir or str(ALS_CANOPY_HEIGHT_PROCESSED_DIR)
+        patch_size = patch_size or self.config['training'].get('patch_size', 256)
         batch_size = batch_size or self.config['training']['batch_size']
-        length = length or self.config['training'].get('length', 1000)
+        length = length or self.config['training'].get('length', 100)
         num_workers = num_workers or self.config['compute']['num_workers']
         seed = seed or 42
         predict_patch_size = predict_patch_size or self.config['prediction']['tile_size']
@@ -111,7 +113,8 @@ class S2PNOAVegetationDataModule(GeoDataModule):
         
         # Store parameters in hparams for compatibility
         self.save_hyperparameters({
-            'data_dir': data_dir,
+            'sentinel2_dir': sentinel2_dir,
+            'pnoa_dir': pnoa_dir,
             'patch_size': patch_size,
             'batch_size': batch_size,
             'length': length,
@@ -135,7 +138,9 @@ class S2PNOAVegetationDataModule(GeoDataModule):
         # Setup augmentations
         self._setup_augmentations()
         
-        self.logger.info(f"DataModule initialized with data directory: {data_dir}")
+        self.logger.info(f"DataModule initialized:")
+        self.logger.info(f"  Sentinel-2 directory: {sentinel2_dir}")
+        self.logger.info(f"  PNOA directory: {pnoa_dir}")
         self.logger.info(f"Training patch size: {patch_size}, prediction patch size: {predict_patch_size}")
        
     def _setup_augmentations(self) -> None:
@@ -195,11 +200,11 @@ class S2PNOAVegetationDataModule(GeoDataModule):
         self.logger.info(f"Setting up datasets for stage: {stage}")
         
         # Check if required dataset classes are available
-        if S2Mosaic is None:
+        if S2Mosaic is None or PNOAVegetation is None:
             self.logger.error("S2Mosaic dataset class not available - please copy datasets.py to core/")
             raise ImportError("Required dataset classes not available")
         
-        s2 = S2Mosaic(self.hparams['data_dir'] + str(SENTINEL2_MOSAICS_DIR.name))
+        s2 = S2Mosaic(self.hparams['sentinel2_dir'])
         
         if stage == 'predict':
             self._setup_predict(s2)
@@ -231,15 +236,15 @@ class S2PNOAVegetationDataModule(GeoDataModule):
             self.logger.error("Required dataset classes not available")
             raise ImportError("PNOAVegetation or KorniaIntersectionDataset not available")
         
-        pnoa_vegetation = PNOAVegetation(self.hparams['data_dir'] + str(ALS_CANOPY_HEIGHT_PROCESSED_DIR.name))
+        pnoa_vegetation = PNOAVegetation(self.hparams['pnoa_dir'])
         dataset = KorniaIntersectionDataset(s2, pnoa_vegetation)
         
         # Split dataset using configuration
-        split_ratios = [0.7, 0.2, 0.1]  # Default split ratios
+        split_ratios = [0.8, 0.1, 0.1]  # Default split ratios
         if 'data' in self.config and 'split_ratios' in self.config['data']:
             split_ratios = self.config['data']['split_ratios']
         
-        grid_size = 1000  # Default grid size
+        grid_size = 64  # Default grid size
         if 'data' in self.config and 'grid_size' in self.config['data']:
             grid_size = self.config['data']['grid_size']
         
