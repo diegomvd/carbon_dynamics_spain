@@ -50,16 +50,99 @@ class BiomassAggregationPipeline:
             component_name='aggregation_analysis'
         )
         
-    def run_full_pipeline(self):
-
-        target_years = self.config['analysis']['target_years']
-
-        combined_forest_type_df, genus_df, clade_df = self.run_forest_type_analysis(target_years)
-        landcover_results_list = self.run_landcover_analysis(target_years)
-        height_bin_results_list = self.run_height_bin_analysis(target_years)
-
-        # TODO: RESULTS DATA FORMATS ARE NOT COHERENT AND THE CENTRALIZED SAVING FUNCTION LIKELY DOES NOT WORK AT ALL
-        self.save_results()
+    def run_full_pipeline(self) -> bool:
+        """
+        Run complete biomass aggregation analysis pipeline.
+        
+        Executes all analysis types and saves results in coherent format.
+        
+        Returns:
+            bool: True if all analyses completed successfully
+        """
+        try:
+            self.logger.info("Starting complete biomass aggregation analysis pipeline...")
+            
+            target_years = self.config['analysis']['target_years']
+            success_flags = []
+            
+            # 1. Forest Type Analysis
+            self.logger.info("Running forest type analysis...")
+            try:
+                combined_forest_type_df, genus_df, clade_df = self.run_forest_type_analysis(target_years)
+                
+                if combined_forest_type_df is not None:
+                    # Save forest type results with coherent format
+                    forest_type_results = {
+                        'forest_type': combined_forest_type_df,
+                        'genus': genus_df, 
+                        'clade': clade_df
+                    }
+                    output_file = self.save_results(forest_type_results, 'forest_type')
+                    self.logger.info(f"Forest type analysis completed successfully. Results saved to: {output_file}")
+                    success_flags.append(True)
+                else:
+                    self.logger.error("Forest type analysis returned None results")
+                    success_flags.append(False)
+                    
+            except Exception as e:
+                self.logger.error(f"Forest type analysis failed: {str(e)}")
+                success_flags.append(False)
+            
+            # 2. Landcover Analysis  
+            self.logger.info("Running landcover analysis...")
+            try:
+                landcover_results_list = self.run_landcover_analysis(target_years)
+                
+                if landcover_results_list:
+                    # Convert List[Dict] to coherent DataFrame format
+                    landcover_df = pd.DataFrame(landcover_results_list)
+                    landcover_results = {'landcover': landcover_df}
+                    output_file = self.save_results(landcover_results, 'landcover')
+                    self.logger.info(f"Landcover analysis completed successfully. Results saved to: {output_file}")
+                    success_flags.append(True)
+                else:
+                    self.logger.error("Landcover analysis returned empty results")
+                    success_flags.append(False)
+                    
+            except Exception as e:
+                self.logger.error(f"Landcover analysis failed: {str(e)}")
+                success_flags.append(False)
+            
+            # 3. Height Bin Analysis
+            self.logger.info("Running height bin analysis...")
+            try:
+                height_bin_results_list = self.run_height_bin_analysis(target_years)
+                
+                if height_bin_results_list:
+                    # Convert List[Dict] to coherent DataFrame format
+                    height_bin_df = pd.DataFrame(height_bin_results_list)
+                    height_bin_results = {'height_bin': height_bin_df}
+                    output_file = self.save_results(height_bin_results, 'height_bin')
+                    self.logger.info(f"Height bin analysis completed successfully. Results saved to: {output_file}")
+                    success_flags.append(True)
+                else:
+                    self.logger.error("Height bin analysis returned empty results")
+                    success_flags.append(False)
+                    
+            except Exception as e:
+                self.logger.error(f"Height bin analysis failed: {str(e)}")
+                success_flags.append(False)
+            
+            # Overall success assessment
+            overall_success = all(success_flags)
+            
+            if overall_success:
+                self.logger.info("✅ Complete biomass aggregation analysis pipeline completed successfully")
+            else:
+                successful_analyses = sum(success_flags)
+                total_analyses = len(success_flags)
+                self.logger.warning(f"⚠️ Pipeline completed with partial success: {successful_analyses}/{total_analyses} analyses succeeded")
+            
+            return overall_success
+        
+        except Exception as e:
+            self.logger.error(f"Biomass aggregation pipeline failed with unexpected error: {str(e)}")
+            return False
 
     
     def load_and_merge_forest_type_mappings(self) -> pd.DataFrame:
