@@ -35,7 +35,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 from visualization.utils import (
     setup_logging, load_visualization_config, apply_style_config,
-    setup_data_paths, save_figure_multiple_formats, load_trend_data,
+    save_figure_multiple_formats, load_trend_data,
     get_figure_output_path, validate_required_files
 )
 
@@ -436,16 +436,13 @@ def main():
     config = load_visualization_config()
     apply_style_config(config)
     
-    # Set up data paths
-    data_paths = setup_data_paths()
-    
     # Get constants from config
     constants = config['constants']
     start_year = constants['start_year']
     end_year = constants['end_year']
     biomass_to_carbon = config['figure_params']['figure1']['biomass_to_carbon']
     
-    # Get data file paths
+    # Get data file paths TODO: adapt this logic to get all biomass files
     biomass_paths = {}
     for year in [start_year, end_year]:
         biomass_paths[year] = data_paths.get_biomass_path(
@@ -456,13 +453,13 @@ def main():
         )
     
     # Country bounds path
-    country_bounds_path = data_paths.get_path('reference_data') / "SpainPolygon" / "gadm41_ESP_0.shp"
+    country_bounds_path = SPAIN_BOUNDARIES_FILE
     
     # Validate required files exist
     required_files = list(biomass_paths.values()) + [country_bounds_path]
     validate_required_files(required_files, 'figure_01')
     
-    # Load trend data
+    # Load trend data # TODO: check inner working of this function
     trend_data = load_trend_data(data_paths, biomass_to_carbon=biomass_to_carbon)
     
     # Load raster data
@@ -490,7 +487,7 @@ def main():
     save_figure_multiple_formats(fig, output_path, config, logger)
     
     plt.close()
-    logger.info("Figure 1 created successfully")
+    logger.info("Figure 3 created successfully")
 
 if __name__ == "__main__":
     main()

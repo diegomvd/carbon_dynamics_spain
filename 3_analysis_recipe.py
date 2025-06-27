@@ -298,7 +298,7 @@ def main():
         
     # Validate prerequisites
     if not recipe.validate_prerequisites():
-        recipe.logger.error("❌ Prerequisites validation failed")
+        recipe.logger.error("Prerequisites validation failed")
         recipe.logger.error("Please ensure biomass maps and climate data are available")
         sys.exit(1)
         

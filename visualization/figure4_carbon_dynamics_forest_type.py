@@ -32,7 +32,7 @@ from visualization.utils import (
 )
 
 # Set up logging
-logger = setup_logging('figure_02')
+logger = setup_logging('figure_04')
 
 def load_analysis_data(data_paths) -> tuple:
     """
@@ -46,7 +46,7 @@ def load_analysis_data(data_paths) -> tuple:
     """
     logger.info("Loading analysis data from CSV files...")
     
-    # Define expected file paths
+    # Define expected file paths TODO: work out the actual paths 
     analysis_outputs = data_paths.get_path('analysis_outputs')
     data_files = {
         'genus': analysis_outputs / "biomass_by_genus_year.csv",

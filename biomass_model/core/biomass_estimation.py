@@ -10,7 +10,6 @@ This module orchestrates the complete biomass estimation workflow, including:
 The pipeline processes multiple forest types per tile using distributed computing
 with Dask for memory-efficient handling of large raster datasets.
 
-RESTORED: Tile-based processing paradigm with current code structure.
 
 Author: Diego Bengochea
 """
@@ -71,7 +70,7 @@ class BiomassEstimationPipeline:
         self.dask_manager = DaskClusterManager(self.config)
 
         # TODO: fix config to accept this
-        self.target_resolution = config['compute']['target_resolution']
+        self.target_resolution = config['processing']['target_resolution']
         
         # Pipeline state
         self.client = None

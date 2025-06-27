@@ -8,12 +8,13 @@ component:
   version: "1.0.0"
   description: "Biomass estimation with allometric relationships and Monte Carlo uncertainty"
 
-# Processing parameters (NO PATHS - all paths come from CentralDataPaths)
+# Processing parameters 
 processing:
   height_threshold: 0.0  # Minimum canopy height in meters
   compute_no_arbolado: true  # Whether to compute non-forest areas
   file_pattern: '*.tif'
   target_years: [2017, 2018, 2019, 2020, 2021, 2022, 2023, 2024]
+  target_resolution: 100
   
   # Masking parameters
   annual_crop_values: [12, 13, 14]  # Corine land cover values for arable land

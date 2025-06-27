@@ -81,18 +81,6 @@ def apply_style_config(config: Dict[str, Any]) -> None:
     if 'style' in config:
         plt.rcParams.update(config['style'])
 
-def setup_data_paths(data_root: Union[str, Path] = "data") -> CentralDataPaths:
-    """
-    Set up centralized data paths for visualization.
-    
-    Args:
-        data_root: Root directory for data
-        
-    Returns:
-        CentralDataPaths instance
-    """
-    return CentralDataPaths(data_root)
-
 def create_output_directory(config: Dict[str, Any], subfolder: str = 'main_text') -> Path:
     """
     Create and return output directory for figures.

@@ -6,6 +6,8 @@ This script creates a comprehensive validation figure with two panels:
 - Panel A: Regression scatter plot with density coloring
 - Panel B: Two aligned plots showing residual distributions (boxplot) and biomass histogram
 
+TODO: currently there's no script extracting the predicted biomass values with the NFI point layers. Must check which created point layer can be used to sample. 
+
 Author: Diego Bengochea
 Component: Visualization Pipeline
 """
@@ -438,7 +440,7 @@ def create_validation_figure(data: pd.DataFrame, stats_dict: dict, config: dict)
 
 def main():
     """Main function to run validation analysis and create figure."""
-    logger.info("Starting Figure 4 creation")
+    logger.info("Starting Figure 2 creation")
     
     # Load configuration
     config = load_visualization_config()
@@ -466,11 +468,11 @@ def main():
         fig = create_validation_figure(data, stats_dict, config)
         
         # Save figure
-        output_path = get_figure_output_path(config, "Figure4_Model_Validation")
+        output_path = get_figure_output_path(config, "Figure2_Model_Validation")
         save_figure_multiple_formats(fig, output_path, config, logger)
         
         plt.close()
-        logger.info("Figure 4 created successfully")
+        logger.info("Figure 2 created successfully")
         
     except FileNotFoundError as e:
         logger.error(f"Validation data not found: {e}")
