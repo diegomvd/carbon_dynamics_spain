@@ -1,30 +1,42 @@
 """
-Biomass Estimation Pipeline
+Main execution pipeline for biomass estimation from canopy height data.
 
-Main processing pipeline for biomass estimation using allometric relationships
-and Monte Carlo uncertainty quantification. Supports multi-scale processing
-with forest type specific allometries.
-Updated to use CentralDataPaths instead of config file paths.
+This module orchestrates the complete biomass estimation workflow, including:
+- Loading allometric relationships and forest type hierarchies
+- Processing tiles with Monte Carlo simulations
+- Applying forest type-specific allometries for AGB and BGB estimation
+- Writing optimized GeoTIFF outputs with uncertainty quantification
+
+The pipeline processes multiple forest types per tile using distributed computing
+with Dask for memory-efficient handling of large raster datasets.
+
+RESTORED: Tile-based processing paradigm with current code structure.
 
 Author: Diego Bengochea
 """
 
-import os
-import time
 from pathlib import Path
-from typing import Dict, List, Optional, Union, Tuple
+import random
+import gc
+import time
+import re
+import glob
+import os
+from tqdm import tqdm
 import dask
-from dask.distributed import Client
+from dask.diagnostics import ProgressBar
+import pandas as pd
+import dask.array as da
 
-# Shared utilities
-from shared_utils import setup_logging, get_logger, load_config, ensure_directory, find_files
+# Current code structure imports
+from shared_utils import setup_logging, get_logger, load_config
 from shared_utils.central_data_paths_constants import *
 
-# Component imports
-from .allometry import AllometryManager
-from .monte_carlo import MonteCarloEstimator
-from .io_utils import RasterManager
-from .dask_utils import DaskClusterManager
+
+from biomass_model.core.allometry import AllometryManager
+from biomass_model.core.monte_carlo import MonteCarloEstimator
+from biomass_model.core.biomass_utils import BiomassUtils
+from biomass_model.core.dask_utils import DaskClusterManager
 
 
 class BiomassEstimationPipeline:
@@ -55,379 +67,268 @@ class BiomassEstimationPipeline:
         
         self.allometry_manager = AllometryManager()
         self.monte_carlo = MonteCarloEstimator(self.config)
-        self.raster_manager = RasterManager(self.config)
+        self.biomass_utils = BiomassUtils(self.config)
         self.dask_manager = DaskClusterManager(self.config)
+
+        # TODO: fix config to accept this
+        self.target_resolution = config['compute']['target_resolution']
         
         # Pipeline state
         self.client = None
         self.start_time = None
         
         self.logger.info(f"Initialized BiomassEstimationPipeline")
-    
-    def setup_dask_cluster(self) -> None:
-        """Setup Dask distributed computing cluster."""
-        self.logger.info("Setting up Dask cluster...")
-        self.client = self.dask_manager.setup_cluster()
-        
-        if self.client:
-            self.logger.info(f"Dask cluster ready: {self.client}")
-            self.logger.info(f"Dashboard: {self.client.dashboard_link}")
-        else:
-            self.logger.warning("Failed to setup Dask cluster, using synchronous processing")
-    
-    def validate_inputs(self) -> bool:
+
+
+    def process_forest_type(height_file, mask_file, code, forest_type_name):
         """
-        Validate that all required input files and directories exist.
-        Uses CentralDataPaths instead of config paths.
-        
-        Returns:
-            bool: True if all inputs are valid
-        """
-        self.logger.info("Validating input data...")
-        
-        # Check height maps directory - UPDATED: Use CentralDataPaths
-        height_maps_dir = HEIGHT_MAPS_100M_DIR
-        if not height_maps_dir.exists():
-            self.logger.error(f"Height maps directory not found: {height_maps_dir}")
-            return False
-        
-        # Check for height map files
-        height_files = []
-        for year_dir in height_maps_dir.iterdir():
-            if year_dir.is_dir():
-                year_files = list(year_dir.glob("*.tif"))
-                height_files.extend(year_files)
-        
-        if not height_files:
-            self.logger.error(f"No height map files found in {height_maps_dir}")
-            return False
-        
-        # Check forest type maps directory - UPDATED: Use CentralDataPaths
-        forest_masks_dir = FOREST_TYPE_MASKS_DIR
-        if not forest_masks_dir.exists():
-            self.logger.error(f"Forest type maps directory not found: {forest_masks_dir}")
-            return False
-        
-        # Check allometric data validation
-        if not self.allometry_manager.validate_allometric_data():
-            self.logger.error("Allometric data validation failed")
-            return False
-        
-        self.logger.info(f"Input validation passed. Found {len(height_files)} height map files.")
-        return True
-    
-    def setup_output_directories(self) -> Dict[str, Path]:
-        """
-        Create output directory structure using CentralDataPaths.
-        
-        Returns:
-            Dict[str, Path]: Dictionary of output directories by biomass type
-        """
-        self.logger.info("Setting up output directories...")
-        
-        base_dir = BIOMASS_MAPS_RAW_DIR
-        
-        output_dirs = {}
-        for biomass_type in self.config['output']['types']:
-            # Create subdirectory for this biomass type
-            if biomass_type.lower() == 'agbd':
-                subdir_name = 'AGBD_MC_100m'
-            elif biomass_type.lower() == 'bgbd':
-                subdir_name = 'BGBD_MC_100m'
-            elif biomass_type.lower() == 'total':
-                subdir_name = 'TBD_MC_100m'
-            else:
-                subdir_name = f'{biomass_type.upper()}_MC_100m'
-            
-            output_path = base_dir / subdir_name
-            ensure_directory(output_path)
-            output_dirs[biomass_type] = output_path
-            self.logger.info(f"Created output directory for {biomass_type}: {output_path}")
-        
-        return output_dirs
-    
-    def find_height_files_for_year(self, year: int) -> List[Path]:
-        """
-        Find height raster files for a specific year using CentralDataPaths.
+        Process a single forest type with current components for biomass estimation.
         
         Args:
-            year: Year to search for
-            
+            height_file (str): Path to canopy height raster
+            mask_file (str): Path to forest type mask raster
+            code (str): Forest type code identifier
+            forest_type_name (str): Human-readable forest type name
+
         Returns:
-            List of matching height raster files
+            bool: True if processing succeeded, False otherwise
         """
-        height_maps_dir = HEIGHT_MAPS_100M_DIR
-        year_dir = height_maps_dir / str(year)
-        
-        if not year_dir.exists():
-            self.logger.warning(f"No height maps found for year {year} in {year_dir}")
-            return []
-        
-        height_files = list(year_dir.glob("*.tif"))
-        self.logger.debug(f"Found {len(height_files)} height files for year {year}")
-        return sorted(height_files)
-    
-    def find_forest_mask_files(self) -> List[Path]:
-        """
-        Find forest type mask files using CentralDataPaths.
-        
-        Returns:
-            List of forest type mask files
-        """
-       
-        masks_dir = FOREST_TYPE_MASKS_DIR
-        
-        if not masks_dir.exists():
-            self.logger.warning(f"Forest masks directory not found: {masks_dir}")
-            return []
-        
-        # Look for mask files (shapefiles or rasters)
-        mask_files = []
-        for pattern in ["*.shp", "*.tif"]:
-            mask_files.extend(list(masks_dir.glob(pattern)))
-        
-        self.logger.debug(f"Found {len(mask_files)} forest mask files")
-        return sorted(mask_files)
-    
-    def process_year(self, year: int, output_dirs: Dict[str, Path]) -> bool:
-        """
-        Process all forest types for a specific year.
-        
-        Args:
-            year: Year to process
-            output_dirs: Output directories by biomass type
-            
-        Returns:
-            bool: True if processing succeeded
-        """
-        self.logger.info(f"Processing year {year}...")
+        logger = get_logger('biomass_estimation')
         
         try:
-            # Find height files for this year
-            height_files = self.find_height_files_for_year(year)
-            
-            if not height_files:
-                self.logger.error(f"No height files found for year {year}")
+            logger.info(f"Processing forest type: {forest_type_name} (code: {code})")
+
+            # Get allometry parameters using current AllometryManager
+            try:
+                agb_params, bgb_params = self.allometry_manager.get_allometry_parameters(
+                    forest_type_name, code
+                )
+            except Exception as e:
+                logger.error(f"Failed to get allometry parameters for {forest_type_name}: {e}")
                 return False
             
-            # Find forest mask files
-            mask_files = self.find_forest_mask_files()
-            
-            if not mask_files:
-                self.logger.error("No forest mask files found")
+            try:
+                height_data, mask_data, metadata = self.biomass_utils.read_height_and_mask_xarray(
+                    height_file, mask_file, 
+                    chunk_size=self.config.get('compute', {}).get('chunk_size', 750)
+                )
+            except Exception as e:
+                logger.error(f"Failed to load raster data: {e}")
                 return False
+
+            # Apply forest type mask to height data
+            masked_heights = height_data.where(mask_data)
             
-            # Process each forest type
-            forest_types = self.allometry_manager.get_available_forest_types()
-            successful_types = 0
-            
-            for forest_type in forest_types:
+            # Execute Monte Carlo biomass simulation using current MonteCarloEstimator
+            with ProgressBar():
+                logger.info("Running Monte Carlo biomass estimation...")
                 try:
-                    # Find appropriate mask file for this forest type
-                    mask_file = self._find_mask_for_forest_type(forest_type, mask_files)
-                    
-                    if mask_file:
-                        success = self.process_forest_type(
-                            year, forest_type, height_files, mask_file, output_dirs
-                        )
-                        if success:
-                            successful_types += 1
-                    else:
-                        self.logger.warning(f"No mask file found for forest type {forest_type}")
-                
-                except Exception as e:
-                    self.logger.error(f"Error processing forest type {forest_type}: {str(e)}")
-                    continue
-            
-            self.logger.info(f"Year {year} processing complete: {successful_types}/{len(forest_types)} forest types successful")
-            return successful_types > 0
-            
-        except Exception as e:
-            self.logger.error(f"Error processing year {year}: {str(e)}")
-            return False
-    
-    def _find_mask_for_forest_type(self, forest_type: str, mask_files: List[Path]) -> Optional[Path]:
-        """
-        Find the appropriate mask file for a forest type.
-        
-        Args:
-            forest_type: Forest type identifier
-            mask_files: List of available mask files
-            
-        Returns:
-            Path to mask file or None if not found
-        """
-        # Simple matching logic - could be enhanced
-        for mask_file in mask_files:
-            if forest_type.lower() in mask_file.name.lower():
-                return mask_file
-        
-        # Fallback: return first mask file if no specific match
-        return mask_files[0] if mask_files else None
-    
-    def process_forest_type(
-        self,
-        year: int,
-        forest_type: str,
-        height_files: List[Path],
-        mask_file: Path,
-        output_dirs: Dict[str, Path]
-    ) -> bool:
-        """
-        Process a specific forest type for a year.
-        
-        Args:
-            year: Year being processed
-            forest_type: Forest type identifier
-            height_files: List of height raster files
-            mask_file: Forest type mask file
-            output_dirs: Output directories
-            
-        Returns:
-            bool: True if processing succeeded
-        """
-        try:
-            self.logger.info(f"Processing forest type {forest_type} for year {year}")
-            
-            # Load height data
-            height_file = height_files[0] if isinstance(height_files, list) else height_files
-            heights = rxr.open_rasterio(height_file, chunks=True)
-            if 'band' in heights.dims:
-                heights = heights.isel(band=0)
-            
-            # Load mask data
-            mask = rxr.open_rasterio(mask_file, chunks=True)
-            if 'band' in mask.dims:
-                mask = mask.isel(band=0)
-            
-            # Apply mask to heights
-            masked_heights = heights.where(mask > 0)
-
-            # Get allometric parameters for this forest type
-            agb_params, bgb_params = self.allometry_manager.get_allometry_parameters(forest_type)
-            
-            if not agb_params:
-                self.logger.warning(f"No allometry parameters found for forest type {forest_type}")
-                return False
-            
-            results = self.monte_carlo.run(masked_heights,agb_params,bgb_params)
-
-            # Process each biomass type
-            for biomass_type in self.config['output']['types']:
-                output_dir = output_dirs[biomass_type]
-                
-                # Generate output filenames
-                for measure in self.config['output']['measures']:
-                    output_file = self.generate_output_filename(
-                        output_dir, biomass_type, measure, year, forest_type
+                    results = self.monte_carlo.run(
+                        masked_heights, agb_params, bgb_params
                     )
-                    
-                    # Skip if file already exists (unless overwrite is enabled)
-                    if output_file.exists() and not self.config.get('overwrite', False):
-                        self.logger.debug(f"Output file already exists, skipping: {output_file.name}")
-                        continue
-                
-                    # Extract requested result
-                    result_key = f"{biomass_type}_{measure}"
-                    if result_key not in results:
-                        self.logger.error(f"Result {result_key} not found")
-                        return False
-                    
-                    result_array = results[result_key]
-                    
-                    # Save result
-                    ensure_directory(output_file.parent)
-                    
-                    # Simple save (just get it working)
-                    result_array.rio.to_raster(output_file)
-                    
-                    self.logger.info(f"Saved result to {output_file}")
+                except Exception as e:
+                    logger.error(f"Monte Carlo estimation failed: {e}")
+                    return False
             
-            return True
+            try:
+                success = self.biomass_utils.write_xarray_results(
+                    results, height_file, code, forest_type_name, mask_data, metadata
+                )
+                
+                if success:
+                    logger.info(f"Completed processing for {forest_type_name}")
+                    return True
+                else:
+                    logger.error(f"Failed to write results for {forest_type_name}")
+                    return False
+            except Exception as e:
+                logger.error(f"Failed to write results: {e}")
+                return False
+                
+        except Exception as e:
+            logger.error(f"Error processing forest type {forest_type_name}: {str(e)}")
+            import traceback
+            logger.error(traceback.format_exc())
+            return False
+
+
+    def process_tile(height_file, forest_types_table, code_to_name):
+        """
+        Process a single tile with all associated forest types.
+        
+        Args:
+            height_file (str): Path to height raster
+            forest_types_table (pd.DataFrame): Forest type hierarchy table
+            code_to_name (dict): Mapping from forest type codes to names
+            
+        Returns:
+            bool: True if processing succeeded, False otherwise
+        """
+        logger = get_logger('biomass_estimation')
+        tile_name = Path(height_file).stem
+        logger.info(f"Processing tile: {tile_name}")
+        
+        # Extract tile information from filename
+        tile_info = self.biomass_utils.extract_tile_info(height_file)
+        if not tile_info:
+            logger.error(f"Failed to extract tile information from {height_file}")
+            return False
+            
+        # Find all forest type masks for this tile using current path structure
+        try:
+            masks_dir = str(FOREST_TYPE_MASKS_DIR)  # Use current path constants
+            masks = self.biomass_utils.find_masks_for_tile(tile_info, masks_dir)
+        except OSError as e:
+            logger.error(f"Error finding masks for {tile_name}: {e}")
+            return False
+            
+        if not masks:
+            logger.warning(f"No masks found for {tile_name}")
+            return False
+            
+        logger.info(f"Found {len(masks)} masks for {tile_name}")
+        
+        # Process each forest type independently
+        results = []
+        
+        for mask_path, code in tqdm(masks, desc=f"Processing forest types for {tile_name}"):
+            forest_type = code_to_name.get(code, f"Unknown_{code}")
+            
+            # Process this specific forest type
+            success = process_forest_type(
+                height_file, mask_path, code, forest_type
+            )
+            
+            results.append(success)
+            
+            # Force garbage collection between forest types
+            gc.collect()
+        
+        # Calculate success rate for this tile
+        success_count = sum(1 for r in results if r)
+        logger.info(f"Processed {success_count}/{len(masks)} forest types for {tile_name}")
+        
+        return success_count > 0
+
+
+    def run_full_pipeline() -> bool:
+        """
+        Main orchestration function to process all tiles using tile-based approach.
+        
+        Loads reference data once and processes tiles sequentially with detailed
+        progress tracking and memory management.
+        """
+        # Load configuration using current system
+        config = self.config
+        
+        overall_start_time = time.time()
+        processed_tiles = 0
+        failed_tiles = 0
+        
+            
+        try:
+            # Load forest type hierarchy using current path structure
+            forest_types = pd.read_csv(FOREST_TYPES_TIERS_FILE)
+            forest_types['Dummy'] = 'General'  # Add dummy tier for hierarchy traversal
+            logger.info(f"Loaded forest types hierarchy with {len(forest_types)} entries")
+            
+            # Build forest type code-to-name mapping using current paths
+            code_to_name = self.biomass_utils.build_forest_type_mapping(
+                FOREST_TYPE_MAPS_DIR,
+                cache_path=CACHE_PAT, # TODO: add this path!
+                use_cache=config.get('forest_types', {}).get('use_cache', True)
+            )
+            logger.info(f"Built forest type mapping with {len(code_to_name)} entries")
             
         except Exception as e:
-            self.logger.error(f"Error processing forest type {forest_type}: {str(e)}")
+            logger.error(f"Failed to load reference data: {str(e)}")
+            import traceback
+            logger.error(traceback.format_exc())
             return False
-    
-    def generate_output_filename(
-        self, 
-        output_dir: Path, 
-        biomass_type: str, 
-        measure: str, 
-        year: int, 
-        forest_type: str
-    ) -> Path:
-        """
-        Generate standardized output filename.
         
-        Args:
-            output_dir: Output directory
-            biomass_type: Biomass type (AGBD, BGBD, TBD)
-            measure: Statistical measure (mean, uncertainty)
-            year: Year
-            forest_type: Forest type
-            
-        Returns:
-            Path: Complete output file path
-        """
-        # Clean forest type for filename
-        clean_forest_type = forest_type.replace(' ', '_').replace('/', '_')
-        
-        # Generate filename
-        filename = f"{biomass_type.upper()}_S2_{measure}_{year}_100m_{clean_forest_type}.tif"
-        
-        return output_dir / filename
-    
-    def run_full_pipeline(self, years: Optional[List[int]] = None) -> bool:
-        """
-        Execute the complete biomass estimation pipeline.
-        
-        Args:
-            years: List of years to process (uses config default if None)
-            
-        Returns:
-            bool: True if pipeline completed successfully
-        """
-        self.logger.info("Starting biomass estimation pipeline...")
-        self.start_time = time.time()
+        # Discover input files using current path structure
+        if self.target_resolution == 100:
+            input_dir = HEIGHT_MAPS_100M_DIR  # Use current path constants
+        elif self.target_resolution == 10:
+            input_dir = HEIGHT_MAPS_10M_DIR
+        else: 
+            self.logger.error(f'Height maps at {self.target_resolution}m are not available. Ending execution.')
+            return False
+
+        file_pattern = self.config.get('processing', {}).get('file_pattern', '*.tif')
+        logger.info(f"Looking for canopy height files in {input_dir}")
         
         try:
-            # Use default years from config if not provided
-            if years is None:
-                years = self.config['processing']['target_years']
-            
-            # Validate inputs
-            if not self.validate_inputs():
-                return False
-            
-            # Setup output directories
-            output_dirs = self.setup_output_directories()
-            
-            # Setup Dask cluster if enabled
-            if self.config.get('compute', {}).get('use_dask', False):
-                self.setup_dask_cluster()
-            
-            # Process each year
-            successful_years = 0
-            for year in years:
-                success = self.process_year(year, output_dirs)
-                if success:
-                    successful_years += 1
-                else:
-                    self.logger.error(f"Failed to process year {year}")
-            
-            # Log completion
-            duration = time.time() - self.start_time
-            self.logger.info(f"Pipeline completed in {duration:.2f} seconds")
-            self.logger.info(f"Successfully processed {successful_years}/{len(years)} years")
-            
-            return successful_years > 0
-            
+            files = list(Path(input_dir).glob(file_pattern))
         except Exception as e:
-            self.logger.error(f"Pipeline execution failed: {str(e)}")
+            logger.error(f"Failed to list input files: {str(e)}")
             return False
+            
+        # Randomize processing order for better load balancing
+        random.shuffle(files)
+
+        # Filter and sort files by year (newest first) using target years from config
+        files_with_years = []
+        target_years = self.config.get('processing', {}).get('target_years', [2017, 2018, 2019, 2020, 2021, 2022, 2023, 2024])
         
-        finally:
-            # Cleanup Dask cluster
-            if self.client:
-                self.client.close()
+        for f in files:
+            tile_info = self.biomass_utils.extract_tile_info(f)
+            if tile_info:
+                if int(tile_info['year']) in target_years:
+                    files_with_years.append((f, tile_info['year']))
+            else:
+                files_with_years.append((f, '0000'))  # Default for failed extraction
+                
+        # Sort by year (newest first)
+        files_with_years.sort(key=lambda x: x[1], reverse=True)
+        files = [f[0] for f in files_with_years]
+
+        total_files = len(files)
+        self.logger.info(f"Found {total_files} input tiles to process")
+        
+        # Process tiles sequentially with detailed progress tracking
+        for i, fname in enumerate(files):
+            self.logger.info(f"\n{'='*80}\nProcessing tile {i+1}/{total_files}: {fname}\n{'='*80}")
+            
+            try:
+                # Process this individual tile using current components
+                success = process_tile(
+                    fname, 
+                    forest_types,
+                    code_to_name,
+                )
+                
+                # Update counters based on processing result
+                if success:
+                    processed_tiles += 1
+                else:
+                    failed_tiles += 1
+                    
+            except Exception as e:
+                logger.error(f"Failed to process tile {fname}: {str(e)}")
+                import traceback
+                logger.error(traceback.format_exc())
+                failed_tiles += 1
+            
+            # Calculate and log progress statistics
+            elapsed = time.time() - overall_start_time
+            remaining = total_files - (i + 1)
+            est_time_per_tile = elapsed / (i + 1)
+            est_remaining = est_time_per_tile * remaining
+            
+            self.logger.info(f"Progress: {(i+1)}/{total_files} ({(i+1)/total_files*100:.1f}%)")
+            self.logger.info(f"Elapsed: {elapsed/3600:.2f} hours, Estimated remaining: {est_remaining/3600:.2f} hours")
+            self.logger.info(f"Success rate: {processed_tiles}/{i+1} ({processed_tiles/(i+1)*100:.1f}%)")
+            
+            # Force garbage collection between tiles
+            gc.collect()
+        
+        # Generate final processing report
+        overall_elapsed = time.time() - overall_start_time
+        self.logger.info("\n" + "="*80)
+        self.logger.info("Processing completed!")
+        self.logger.info(f"Total elapsed time: {overall_elapsed/3600:.2f} hours")
+        self.logger.info(f"Tiles processed: {processed_tiles}/{total_files}")
+        self.logger.info(f"Tiles failed: {failed_tiles}/{total_files}")
+
+        return True

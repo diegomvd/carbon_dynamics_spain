@@ -461,21 +461,21 @@ def create_output_directory(output_path: Path) -> None:
     output_dir.mkdir(parents=True, exist_ok=True)
 
 
-# Tier name mapping for compatibility with existing pipeline
-TIER_NAMES = {
-    0: 'Dummy',
-    1: 'Clade', 
-    2: 'Family',
-    3: 'Genus',
-    4: 'ForestTypeMFE'
-}
+# # Tier name mapping for compatibility with existing pipeline
+# TIER_NAMES = {
+#     0: 'Dummy',
+#     1: 'Clade', 
+#     2: 'Family',
+#     3: 'Genus',
+#     4: 'ForestTypeMFE'
+# }
 
 
-# Forest type hierarchy levels (processed in order)
-HIERARCHY_LEVELS = {
-    'General': {'tier': 0, 'column': None},
-    'Clade': {'tier': 1, 'column': 'Clade'},
-    'Family': {'tier': 2, 'column': 'Family'},
-    'Genus': {'tier': 3, 'column': 'Genus'},
-    'ForestType': {'tier': 4, 'column': 'ForestType'}
-}
+# # Forest type hierarchy levels (processed in order)
+# HIERARCHY_LEVELS = {
+#     'General': {'tier': 0, 'column': None},
+#     'Clade': {'tier': 1, 'column': 'Clade'},
+#     'Family': {'tier': 2, 'column': 'Family'},
+#     'Genus': {'tier': 3, 'column': 'Genus'},
+#     'ForestType': {'tier': 4, 'column': 'ForestType'}
+# }
