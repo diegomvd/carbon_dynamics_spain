@@ -45,15 +45,6 @@ def parse_arguments():
         help='Path to configuration file (default: component config.yaml)'
     )
     
-    # Stage selection
-    parser.add_argument(
-        '--stages',
-        nargs='+',
-        choices=['climate_processing', 'bioclim_calculation', 'biomass_integration', 
-                'spatial_analysis', 'optimization'],
-        help='Specific stages to run (default: all stages)'
-    )
-    
     return parser.parse_args()
 
 
@@ -62,7 +53,7 @@ def main():
     args = parse_arguments()
 
     climate_raster_conversion = ClimateRasterConversionPipeline(args.config)
-    success_conversion = ClimateRasterConversionPipeline.run_full_pipeline()
+    success_conversion = climate_raster_conversion.run_full_pipeline()
 
     bioclim_processing = BioclimCalculationPipeline(args.config)
     success_bioclim = bioclim_processing.run_full_pipeline()

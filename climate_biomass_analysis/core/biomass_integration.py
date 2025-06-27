@@ -258,30 +258,34 @@ class BiomassIntegrationPipeline:
             basename = os.path.basename(diff_file)
             self.logger.info(f"Processing: {basename}")
             
-            # Parse filename to extract years (format may vary)
+            # Extract year pattern from filename (expects YYYY-YYYY format)
             try:
-                # Try to extract year pattern from filename
-                if 'biomass_rel_change' in basename:
-                    # Expected format: biomass_rel_change_YYYY_YYYY.tif
-                    parts = basename.split('_')
-                    for i, part in enumerate(parts):
-                        if len(part) == 4 and part.isdigit():
-                            start_year = int(part)
-                            if i + 1 < len(parts) and len(parts[i + 1]) == 4 and parts[i + 1].isdigit():
-                                end_year = int(parts[i + 1])
+                parts = basename.split('_')
+                years_str = None
+                
+                # Look for a part containing YYYY-YYYY pattern
+                for part in parts:
+                    if '-' in part and len(part) == 9:  # YYYY-YYYY is 9 characters
+                        try:
+                            year_parts = part.split('-')
+                            if (len(year_parts) == 2 and 
+                                len(year_parts[0]) == 4 and year_parts[0].isdigit() and
+                                len(year_parts[1]) == 4 and year_parts[1].isdigit()):
+                                years_str = part
                                 break
-                    else:
-                        self.logger.warning(f"Could not parse years from filename: {basename}")
-                        continue
-                else:
-                    # Try alternative parsing
-                    years_str = basename.split('_')[5] if len(basename.split('_')) > 5 else basename.split('_')[-1]
-                    start_year, end_year = years_str.split('-')
-                    start_year = int(start_year[:4])
-                    end_year = int(end_year[:4])
+                        except:
+                            continue
+                
+                if years_str is None:
+                    self.logger.warning(f"Could not parse years from filename: {basename}")
+                    continue
                     
-            except (ValueError, IndexError) as e:
-                self.logger.warning(f"Error parsing filename {basename}: {e}")
+                start_year, end_year = years_str.split('-')
+                start_year = int(start_year)
+                end_year = int(end_year)
+            
+            except Exception as e:
+                self.logger.error(f"Error parsing filename {basename}: {e}")
                 continue
             
             self.logger.info(f"Processing biomass difference for {start_year}-{end_year}...")

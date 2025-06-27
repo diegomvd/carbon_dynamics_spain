@@ -101,9 +101,9 @@ class BioclimCalculationPipeline:
         )
         
         if reference_bioclim:
-            logger.info(f"✅ Reference bioclimatic variables calculated: {len(reference_bioclim)} variables")
+            logger.info(f"Reference bioclimatic variables calculated: {len(reference_bioclim)} variables")
         else:
-            logger.error("❌ Failed to calculate reference bioclimatic variables")
+            logger.error("Failed to calculate reference bioclimatic variables")
             return False
 
         anomalies_dir = self.anomalies_dir
@@ -112,17 +112,17 @@ class BioclimCalculationPipeline:
             harmonized_precip_files,
             bioclim_dir,
             anomaly_dir,
-            start_year=time_periods['analysis']['start_year'],
-            end_year=time_periods['analysis']['end_year'],
+            start_year=time_periods['analysis']['start_year_anomalies'],
+            end_year=time_periods['analysis']['end_year_anomalies'],
             rolling=time_periods['analysis']['rolling']
         )
 
         if yearly_anomalies:
             total_anomalies = sum(len(year_data) for year_data in yearly_anomalies.values())
-            logger.info(f"✅ Bioclimatic anomalies calculated: {len(yearly_anomalies)} years, "
+            logger.info(f" Bioclimatic anomalies calculated: {len(yearly_anomalies)} years, "
                         f"{total_anomalies} total anomaly files")
         else:
-            logger.error("❌ Failed to calculate bioclimatic anomalies")
+            logger.error("Failed to calculate bioclimatic anomalies")
             return False
 
         logger.info("Bioclimatic calculation completed successfully!")
