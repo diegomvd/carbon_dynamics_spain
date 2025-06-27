@@ -2,9 +2,7 @@
 Interannual Biomass Analysis Module
 
 This module implements interannual biomass difference mapping and transition
-distribution analysis. All algorithmic logic preserved exactly from original scripts:
-- map_interannual_differences.py
-- calculate_transition_distributions.py
+distribution analysis. 
 
 Author: Diego Bengochea
 """
@@ -290,6 +288,8 @@ class InterannualChangePipeline:
         # Calculate differences
         raw_diff = y2_valid - y1_valid
         
+        carbon_changes = raw_diff * biomass_to_carbon * pixel_area_ha / 1e6 
+
         # Calculate relative differences (avoiding division by zero)
         denominator = y1_valid + y2_valid
         rel_diff = np.zeros_like(raw_diff)
@@ -299,10 +299,15 @@ class InterannualChangePipeline:
         rel_diff[nonzero_mask] = 200 * raw_diff[nonzero_mask] / denominator[nonzero_mask]
         
         # Count different transition types
-        gain_mask = raw_diff > 0
-        loss_mask = raw_diff < 0
-        stable_mask = raw_diff == 0
+        gain_mask = raw_diff > 1
+        loss_mask = raw_diff < -1
+        stable_mask = np.abs(raw_diff) < 1 
         
+        transitions_to_zero = np.sum((y1_valid > 10) & (y2_valid < 10))  # Forest loss
+        transitions_from_zero = np.sum((y1_valid < 10) & (y2_valid > 10))  # Forest gain
+        high_loss_transitions = np.sum(raw_diff < -50)  # Major biomass loss
+        high_gain_transitions = np.sum(raw_diff > 50)  # Major biomass gain
+
         # Calculate statistics
         stats = {
             'year1': year1,
@@ -328,6 +333,10 @@ class InterannualChangePipeline:
             'q25_rel_diff': float(np.percentile(rel_diff, 25)),
             'q75_rel_diff': float(np.percentile(rel_diff, 75)),
             
+            'total_carbon_change_Mt': float(np.sum(carbon_changes)),
+            'total_gains_Mt': float(np.sum(carbon_changes[carbon_changes > 0])),
+            'total_losses_Mt': float(np.sum(carbon_changes[carbon_changes < 0])),
+
             # Transition counts
             'n_gain_pixels': int(np.sum(gain_mask)),
             'n_loss_pixels': int(np.sum(loss_mask)),
@@ -343,7 +352,26 @@ class InterannualChangePipeline:
             'median_biomass_y2': float(np.median(y2_valid)),
             'std_biomass_y1': float(np.std(y1_valid)),
             'std_biomass_y2': float(np.std(y2_valid)),
+
+            'transitions_to_zero': int(transitions_to_zero),
+            'transitions_from_zero': int(transitions_from_zero), 
+            'high_loss_transitions': int(high_loss_transitions),
+            'high_gain_transitions': int(high_gain_transitions),
         }
+
+        if stats['total_losses_Mt'] < 0:  # Only if there are losses
+            # Forest loss transitions as % of total carbon losses
+            mask_to_zero = (y1_valid > 10) & (y2_valid < 10) & (carbon_changes < 0)
+            losses_to_zero = np.sum(carbon_changes[mask_to_zero])
+            stats['pct_losses_to_zero'] = float((losses_to_zero / stats['total_losses_Mt']) * 100)
+            
+            # Major disturbance events as % of total carbon losses
+            mask_high_loss = (raw_diff < -50) & (carbon_changes < 0)
+            high_losses = np.sum(carbon_changes[mask_high_loss])
+            stats['pct_high_losses'] = float((high_losses / stats['total_losses_Mt']) * 100)
+        else:
+            stats['pct_losses_to_zero'] = 0.0
+            stats['pct_high_losses'] = 0.0
         
         return stats
 

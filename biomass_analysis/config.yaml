@@ -59,7 +59,9 @@ interannual:
   
   # For transition analysis
   transitions:
-    save_transition_data: false   # Whether to save raw pixel-level transition data
+    save_transition_data: true   # Whether to save raw pixel-level transition data
+    pixel_area_ha: 1             # Area per pixel in hectares
+    max_biomass_threshold: 1500   # Maximum biomass threshold for quality control
   
   # For carbon flux calculations  
   carbon_fluxes:
