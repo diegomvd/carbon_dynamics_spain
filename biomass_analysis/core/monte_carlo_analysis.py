@@ -124,6 +124,8 @@ class MonteCarloAggregationPipeline:
                     # Handle nodata values
                     if src.nodata is not None:
                         data = np.where(data == src.nodata, np.nan, data)
+
+                    data = self.apply_quality_control(data)
                     
                     return data, out_transform, src.crs, src.bounds
             else:
@@ -471,3 +473,36 @@ class MonteCarloAggregationPipeline:
             self.logger.info(f"Monte Carlo samples saved to: {samples_file}")
         
         return summary_file, samples_file
+
+
+    def apply_quality_control(self, data: np.ndarray) -> np.ndarray:
+        """
+        Apply quality control filtering to biomass data.
+            
+        Args:
+            data: Input biomass data array
+            
+        Returns:
+            Filtered data array with unrealistic values removed
+        """
+        if not self.config.get('quality_control', {}).get('enable_filtering', False):
+            return data
+        
+        qc_config = self.config['quality_control']
+        max_threshold = qc_config['max_biomass_threshold']
+        min_threshold = qc_config['min_biomass_threshold']
+        
+        # Filter unrealistic values
+        filtered_data = np.where(data > max_threshold, np.nan, data)
+        filtered_data = np.where(filtered_data < min_threshold, 0, filtered_data)  # Preserve NaN
+        
+        # Log filtering statistics
+        original_valid = np.sum(~np.isnan(data))
+        filtered_valid = np.sum(~np.isnan(filtered_data))
+        filtered_count = original_valid - filtered_valid
+        
+        if filtered_count > 0:
+            self.logger.info(f"Quality control: filtered {filtered_count} unrealistic values")
+            self.logger.info(f"  Max threshold: {max_threshold}, Min threshold: {min_threshold}")
+        
+        return filtered_data

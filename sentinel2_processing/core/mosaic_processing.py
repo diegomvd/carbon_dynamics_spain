@@ -261,31 +261,31 @@ class MosaicProcessingPipeline:
         self.logger.info(f'Processing tile for year {year} in region {bounding_box}')
         
         try:
-            # CRITICAL: Preserve exact time range string format
+            # Preserve exact time range string format
             time_range = (f'{year}-{self.config["processing"]["min_month"]:02d}-01/'
                          f'{year}-{self.config["processing"]["max_month"]:02d}-01')
             
-            # CRITICAL: Preserve exact cluster setup and processing workflow
+            # Preserve exact cluster setup and processing workflow
             with setup_optimized_cluster(
                 self.config['compute']['n_workers'],
                 self.config['compute']['threads_per_worker'],
                 self.config['compute']['memory_per_worker']
             ) as client:
                 
-                # CRITICAL: Preserve exact client configuration and logging
+                # Preserve exact client configuration and logging
                 self.logger.info(f"Cluster dashboard: {client.dashboard_link}")
                 configure_rio(cloud_defaults=True, client=client)
                 self.logger.info(f'Starting processing of mosaic {i+1}, {total-i} remaining')
                 
                 try:
                     self.logger.info('Creating dataset and processing mosaic')
-                    # CRITICAL: Preserve exact dataset creation workflow
+                    # Preserve exact dataset creation workflow
                     dataset = create_dataset(self.catalog, tile, time_range, self.config)
                     mosaic = self.process_mosaic(dataset, year, time_range).compute()
 
                     self.logger.info(f'Mosaic {i+1} processed, {total-i-1} remaining')
                 
-                    # CRITICAL: Preserve exact saving and cleanup sequence
+                    # Preserve exact saving and cleanup sequence
                     self.save_mosaic(mosaic, savepath, client)
                     self.logger.info(f'Successfully saved mosaic to {savepath}')
                     mosaic.close()
@@ -298,7 +298,7 @@ class MosaicProcessingPipeline:
                     self.error_count += 1
                     return False
             
-                # CRITICAL: Preserve exact client restart for memory management
+                # Preserve exact client restart for memory management
                 client.restart()
         
         except Exception as cluster_error:

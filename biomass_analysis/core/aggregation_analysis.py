@@ -2,10 +2,7 @@
 Biomass Aggregation Analysis Module
 
 This module implements hierarchical biomass aggregation by forest type, landcover,
-and height ranges. All algorithmic logic preserved exactly from original scripts:
-- biomass_trend_per_forest_type.py
-- biomass_trend_per_landcover.py  
-- biomass_trend_per_height_bin.py
+and height ranges. 
 
 Author: Diego Bengochea
 """
@@ -402,7 +399,7 @@ class BiomassAggregationPipeline:
                         self.logger.info(f"Reprojecting Corine data from {corine_src.crs} to {biomass_src.crs}")
                         
                         # Reproject Corine to match biomass CRS and shape
-                        corine_resized = np.empty(biomass_data.shape, dtype=corine_src.dtypes[0])
+                        corine_resized = np.zeros(biomass_data.shape, dtype=corine_src.dtypes[0])
                         
                         reproject(
                             source=rasterio.band(corine_src, 1),
@@ -411,17 +408,33 @@ class BiomassAggregationPipeline:
                             src_crs=corine_src.crs,
                             dst_transform=biomass_src.transform,
                             dst_crs=biomass_src.crs,
+                            dst_nodata = 255,
                             resampling=Resampling.nearest
                         )
                         
                         corine_data = corine_resized
                     else:
-                        # Same CRS, just read the data
-                        corine_data = corine_src.read(
-                            1,
-                            out_shape=biomass_data.shape,
-                            resampling=Resampling.nearest
-                        )
+                        logger.info("  Aligning Corine data with biomass grid...")
+                        target_bounds = biomass_src.bounds
+                        window = rasterio.windows.from_bounds(*target_bounds, corine_src.transform)
+                        corine_data = corine_src.read(1, window=window, boundless=True, fill_value=0)
+                        
+                        if corine_data.shape != biomass_data.shape:
+                            corine_resized = np.zeros(biomass_data.shape, dtype=rasterio.uint8)
+                            window_transform = rasterio.windows.transform(window, corine_src.transform)
+                            
+                            reproject(
+                                source=corine_data,
+                                destination=corine_resized,
+                                src_transform=window_transform,
+                                src_crs=corine_crs,
+                                dst_transform=biomass_transform,
+                                dst_crs=biomass_crs,
+                                dst_nodata=0,
+                                resampling=Resampling.nearest
+                            )
+
+                            corine_data = corine_resized
                     
                     corine_nodata = corine_src.nodata
                     corine_nodata_mask = (corine_data == corine_nodata) if corine_nodata is not None else np.zeros_like(corine_data, dtype=bool)
@@ -511,10 +524,10 @@ class BiomassAggregationPipeline:
                 mask_data = mask.astype(np.uint8)
                 
                 # Set NoData pixels to 0
-                mask_data = np.where(np.isnan(height_data), 0, mask_data)
+                mask_data = np.where(np.isnan(height_data), 255, mask_data)
                 
                 # Update profile for output
-                profile.update(dtype=rasterio.uint8, nodata=None)
+                profile.update(dtype=rasterio.uint8, nodata=255)
                 
                 # Save mask
                 output_file = os.path.join(mask_dir, f"height_{label}_{year}.tif")

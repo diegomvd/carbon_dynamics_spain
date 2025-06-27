@@ -112,7 +112,7 @@ class NFIProcessingPipeline:
         """
         Extract biomass data from NFI database files for all provinces.
         
-        CRITICAL: Preserves all original algorithmic logic exactly as-is.
+        Preserves all original algorithmic logic exactly as-is.
         
         Returns:
             dict: Dictionary with UTM zones as keys and GeoDataFrames as values
@@ -189,7 +189,7 @@ class NFIProcessingPipeline:
         """
         Extract biomass data for a specific region.
         
-        CRITICAL: Preserves all original algorithmic logic exactly as-is.
+        Preserves all original algorithmic logic exactly as-is.
         
         Args:
             accdb_ifn4: Path to IFN4 Access database file
@@ -276,7 +276,7 @@ class NFIProcessingPipeline:
         """
         Add UTM coordinates, date, and region information to plot data.
         
-        CRITICAL: Preserves all original algorithmic logic exactly as-is.
+        Preserves all original algorithmic logic exactly as-is.
         """
         # Add coordinates and UTM info
         ifn4_df = pd.read_csv(ifn4_out_file)
@@ -303,7 +303,7 @@ class NFIProcessingPipeline:
         """
         Add forest type information from MFE (Spanish Forest Map) data.
         
-        CRITICAL: Preserves all original algorithmic logic exactly as-is.
+        Preserves all original algorithmic logic exactly as-is.
         
         Args:
             utm_gdfs: Dictionary of UTM GeoDataFrames
@@ -375,7 +375,7 @@ class NFIProcessingPipeline:
         """
         Export data in multiple formats.
         
-        CRITICAL: Preserves all original algorithmic logic exactly as-is.
+        Preserves all original algorithmic logic exactly as-is.
         
         Args:
             utm_gdfs: Dictionary of UTM GeoDataFrames
@@ -417,7 +417,7 @@ class NFIProcessingPipeline:
         """
         Export data stratified by year.
         
-        CRITICAL: Preserves all original algorithmic logic exactly as-is.
+        Preserves all original algorithmic logic exactly as-is.
         
         Args:
             gdf: Combined GeoDataFrame
