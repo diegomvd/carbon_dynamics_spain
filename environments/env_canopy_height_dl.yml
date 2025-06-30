@@ -17,6 +17,9 @@ dependencies:
   - geopandas
   - shapely
   - seaborn
+  - psutil
+  - tqdm
+  - odc-geo
   - pip
   - pip:
     - kornia-rs
