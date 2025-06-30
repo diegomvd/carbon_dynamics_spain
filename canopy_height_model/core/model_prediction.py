@@ -54,7 +54,7 @@ class ModelPredictionPipeline:
             pattern: File pattern for input files (overrides config)
         """
         # Load configuration
-        self.config = load_config(config_path, component_name="canopy_height_dl")
+        self.config = load_config(config_path, component_name="canopy_height_model")
         
         # Setup logging
         self.logger = setup_logging(

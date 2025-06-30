@@ -7,42 +7,15 @@ component:
   version: "1.0.0"
   description: "Deep learning pipeline for canopy height estimation using Sentinel-2 and PNOA LiDAR"
 
-# Data paths and directories
-data:
-  # Base data directory
-  data_dir: '/Users/diego/git/iberian.carbon/data'
-  
-  # Training data
-  sentinel2_dir: 'sentinel2_mosaics'
-  pnoa_lidar_dir: 'pnoa_lidar'
-  
-  # Model checkpoints
-  checkpoint_dir: 'canopy_height_model/checkpoints'
-  checkpoint_path: null  # Path to specific checkpoint for prediction/testing
-  
-  # Prediction outputs
-  predictions_dir: 'canopy_height_predictions'
-  
-  # Post-processing paths
-  merged_tiles_dir: 'canopy_height_predictions/merged_tiles'
-  sanitized_dir: 'canopy_height_predictions/sanitized'
-  final_mosaics_dir: 'canopy_height_predictions/final_mosaics'
-
 # Model configuration
 model:
   # Architecture
   model_type: 'unet'  # unet, deeplabv3+, etc.
   backbone: 'efficientnet-b4'
-  weights: 'imagenet'  # Pre-trained weights
   
   # Input/output
   in_channels: 10  # Sentinel-2 bands
   num_outputs: 1   # Single channel height output
-  target_range: 'universal'  # Height range for normalization
-  
-  # Loss function
-  loss_function: 'mse'
-  range_weighted_loss: true
   
   # Data handling
   nan_value_target: -1.0
@@ -51,21 +24,26 @@ model:
 # Training configuration
 training:
   # Optimization
-  lr: 1e-4
-  batch_size: 16
+  lr: 0.0001
+  batch_size: 32
+  patch_size: 256
   max_epochs: 100
   patience: 15  # Early stopping patience
+
+  log_steps: 200
+  num_sanity_val_steps: 2
+  val_check_interval: 1
   
   # Data augmentation
   augmentation_enabled: true
-  augmentation_probability: 0.5
   
-  # Validation
-  val_split: 0.2
-  test_split: 0.1
+  # Splits
+  split_ratios: [0.8,0.1,0.1]
+
+  grid_size: 8
   
   # Hardware
-  accelerator: 'auto'  # auto, gpu, cpu, mps
+  accelerator: 'mps'  # auto, gpu, cpu, mps
   devices: 1
   precision: 32
 
@@ -96,11 +74,11 @@ loss:
   # Range-aware loss parameters
   alpha: 0.5                   # Exponent for inverse frequency weighting (0=no weighting, 1=full inverse)
   max_height: 30.0             # Maximum height for range definitions in meters
-  eps: 1e-6                    # Small constant for numerical stability
+  eps: 0.000001                   # Small constant for numerical stability
   weights: true                # Whether to apply range-specific weighting
 
 optimizer:
-  max_lr: 2e-4
+  max_lr: 0.0002
   weight_decay: 0.01
 
 scheduler:
@@ -124,8 +102,7 @@ prediction:
 post_processing:
   # Step 1: Merge predictions
   merge:
-    input_dir: 'canopy_height_predictions/patches'
-    output_dir: 'canopy_height_predictions/merged_tiles'
+    
     tile_size_km: 120  # 120km tiles
     compression: 'lzw'
     target_crs: 'EPSG:25830'
@@ -145,8 +122,6 @@ post_processing:
   
   # Step 2: Sanitize and interpolate
   sanitize:
-    input_dir: 'canopy_height_predictions/merged_tiles'
-    output_dir: 'canopy_height_predictions/sanitized'
     
     # Outlier detection
     outlier_detection: true
@@ -161,8 +136,6 @@ post_processing:
   
   # Step 3: Final mosaics
   final_merge:
-    input_dir: 'canopy_height_predictions/sanitized'
-    output_dir: 'canopy_height_predictions/final_mosaics'
     file_pattern: 'canopy_height_*_100m_sanitized.tif'
     
     # Downsampling
@@ -209,8 +182,8 @@ compute:
 
 # File patterns and naming
 file_patterns:
-  sentinel2_pattern: 'S2_*_mosaic_*.tif'
-  lidar_pattern: 'PNOA_*_height_*.tif'
+  sentinel2_pattern: 'S2_summer_mosaic_*.tif'
+  lidar_pattern: 'PNOA_*.tif'
   prediction_pattern: 'canopy_height_pred_*.tif'
   checkpoint_pattern: 'canopy_height_model_*.ckpt'
 

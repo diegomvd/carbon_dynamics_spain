@@ -73,8 +73,8 @@ class HeightDiversityBatchSampler(RandomBatchGeoSampler):
         super().__init__(dataset, patch_size, batch_size, length)
         
         # Load configuration
-        self.config = load_config(config_path, component_name="canopy_height_dl")
-        self.logger = get_logger('canopy_height_dl.sampler')
+        self.config = load_config(config_path, component_name="canopy_height_model")
+        self.logger = get_logger('canopy_height_model.sampler')
         
         # Use provided values or fall back to configuration defaults
         sampling_config = self.config.get('sampling', {})

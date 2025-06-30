@@ -184,15 +184,15 @@ class CanopyHeightRegressionTask(PixelwiseRegressionTask):
         self.patience = patience
         
         # Setup logging
-        self.logger = get_logger('canopy_height_dl')
+        self.module_logger = get_logger('canopy_height_model')
         
         # Load configuration if provided
         self.config = None
-        if config_path:
+        if not config_path:
             try:
-                self.config = load_config(config_path, component_name="canopy_height_dl")
+                self.config = load_config(config_path, component_name="canopy_height_model")
             except Exception as e:
-                self.logger.warning(f"Could not load config: {e}")
+                self.module_logger.warning(f"Could not load config: {e}")
         
         # Initialize range metrics if config available
         self.range_metrics = None
@@ -200,7 +200,7 @@ class CanopyHeightRegressionTask(PixelwiseRegressionTask):
             try:
                 self.range_metrics = HeightRangeMetrics(self.config)
             except Exception as e:
-                self.logger.warning(f"Could not initialize range metrics: {e}")
+                self.module_logger.warning(f"Could not initialize range metrics: {e}")
         
         # Call parent constructor
         super().__init__(
@@ -217,11 +217,11 @@ class CanopyHeightRegressionTask(PixelwiseRegressionTask):
         # Setup custom loss if available
         self._setup_custom_loss()
         
-        self.logger.info(f"CanopyHeightRegressionTask initialized:")
-        self.logger.info(f"  Model: {model} with {backbone} backbone")
-        self.logger.info(f"  Input channels: {in_channels}")
-        self.logger.info(f"  Learning rate: {lr}")
-        self.logger.info(f"  NaN values: target={nan_value_target}, input={nan_value_input}")
+        self.module_logger.info(f"CanopyHeightRegressionTask initialized:")
+        self.module_logger.info(f"  Model: {model} with {backbone} backbone")
+        self.module_logger.info(f"  Input channels: {in_channels}")
+        self.module_logger.info(f"  Learning rate: {lr}")
+        self.module_logger.info(f"  NaN values: target={nan_value_target}, input={nan_value_input}")
     
     def _setup_custom_loss(self) -> None:
         """Setup custom loss function if available."""
@@ -230,9 +230,9 @@ class CanopyHeightRegressionTask(PixelwiseRegressionTask):
                 custom_loss = get_frequency_balanced_loss(self.config)
                 if custom_loss:
                     self.loss = custom_loss
-                    self.logger.info("Using custom FrequecnyBalancedL1Loss")
+                    self.module_logger.info("Using custom FrequecnyBalancedL1Loss")
             except Exception as e:
-                self.logger.warning(f"Could not setup custom loss: {e}")
+                self.module_logger.warning(f"Could not setup custom loss: {e}")
     
     def _create_input_mask(self, x: Tensor) -> Tensor:
         """Create mask for valid input values across all bands"""
@@ -257,6 +257,7 @@ class CanopyHeightRegressionTask(PixelwiseRegressionTask):
         Returns:
             Loss tensor
         """
+
         x = batch["image"]
         y = batch[self.target_key].to(torch.float)
         
@@ -294,6 +295,7 @@ class CanopyHeightRegressionTask(PixelwiseRegressionTask):
             batch: Input batch
             batch_idx: Batch index
         """
+
         x = batch["image"]
         y = batch[self.target_key].to(torch.float)
         
@@ -409,10 +411,11 @@ class CanopyHeightRegressionTask(PixelwiseRegressionTask):
         Returns:
             Optimizer and scheduler configuration
         """
+
         optimizer = torch.optim.AdamW(
             self.parameters(),
             lr=self.config['optimizer']['max_lr'],
-            weight_decay=elf.config['optimizer']['weight_decay']
+            weight_decay=self.config['optimizer']['weight_decay']
         )
         
         total_steps = self.trainer.estimated_stepping_batches

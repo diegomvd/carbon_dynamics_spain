@@ -117,8 +117,8 @@ class ModelEvaluationPipeline:
             config_path: Path to configuration file
         """
         # Load configuration
-        self.config = load_config(config_path, component_name="canopy_height_dl")
-        self.logger = get_logger('canopy_height_dl.evaluation')
+        self.config = load_config(config_path, component_name="canopy_height_model")
+        self.logger = get_logger('canopy_height_model.evaluation')
         
         # Initialize components
         self.pred_collector = PredictionCollector()

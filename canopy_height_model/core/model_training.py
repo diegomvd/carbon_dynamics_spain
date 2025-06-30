@@ -22,8 +22,8 @@ from shared_utils import log_pipeline_start, log_pipeline_end
 from shared_utils.central_data_paths_constants import SENTINEL2_MOSAICS_DIR, ALS_CANOPY_HEIGHT_PROCESSED_DIR, PRETRAINED_HEIGHT_MODELS_DIR
 
 # Component imports (these would reference existing modules)
-from .canopy_height_regression import CanopyHeightRegressionTask
-from .datamodule import S2PNOAVegetationDataModule
+from canopy_height_model.core.canopy_height_regression import CanopyHeightRegressionTask
+from .s2_pnoa_vegetation_datamodule import S2PNOAVegetationDataModule
 
 
 class ModelTrainingPipeline:
@@ -51,12 +51,12 @@ class ModelTrainingPipeline:
             checkpoint_path: Path to checkpoint for resuming training
         """
         # Load configuration
-        self.config = load_config(config_path, component_name="canopy_height_dl")
+        self.config = load_config(config_path, component_name="canopy_height_model")
         
         # Setup logging
         self.logger = setup_logging(
             level=self.config['logging']['level'],
-            component_name='canopy_height_dl',
+            component_name='canopy_height_model',
             log_file=self.config['logging'].get('log_file')
         )
         
@@ -115,14 +115,13 @@ class ModelTrainingPipeline:
         self.model = CanopyHeightRegressionTask(
             model=self.config['model']['model_type'],
             backbone=self.config['model']['backbone'],
-            weights=self.config['model']['weights'],
             in_channels=self.config['model']['in_channels'],
             num_outputs=self.config['model']['num_outputs'],
-            target_range=self.config['model']['target_range'],
             nan_value_target=self.config['model']['nan_value_target'],
             nan_value_input=self.config['model']['nan_value_input'],
             lr=self.config['training']['lr'],
-            patience=self.config['training']['patience']
+            patience=self.config['training']['patience'],
+            config_path=None
         )
         
         self.logger.info(f"Model: {self.config['model']['model_type']} with {self.config['model']['backbone']} backbone")
@@ -183,7 +182,7 @@ class ModelTrainingPipeline:
             log_every_n_steps=self.config['training']['log_steps'],
             callbacks=callbacks,
             logger=csv_logger,
-            accumulate_grad_batches=self.config['training']['accumulate_grad_batches'],
+            #accumulate_grad_batches=self.config['training']['accumulate_grad_batches'],
             num_sanity_val_steps=self.config['training']['num_sanity_val_steps'],
             check_val_every_n_epoch=self.config['training']['val_check_interval']
         )

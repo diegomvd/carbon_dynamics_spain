@@ -92,7 +92,7 @@ class PredictionMerger:
                 epsg=self.merge_config['target_crs'].split(':')[1]
             )
             
-            # Create geometry for odc.geo - THIS WAS MISSING IN REFACTORED VERSION
+            # Create geometry for odc.geo 
             self.spain_geometry = odc.geo.geom.Geometry(
                 self.spain.geometry[0], 
                 crs=self.merge_config['target_crs']
@@ -107,7 +107,7 @@ class PredictionMerger:
     def _create_geographic_grid(self) -> None:
         """Create geographic grid using Spain boundaries."""
         try:
-            # Create a GeoBox for all continental Spain using REAL boundaries
+            # Create a GeoBox for all continental Spain using boundaries
             geobox_spain = odc.geo.geobox.GeoBox.from_geopolygon(
                 self.spain_geometry,  # Use REAL Spain geometry, not hardcoded bounds!
                 resolution=self.merge_config['resolution_meters']
@@ -1156,7 +1156,7 @@ class PostProcessingPipeline:
             config_path: Path to configuration file
         """
         # Load configuration
-        self.config = load_config(config_path, component_name="canopy_height_dl")
+        self.config = load_config(config_path, component_name="canopy_height_model")
         
         # Setup logging
         self.logger = get_logger('canopy_height_postprocessing')
