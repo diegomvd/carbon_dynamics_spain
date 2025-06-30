@@ -14,11 +14,11 @@ from shapely import geometry
 import geopandas as gpd
 import re
 import numpy as np
-from typing import List, Tuple, Dict, Optional
+from typing import List, Tuple, Dict, Optional, Union
 import logging
 
 from shared_utils import setup_logging, get_logger, load_config
-from shared_utils.central_data_paths import *
+from shared_utils.central_data_paths_constants import *
 
 class PNOAProcessingPipeline:
     """
@@ -35,7 +35,7 @@ class PNOAProcessingPipeline:
         Args:
             config: Configuration dictionary
         """
-        self.config =  load_config(args.config, component_name="als_pnoa")
+        self.config =  load_config(config, component_name="als_pnoa")
         
         # Setup logging
         self.logger = setup_logging(
@@ -50,19 +50,19 @@ class PNOAProcessingPipeline:
         self.target_output_dir = ALS_CANOPY_HEIGHT_PROCESSED_DIR
         
         # Processing parameters
-        self.target_years = config['processing']['target_years']
-        self.target_crs = config['processing']['target_crs']
+        self.target_years = self.config['processing']['target_years']
+        self.target_crs = self.config['processing']['target_crs']
         
         self.logger.info("Initialized PNOAProcessor")
     
     def run_full_pipeline(self):
 
         if not self.validate_inputs():
-            logger.error("Input validation failed")
+            self.logger.error("Input validation failed")
             return False
 
         # Process tiles
-        logger.info("Processing PNOA tiles...")
+        self.logger.info("Processing PNOA tiles...")
         results, success = self.process_all_tiles()
 
         total_selected = results['total_selected']
@@ -130,7 +130,7 @@ class PNOAProcessingPipeline:
                         
                         # Get file paths
                         selected_files = pnoa_intersecting['PATH'].apply(
-                            lambda x: f"{self.pnoa_data_dir}{x.split('/')[-1]}"
+                            lambda x: str(self.pnoa_data_dir / f"{x.split('/')[-1]}")
                         ).to_list()
                         
                         # Remove redundant files based on file ID
@@ -167,8 +167,7 @@ class PNOAProcessingPipeline:
         """
         try:
             # Extract the NDSM part from the original filename (matches original logic exactly)
-            ndsm_part = re.findall('.*/(NDSM-.*)', input_path)[0]
-            
+            ndsm_part = re.findall('.*/(NDSM-.*)\.tif', input_path)[0]
             # Create standardized filename: PNOA_2021_NDSM-VEGETACION-H30-0177-COB2_epsg_25830.tif
             output_filename = f"PNOA_{year}_{ndsm_part}_epsg_{self.target_crs.split(':')[1]}.tif"
             
@@ -251,7 +250,7 @@ class PNOAProcessingPipeline:
             self.logger.info(f"Processing year {year}...")
             
             # Find Sentinel-2 tiles for this year
-            sentinel_pattern = f'sentinel2_mosaic_{year}_*.tif'
+            sentinel_pattern = f'S2_summer_mosaic_{year}_*.tif'
             sentinel_tiles = list(sentinel_dir.rglob(sentinel_pattern))
             
             if not sentinel_tiles:
@@ -271,7 +270,7 @@ class PNOAProcessingPipeline:
                 # Process each intersecting PNOA tile
                 for pnoa_file in intersecting_pnoa:
                     output_filename = self.generate_output_filename(pnoa_file, year)
-                    output_path = Path(self.target_output_dir) / output_filename
+                    output_path = self.target_output_dir / output_filename
                     
                     # Track tile selection
                     selected_tiles.append({
@@ -318,7 +317,7 @@ class PNOAProcessingPipeline:
             return False
         
         # Check for Sentinel-2 files
-        sentinel_files = list(sentinel_dir.rglob('sentinel2_mosaic_*.tif'))
+        sentinel_files = list(sentinel_dir.rglob('S2_summer_mosaic_*.tif'))
         if not sentinel_files:
             self.logger.error(f"No Sentinel-2 mosaic files found in {sentinel_dir}")
             return False

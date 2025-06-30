@@ -6,8 +6,8 @@ Core functionality for PNOA LiDAR tile processing and training data preparation.
 Author: Diego Bengochea
 """
 
-from .pnoa_processor import PNOAProcessor
+from .pnoa_processor import PNOAProcessingPipeline
 
 __all__ = [
-    "PNOAProcessor"
+    "PNOAProcessingPipeline"
 ]

@@ -51,7 +51,7 @@ def main():
 
     # Parse arguments
     args = parse_arguments()
-    pnoa_tiles = PNOAProcessingPipeline()
+    pnoa_tiles = PNOAProcessingPipeline(args.config)
     success = pnoa_tiles.run_full_pipeline()
     return success 
 

@@ -19,7 +19,7 @@ Key Features:
 Author: Diego Bengochea
 """
 
-from .core.pnoa_processor import PNOAProcessor
+from .core.pnoa_processor import PNOAProcessingPipeline
 
 __version__ = "1.0.0"
 __component__ = "als_pnoa"
