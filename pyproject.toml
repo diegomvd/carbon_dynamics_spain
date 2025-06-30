@@ -1,0 +1,31 @@
+[build-system]
+requires = ["setuptools>=45", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "carbon_dynamics_spain"
+version = "0.1.0"
+description = "Iberian Carbon Assessment - Forest Carbon Dynamics Analysis"
+authors = [
+    {name = "Diego Bengochea", email = "your.email@domain.com"}
+]
+readme = "README.md"
+requires-python = ">=3.8"
+license = {text = "MIT"}
+
+# Define your package dependencies here
+dependencies = []
+
+[project.optional-dependencies]
+dev = [
+    "pytest",
+    "black", 
+    "flake8"
+]
+
+[tool.setuptools.packages.find]
+# This tells setuptools to find all your packages automatically
+# It will find: forest_inventory, biomass_model, shared_utils, etc.
+where = ["."]
+include = ["*"]
+exclude = ["tests*", "docs*"]
