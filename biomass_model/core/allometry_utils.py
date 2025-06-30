@@ -367,8 +367,7 @@ def create_training_dataset(config: dict) -> pd.DataFrame:
     """
     Create training dataset by combining NFI data with sampled height values.
     
-    Updated to use CentralDataPaths for harmonized path management and handle
-    both 10m and 100m height maps as specified in config.
+    Updated to handle both 10m and 100m height maps as specified in config.
     
     Args:
         config (dict): Configuration dictionary

@@ -69,7 +69,6 @@ class S2Scaling(K.IntensityAugmentationBase2D):
         flags: Dict[str, int],
         transform: Optional[Tensor] = None,
     ) -> Tensor:
-        print('HOllasasasas')
         """
         Apply scaling transformation to input tensor.
         

@@ -23,10 +23,7 @@ import sys
 import argparse
 import time
 from pathlib import Path
-from typing import List, Optional
-
-# Add repo root to path for absolute imports
-sys.path.insert(0, str(Path(__file__).parent.parent.parent))
+from typing import List, Optional, Union
 
 # Component imports
 from canopy_height_model.core.model_evaluation import ModelEvaluationPipeline

@@ -13,7 +13,7 @@ Author: Diego Bengochea
 
 import os
 from pathlib import Path
-from typing import Tuple, Dict, Any, Optional
+from typing import Tuple, Dict, Any, Optional, Union
 
 # Standard library imports
 import numpy as np
@@ -32,8 +32,8 @@ from lightning.pytorch.callbacks import Callback
 from lightning.pytorch import Trainer
 
 # Shared utilities
-from shared_utils import load_config, get_logger, ensure_directory
-from shared_utils.central_data_paths_constants import PRETRAINED_HEIGHT_MODELS_DIR, SENTINEL2_MOSAICS_DIR
+from shared_utils import load_config, get_logger, ensure_directory, setup_logging
+from shared_utils.central_data_paths_constants import *
 
 # Component imports
 from .s2_pnoa_vegetation_datamodule import S2PNOAVegetationDataModule
@@ -118,7 +118,11 @@ class ModelEvaluationPipeline:
         """
         # Load configuration
         self.config = load_config(config_path, component_name="canopy_height_model")
-        self.logger = get_logger('canopy_height_model.evaluation')
+        self.logger = setup_logging(
+            level=self.config['logging']['level'],
+            component_name='canopy_height_model',
+            log_file=self.config['logging'].get('log_file')
+        )
         
         # Initialize components
         self.pred_collector = PredictionCollector()
@@ -145,9 +149,10 @@ class ModelEvaluationPipeline:
         Returns:
             Dictionary with evaluation results
         """
-        self.logger.info(f"Starting model evaluation with checkpoint: {checkpoint_path}")
+        self.logger.info(f"Starting model evaluation with checkpoint: {self.checkpoint_path}")
         
         output_dir = self.output_dir
+        output_dir.mkdir(parents=True,exist_ok=True)
         checkpoint_path = self.checkpoint_path
         
         try:
@@ -176,15 +181,16 @@ class ModelEvaluationPipeline:
             metrics = self._calculate_metrics(predictions, targets, confidence_level=0.95)
             
             # Save metrics
-            metrics_file = output_dir / 'evaluation_metrics.json'
-            import json
-            with open(metrics_file, 'w') as f:
-                # Convert numpy types to Python types for JSON serialization
-                json_metrics = {k: float(v) if isinstance(v, (np.float32, np.float64)) else v 
-                              for k, v in metrics.items()}
-                json.dump(json_metrics, f, indent=2)
+            # metrics_file = output_dir / 'evaluation_metrics.json'
+            # import json
+            # with open(metrics_file, 'w') as f:
+            #     # Convert numpy types to Python types for JSON serialization
+            #     json_metrics = {k: float(v) if isinstance(v, (np.float32, np.float64)) else v 
+            #                   for k, v in metrics.items()}
+            #     json.dump(json_metrics, f, indent=2)
             
             # Save raw predictions and targets for visualization
+            print('SAving')
             import pickle
             results_file = output_dir / 'evaluation_results.pkl'
             evaluation_data = {
@@ -196,19 +202,11 @@ class ModelEvaluationPipeline:
                 pickle.dump(evaluation_data, f)
             
             self.logger.info(f"Raw evaluation data saved to: {results_file}")
-
+            print('out')
             # Create plots
             self._create_evaluation_plots(predictions, targets, output_dir, metrics)
             
             # Save metrics
-            metrics_file = output_dir / 'evaluation_metrics.json'
-            import json
-            with open(metrics_file, 'w') as f:
-                # Convert numpy types to Python types for JSON serialization
-                json_metrics = {k: float(v) if isinstance(v, (np.float32, np.float64)) else v 
-                              for k, v in metrics.items()}
-                json.dump(json_metrics, f, indent=2)
-            
             self.logger.info(f"Evaluation results saved to: {output_dir}")
             self.logger.info("Evaluation Summary:")
             self.logger.info(f"  MAE: {metrics['mae']:.3f} m")

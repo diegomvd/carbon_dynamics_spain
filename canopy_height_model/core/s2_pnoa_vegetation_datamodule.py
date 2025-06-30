@@ -85,8 +85,8 @@ class S2PNOAVegetationDataModule(GeoDataModule):
             config_path (str, optional): Path to configuration file
         """
         # Load configuration
-        self.config = load_config(config_path, component_name="canopy_height_dl")
-        self.logger = get_logger('canopy_height_dl.datamodule')
+        self.config = load_config(config_path, component_name="canopy_height_model")
+        self.logger = get_logger('canopy_height_model.datamodule')
         
         # Use provided values or fall back to configuration
         sentinel2_dir = sentinel2_dir or str(SENTINEL2_MOSAICS_DIR)
@@ -119,14 +119,14 @@ class S2PNOAVegetationDataModule(GeoDataModule):
         })
         
         # Initialize samplers/datasets (will be set in setup())
-        self.train_dataset = None
-        self.val_dataset = None
-        self.test_dataset = None
-        self.predict_dataset = None
-        self.train_batch_sampler = None
-        self.val_sampler = None
-        self.test_sampler = None
-        self.predict_sampler = None
+        # self.train_dataset = None
+        # self.val_dataset = None
+        # self.test_dataset = None
+        # self.predict_dataset = None
+        # self.train_batch_sampler = None
+        # self.val_sampler = None
+        # self.test_sampler = None
+        # self.predict_sampler = None
         
         # Setup augmentations
         self._setup_augmentations()
@@ -210,16 +210,6 @@ class S2PNOAVegetationDataModule(GeoDataModule):
         
         self.logger.info("Augmentation pipelines configured")
 
-    
-    def _valid_attribute(self, name: str, fallback: str):
-        """Get valid attribute with fallback."""
-        if hasattr(self, name):
-            attr = getattr(self, name)
-            # Return the attribute if it exists and is not None
-            if attr is not None:
-                return attr
-        return getattr(self, fallback, {})
-    
     def setup(self, stage: str) -> None:
         """
         Set up datasets for each stage.
@@ -265,55 +255,47 @@ class S2PNOAVegetationDataModule(GeoDataModule):
         if PNOAVegetation is None or KorniaIntersectionDataset is None:
             self.logger.error("Required dataset classes not available")
             raise ImportError("PNOAVegetation or KorniaIntersectionDataset not available")
-        
+
         pnoa_vegetation = PNOAVegetation(self.hparams['pnoa_dir'])
         dataset = KorniaIntersectionDataset(s2, pnoa_vegetation)
-        
+
         # Split dataset using configuration
         split_ratios = [0.8, 0.1, 0.1]  # Default split ratios
-        if 'data' in self.config and 'split_ratios' in self.config['data']:
-            split_ratios = self.config['data']['split_ratios']
+        if 'training' in self.config and 'split_ratios' in self.config['training']:
+            split_ratios = self.config['training']['split_ratios']
         
-        grid_size = 64  # Default grid size
-        if 'data' in self.config and 'grid_size' in self.config['data']:
-            grid_size = self.config['data']['grid_size']
-        
+        grid_size = 8  # Default grid size
+        if 'training' in self.config and 'grid_size' in self.config['training']:
+            grid_size = self.config['training']['grid_size']
+
         splits = random_grid_cell_assignment(
             dataset,
             split_ratios,
             grid_size=grid_size,
             generator=torch.Generator().manual_seed(self.hparams['seed'])
         )
+
+
         self.train_dataset, self.val_dataset, self.test_dataset = splits
         
         # Set up samplers based on stage
-        if self.trainer and self.trainer.training:
-            if HeightDiversityBatchSampler is not None:
-                self.train_batch_sampler = HeightDiversityBatchSampler(
-                    self.train_dataset,
-                    self.hparams['patch_size'],
-                    self.hparams['batch_size'],
-                    self.hparams['length']
-                )
-                self.logger.info("Using HeightDiversityBatchSampler for training")
-            else:
-                # Fallback to standard batch sampler
-                self.train_batch_sampler = RandomBatchGeoSampler(
-                    self.train_dataset,
-                    self.hparams['patch_size'],
-                    self.hparams['batch_size'],
-                    self.hparams['length']
-                )
-                self.logger.warning("Using standard RandomBatchGeoSampler (HeightDiversityBatchSampler not available)")
+        if self.trainer.training:
+            self.train_batch_sampler = HeightDiversityBatchSampler(
+                self.train_dataset,
+                self.hparams['patch_size'],
+                self.hparams['batch_size'],
+                self.hparams['length']
+            )
+            self.logger.info("Using HeightDiversityBatchSampler for training")
 
-        if self.trainer and (self.trainer.training or self.trainer.validating):
+        if self.trainer.training or self.trainer.validating:
             self.val_sampler = GridGeoSampler(
                 self.val_dataset,
                 self.hparams['patch_size'],
                 self.hparams['patch_size']
             )
         
-        if self.trainer and self.trainer.testing:
+        if self.trainer.testing:
             self.test_sampler = GridGeoSampler(
                 self.test_dataset,
                 self.hparams['patch_size'],

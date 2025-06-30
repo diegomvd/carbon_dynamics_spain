@@ -38,6 +38,7 @@ from lightning.pytorch.callbacks import BasePredictionWriter
 
 # Shared utilities
 from shared_utils import get_logger, load_config
+from shared_utils.central_data_paths_constants import *
 
 
 # Initialize module logger
@@ -113,7 +114,9 @@ class CanopyHeightRasterWriter(BasePredictionWriter):
         self, 
         output_dir: str, 
         write_interval: str,
-        config_path: str = None
+        config_path: str = None,
+        output_dtype: str = None,
+        **kwargs
     ):
         """
         Initialize the raster writer with configuration and output settings.
@@ -128,11 +131,16 @@ class CanopyHeightRasterWriter(BasePredictionWriter):
             ValueError: If configuration is invalid
             RuntimeError: If initialization fails
         """
+
+        print("DEBUG: All kwargs passed:")
+        for k, v in kwargs.items():
+            print(f"  {k}: {v} (type: {type(v)})")
+
         super().__init__(write_interval)
         
         try:
             # Load configuration
-            self.config = load_config(config_path)
+            self.config = load_config(config_path,component_name='canopy_height_model')
             
             # Setup output directory
             self.output_dir = Path(output_dir)
@@ -162,11 +170,8 @@ class CanopyHeightRasterWriter(BasePredictionWriter):
             RuntimeError: If CRS transformation fails
         """
         try:
-            # Get shapefile path from configuration
-            if 'prediction' not in self.config or 'spain_shapefile' not in self.config['prediction']:
-                raise ValueError("Spain shapefile path not found in configuration")
             
-            spain_shapefile = self.config['prediction']['spain_shapefile']
+            spain_shapefile = SPAIN_BOUNDARIES_FILE
             
             # Check if shapefile exists
             if not Path(spain_shapefile).exists():

@@ -74,7 +74,7 @@ SENTINEL2_MERGED_DIR = SENTINEL2_PROCESSED_DIR / "merged"
 
 # Height model checkpoint
 PRETRAINED_HEIGHT_MODELS_DIR = DATA_ROOT / "pretrained_height_models"
-HEIGHT_MODEL_CHECKPOINT_FILE = PRETRAINED_HEIGHT_MODELS_DIR / "height_model_checkpoint.pkl"
+HEIGHT_MODEL_CHECKPOINT_FILE = PRETRAINED_HEIGHT_MODELS_DIR / "height_model_checkpoint.ckpt"
 HEIGHT_EVALUATION_RESULTS_DIR = PRETRAINED_HEIGHT_MODELS_DIR / 'evaluation_results'
 
 # Height maps 

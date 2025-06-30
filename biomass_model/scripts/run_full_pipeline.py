@@ -24,9 +24,6 @@ import time
 from pathlib import Path
 from typing import Dict, List, Optional
 
-# Add repo root to path for absolute imports
-sys.path.insert(0, str(Path(__file__).parent.parent.parent))
-
 from biomass_model.core.biomass_estimation import BiomassEstimationPipeline
 from biomass_model.core.allometry_fitting import AllometryFittingPipeline
 from biomass_model.core.land_use_masking import LandUseMaskingPipeline

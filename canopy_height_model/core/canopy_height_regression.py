@@ -158,6 +158,8 @@ class CanopyHeightRegressionTask(PixelwiseRegressionTask):
         lr: float = 1e-4,
         patience: int = 15,
         config_path: str = None,
+        target_range: str = 'universal',
+        ignore: str = 'weights',  
         **kwargs: Any
     ) -> None:
         """
@@ -176,6 +178,7 @@ class CanopyHeightRegressionTask(PixelwiseRegressionTask):
             config_path: Path to configuration file
             **kwargs: Additional arguments
         """
+
         # Store parameters before calling super().__init__
         self.nan_value_target = nan_value_target
         self.nan_value_input = nan_value_input

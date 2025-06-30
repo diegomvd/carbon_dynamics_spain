@@ -69,7 +69,7 @@ quality:
 
 
 fitting:
-  height_res: 10
+  height_res: 100
 
   quantiles: [0.15, 0.85]
   alpha: 0.05

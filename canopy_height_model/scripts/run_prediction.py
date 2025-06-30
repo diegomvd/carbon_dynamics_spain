@@ -45,7 +45,6 @@ def parse_arguments() -> argparse.Namespace:
     parser.add_argument(
         '--checkpoint',
         type=str,
-        required=True,
         help='Path to trained model checkpoint (.ckpt file)'
     )
     
