@@ -21,6 +21,7 @@ import os
 import re
 from pathlib import Path
 from typing import Dict, Optional, Union, Any
+import time
 
 # Shared utilities
 from shared_utils import setup_logging, get_logger, load_config, log_pipeline_start, log_pipeline_end, log_section
@@ -84,7 +85,7 @@ class NFIProcessingPipeline:
             
             # Load reference databases
             log_section(self.logger, "Loading Reference Databases")
-            self.wood_density_db, self.ifn_species_codes = load_reference_databases(self.data_dir)
+            self.wood_density_db, self.ifn_species_codes = load_reference_databases()
             self.logger.info(f"Loaded wood density database: {len(self.wood_density_db)} records")
             self.logger.info(f"Loaded species codes: {len(self.ifn_species_codes)} species")
             
@@ -133,7 +134,7 @@ class NFIProcessingPipeline:
 
         # Process each province
         for accdb_ifn4 in ifn4_files:
-            region = re.findall("_(.+?)_", str(accdb_ifn4.name))[0]
+            region = re.findall("_(.+?)\.", str(accdb_ifn4.name))[0]
             self.logger.info(f'Processing region: {region}')
             
             # Extract data for this region
@@ -145,29 +146,31 @@ class NFIProcessingPipeline:
                 self.logger.warning(f"No data extracted for region {region}")
                 continue
             
-            # Convert to GeoDataFrame and assign to appropriate UTM zone
-            for _, row in plot_df.iterrows():
-                utm_zone = int(row['Huso'])
-                if utm_zone in utm_gdfs:
-                    # Create point geometry
-                    current_crs, target_crs = get_region_UTM(region, str(utm_zone))
+            for utm in plot_df['Huso'].unique():
+                if utm is None or int(utm) not in get_valid_utm_zones():
+                    continue
                     
-                    # Create temporary GeoDataFrame for this row
-                    temp_gdf = gpd.GeoDataFrame(
-                        [row], 
-                        geometry=gpd.points_from_xy([row['CoorX']], [row['CoorY']]),
-                        crs=current_crs
+                utm = int(utm)
+                plot_df_filtered = plot_df[plot_df['Huso'] == utm]
+                
+                # Create georeferenced dataset
+                plot_gdf = gpd.GeoDataFrame(
+                    plot_df_filtered,
+                    geometry=gpd.points_from_xy(
+                        x=plot_df_filtered.CoorX, 
+                        y=plot_df_filtered.CoorY
                     )
-                    
-                    # Transform to target CRS if needed
-                    if current_crs != target_crs:
-                        temp_gdf = temp_gdf.to_crs(target_crs)
-                    
-                    # Append to UTM collection
-                    if len(utm_gdfs[utm_zone]) == 0:
-                        utm_gdfs[utm_zone] = temp_gdf
-                    else:
-                        utm_gdfs[utm_zone] = pd.concat([utm_gdfs[utm_zone], temp_gdf], ignore_index=True)
+                )
+                
+                # Set correct CRS
+                current_crs, target_crs = get_region_UTM(region, str(utm))
+                plot_gdf = plot_gdf.set_crs(current_crs).to_crs(target_crs)
+                
+                # Clean up columns
+                plot_gdf = plot_gdf.drop(columns=['CoorX', 'CoorY', 'Huso', 'FechaIni'])
+                
+                # Concatenate to UTM-specific dataframe
+                utm_gdfs[utm] = pd.concat([utm_gdfs[utm], plot_gdf], axis='rows')
             
             self.logger.info(f'Processed {len(plot_df)} plots from region {region}')
 
@@ -201,8 +204,8 @@ class NFIProcessingPipeline:
         """
         # Export database tables to CSV
         table_config = self.config['processing']['database_tables']
-        ifn4_out_file = f"{self.temp_dir}PCDatosMAP_{region}.csv"
-        ifn4_pc_parcelas = f"{self.temp_dir}PCParcelas_{region}.csv"
+        ifn4_out_file = self.temp_dir/f"PCDatosMAP_{region}.csv"
+        ifn4_pc_parcelas = self.temp_dir/f"PCParcelas_{region}.csv"
         
         for table_name, output_file in [
             (table_config['ifn4_data'], ifn4_out_file),
@@ -220,7 +223,7 @@ class NFIProcessingPipeline:
         accdb_sig = accdb_sig[0]
 
         # Extract biomass/volume data
-        sig_out_file = f"{self.temp_dir}Parcelas_exs_{region}.csv"
+        sig_out_file = self.temp_dir / f"Parcelas_exs_{region}.csv"
         if not Path(sig_out_file).exists():
             mdb_command = f"mdb-export {accdb_sig} {table_config['sig_biomass']} > {sig_out_file}"
             os.system(mdb_command)
@@ -299,75 +302,204 @@ class NFIProcessingPipeline:
         
         return plot_df
 
-    def add_forest_type_data(self, utm_gdfs: Dict[int, gpd.GeoDataFrame]) -> Dict[int, gpd.GeoDataFrame]:
+    def _preprocess_mfe_data(self) -> gpd.GeoDataFrame:
         """
-        Add forest type information from MFE (Spanish Forest Map) data.
+        Load and combine all MFE files into a single GeoDataFrame with spatial indexing.
         
-        Preserves all original algorithmic logic exactly as-is.
+        This function loads all MFE shapefile data once, combines them, and builds
+        a spatial index for fast spatial queries. Only essential columns are kept
+        to minimize memory usage.
+        
+        Returns:
+            gpd.GeoDataFrame: Combined MFE data with spatial index, or empty GeoDataFrame if no data found
+        """
+        self.logger.info("Loading and indexing forest type data...")
+        start_time = time.time()
+        
+        mfe_dir = FOREST_TYPE_MAPS_DIR
+        mfe_files = list(Path(mfe_dir).glob(self.config['file_patterns']['mfe_files']))
+        mfe_parts = []
+        
+        if not mfe_files:
+            self.logger.warning(f"No MFE files found in {mfe_dir}")
+            return gpd.GeoDataFrame()
+        
+        # Load each MFE file
+        for mfe_file in mfe_files:
+            try:
+                mfe = gpd.read_file(mfe_file)
+                
+                if 'FormArbol' not in mfe.columns:
+                    self.logger.warning(f"No FormArbol column in {mfe_file.name}, skipping")
+                    continue
+                
+                # Keep only essential columns to reduce memory usage
+                mfe_simple = mfe[['FormArbol', 'geometry']].copy()
+                mfe_simple.rename(columns={'FormArbol': 'ForestType'}, inplace=True)
+                
+                # Validate geometries
+                valid_geoms = mfe_simple.geometry.is_valid
+                if not valid_geoms.all():
+                    self.logger.warning(f"Found {(~valid_geoms).sum()} invalid geometries in {mfe_file.name}")
+                    mfe_simple = mfe_simple[valid_geoms]
+                
+                mfe_parts.append(mfe_simple)
+                self.logger.info(f"Loaded {mfe_file.name}: {len(mfe_simple):,} polygons")
+                
+            except Exception as e:
+                self.logger.warning(f"Error loading {mfe_file}: {e}")
+                continue
+        
+        if not mfe_parts:
+            self.logger.error("No valid MFE files could be loaded")
+            return gpd.GeoDataFrame()
+        
+        # Combine all MFE data
+        combined_mfe = pd.concat(mfe_parts, ignore_index=True)
+        
+        # Force spatial index creation for fast spatial queries
+        _ = combined_mfe.sindex
+        
+        load_time = time.time() - start_time
+        self.logger.info(f"MFE preprocessing complete: {len(combined_mfe):,} polygons in {load_time:.1f}s")
+        
+        return combined_mfe
+
+    def _spatial_filter_mfe(self, plots: gpd.GeoDataFrame, mfe: gpd.GeoDataFrame) -> gpd.GeoDataFrame:
+        """
+        Filter MFE data to only polygons that could potentially intersect with plots.
+        
+        Uses bounding box filtering for fast spatial pre-filtering before expensive
+        spatial join operations. This dramatically reduces the number of polygons
+        that need to be checked during spatial joins.
         
         Args:
-            utm_gdfs: Dictionary of UTM GeoDataFrames
+            plots: GeoDataFrame containing plot points
+            mfe: GeoDataFrame containing forest type polygons
+            
+        Returns:
+            gpd.GeoDataFrame: Filtered MFE data containing only potentially intersecting polygons
+        """
+        if len(plots) == 0 or len(mfe) == 0:
+            return gpd.GeoDataFrame()
+        
+        # Ensure same CRS
+        if mfe.crs != plots.crs:
+            self.logger.info(f"Reprojecting MFE from {mfe.crs} to {plots.crs}")
+            mfe = mfe.to_crs(plots.crs)
+        
+        # Get bounding box of all plots
+        plots_bounds = plots.total_bounds  # [minx, miny, maxx, maxy]
+        
+        # Add small buffer to account for edge cases (100m buffer)
+        buffer = 100  # meters
+        buffered_bounds = [
+            plots_bounds[0] - buffer,  # minx
+            plots_bounds[1] - buffer,  # miny
+            plots_bounds[2] + buffer,  # maxx
+            plots_bounds[3] + buffer   # maxy
+        ]
+        
+        # Fast bounding box filtering using cx indexer
+        mfe_filtered = mfe.cx[
+            buffered_bounds[0]:buffered_bounds[2], 
+            buffered_bounds[1]:buffered_bounds[3]
+        ]
+        
+        self.logger.info(f"Spatial filtering: {len(mfe):,} → {len(mfe_filtered):,} polygons "
+                        f"({len(mfe_filtered)/len(mfe)*100:.1f}% retained)")
+        
+        return mfe_filtered
+
+    def add_forest_type_data(self, utm_gdfs: Dict[int, gpd.GeoDataFrame]) -> Dict[int, gpd.GeoDataFrame]:
+        """
+        Add forest type information from MFE data using optimized spatial processing.
+        
+        This optimized version:
+        1. Loads all MFE data once with spatial indexing
+        2. Uses bounding box pre-filtering for each UTM zone
+        3. Performs single spatial join per UTM zone
+        4. Handles missing forest types gracefully
+        
+        Args:
+            utm_gdfs: Dictionary of UTM GeoDataFrames containing plot data
             
         Returns:
             dict: Updated UTM GeoDataFrames with forest type information
         """
-        mfe_dir = FOREST_TYPE_MAPS_DIR
+        # Preprocess all MFE data once
+        combined_mfe = self._preprocess_mfe_data()
+        
+        if len(combined_mfe) == 0:
+            self.logger.error("No MFE data available - adding default forest types")
+            enhanced_gdfs = {}
+            for utm, plots in utm_gdfs.items():
+                if len(plots) > 0:
+                    plots = plots.copy()
+                    plots['ForestType'] = self.config['forest_types']['default_forest_type']
+                enhanced_gdfs[utm] = plots
+            return enhanced_gdfs
+        
+        # Process each UTM zone
         enhanced_gdfs = {}
+        total_start = time.time()
         
         for utm, plots in utm_gdfs.items():
             if len(plots) == 0:
                 enhanced_gdfs[utm] = plots
                 continue
                 
-            self.logger.info(f"Processing forest types for UTM {utm}")
-            original_crs = plots.crs
-            enhanced_plots = gpd.GeoDataFrame()
+            self.logger.info(f"Processing forest types for UTM {utm}: {len(plots):,} plots")
+            utm_start = time.time()
             
-            # Iterate over MFE files to find spatial matches
-            mfe_pattern = self.config['file_patterns']['mfe_files']
-            for mfe_file in Path(mfe_dir).glob(mfe_pattern):
-                try:
-                    # Check if dissolved version exists, otherwise use original
-                    dissolved_prefix = self.config['forest_types']['dissolved_prefix']
-                    dissolved_file = f'{mfe_dir}{dissolved_prefix}{mfe_file.stem}.shp'
-                    
-                    if Path(dissolved_file).exists() and self.config['forest_types']['use_dissolved_files']:
-                        mfe = gpd.read_file(dissolved_file)
-                    else:
-                        mfe = gpd.read_file(mfe_file)
-                    
-                    # Ensure same CRS
-                    if mfe.crs != original_crs:
-                        mfe = mfe.to_crs(original_crs)
-                    
-                    # Spatial join
-                    joined = gpd.sjoin(plots, mfe, how='left', predicate='within')
-                    
-                    if 'TESELA' in joined.columns:
-                        # Keep only plots that intersect with this MFE file
-                        valid_plots = joined[~joined['TESELA'].isna()]
-                        if len(valid_plots) > 0:
-                            enhanced_plots = pd.concat([enhanced_plots, valid_plots], ignore_index=True)
-                            # Remove processed plots from the original set
-                            processed_indices = valid_plots.index
-                            plots = plots.drop(processed_indices).reset_index(drop=True)
-                    
-                except Exception as e:
-                    self.logger.warning(f"Error processing MFE file {mfe_file}: {e}")
-                    continue
+            # Spatial filtering to reduce MFE data size
+            mfe_filtered = self._spatial_filter_mfe(plots, combined_mfe)
             
-            # Add remaining plots without forest type
-            if len(plots) > 0:
-                plots['ForestType'] = self.config['forest_types']['default_forest_type']
-                enhanced_plots = pd.concat([enhanced_plots, plots], ignore_index=True)
+            if len(mfe_filtered) == 0:
+                self.logger.info(f"No MFE polygons overlap with UTM {utm} plots")
+                plots_copy = plots.copy()
+                plots_copy['ForestType'] = self.config['forest_types']['default_forest_type']
+                enhanced_gdfs[utm] = plots_copy
+                continue
             
-            # Clean up duplicate index_right columns if present
-            cols_to_drop = [col for col in enhanced_plots.columns if col.endswith('_right')]
-            if cols_to_drop:
-                enhanced_plots = enhanced_plots.drop(columns=cols_to_drop)
+            # Single spatial join operation
+            self.logger.info(f"Performing spatial join for UTM {utm}...")
+            join_start = time.time()
+            
+            enhanced_plots = gpd.sjoin(
+                plots, mfe_filtered, 
+                how='left', 
+                predicate='intersects'  # More inclusive than 'within'
+            )
+            
+            join_time = time.time() - join_start
+            self.logger.info(f"Spatial join completed in {join_time:.1f}s")
+            
+            # Clean up spatial join artifacts
+            enhanced_plots = enhanced_plots.drop(columns=['index_right'], errors='ignore')
+            
+            # Handle missing forest types
+            missing_count = enhanced_plots['ForestType'].isna().sum()
+            if missing_count > 0:
+                self.logger.info(f"Filling {missing_count:,} missing forest types with default value")
+                enhanced_plots['ForestType'] = enhanced_plots['ForestType'].fillna(
+                    self.config['forest_types']['default_forest_type']
+                )
+            
+            # Log forest type distribution
+            forest_type_counts = enhanced_plots['ForestType'].value_counts()
+            self.logger.info(f"Forest type distribution for UTM {utm}:")
+            for forest_type, count in forest_type_counts.head(5).items():
+                self.logger.info(f"  {forest_type}: {count:,} plots ({count/len(enhanced_plots)*100:.1f}%)")
             
             enhanced_gdfs[utm] = enhanced_plots
-            self.logger.info(f"UTM {utm}: {len(enhanced_plots)} plots with forest type information")
+            
+            utm_time = time.time() - utm_start
+            self.logger.info(f"UTM {utm} completed in {utm_time:.1f}s")
+        
+        total_time = time.time() - total_start
+        total_plots = sum(len(gdf) for gdf in enhanced_gdfs.values())
+        self.logger.info(f"Forest type processing completed: {total_plots:,} plots in {total_time:.1f}s")
         
         return enhanced_gdfs
 
@@ -382,6 +514,9 @@ class NFIProcessingPipeline:
         """
         create_output_directory(self.output_dir)
         
+        output_utm = self.output_dir / 'per_utm'
+        create_output_directory(output_utm)
+        
         all_data = []
         
         # Export UTM-specific files and collect data for combined export
@@ -395,7 +530,7 @@ class NFIProcessingPipeline:
                 gdf = gdf.to_crs(self.target_crs)
                 
                 # Export UTM-specific file
-                utm_filename = f"{self.output_dir}/{utm_template.format(utm=utm)}"
+                utm_filename = output_utm / f"{utm_template.format(utm=utm)}"
                 gdf.to_file(utm_filename, driver='ESRI Shapefile')
                 self.logger.info(f"Exported UTM {utm} data: {len(gdf)} plots -> {utm_filename}")
                 
@@ -406,7 +541,7 @@ class NFIProcessingPipeline:
         if all_data:
             combined_gdf = pd.concat(all_data, ignore_index=True)
             combined_template = self.config['output_templates']['combined_biomass']
-            combined_filename = f"{self.output_dir}/{combined_template}"
+            combined_filename = self.output_dir / f"{combined_template}"
             combined_gdf.to_file(combined_filename, driver='ESRI Shapefile')
             self.logger.info(f"Exported combined data: {len(combined_gdf)} plots -> {combined_filename}")
             
@@ -426,62 +561,13 @@ class NFIProcessingPipeline:
         years = sorted(gdf['Year'].dropna().unique())
         self.logger.info(f"Found data for years: {years}")
         
+        output_year = self.output_dir / 'per_year'
+        create_output_directory(output_year)
+
         yearly_template = self.config['output_templates']['yearly_biomass']
         for year in years:
             year_data = gdf[gdf['Year'] == year]
             if len(year_data) > 0:
-                year_filename = f"{self.output_dir}/{yearly_template.format(year=year)}"
+                year_filename = output_year/f"{yearly_template.format(year=year)}"
                 year_data.to_file(year_filename, driver='ESRI Shapefile')
                 self.logger.info(f"Exported {year} data: {len(year_data)} plots -> {year_filename}")
-
-    def validate_inputs(self) -> bool:
-        """
-        Validate that all required input files and directories exist.
-        
-        Returns:
-            bool: True if all inputs are valid, False otherwise
-        """
-        base_path = Path(self.data_dir)
-        
-        # Check required directories
-        required_dirs = [
-            NFI4_DATABASE_DIR,
-            FOREST_TYPE_MAPS_DIR
-        ]
-        
-        for dir_name in required_dirs:
-            dir_path = base_path / dir_name
-            if not dir_path.exists():
-                self.logger.error(f"Required directory not found: {dir_path}")
-                return False
-        
-        # Check required files
-        required_files = [
-            WOOD_DENSITY_FILE,
-            NFI4_SPECIES_CODE_FILE
-        ]
-        
-        for file_name in required_files:
-            file_path = base_path / file_name
-            if not file_path.exists():
-                self.logger.error(f"Required file not found: {file_path}")
-                return False
-        
-        self.logger.info("Input validation successful")
-        return True
-
-    def get_processing_summary(self) -> Dict[str, Any]:
-        """
-        Get summary information about the processing configuration.
-        
-        Returns:
-            dict: Summary information
-        """
-        return {
-            'data_directory': self.data_dir,
-            'output_directory': self.output_dir,
-            'target_crs': self.target_crs,
-            'valid_utm_zones': get_valid_utm_zones(),
-            'temp_directory': self.temp_dir,
-            'component_version': "1.0.0"
-        }

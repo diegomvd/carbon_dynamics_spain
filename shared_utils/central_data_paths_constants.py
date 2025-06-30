@@ -37,7 +37,7 @@ FOREST_TYPE_MASKS_DIR = PROCESSED_DIR / "forest_type_masks" / "100m"
 
 # Wood density database
 WOOD_DENSITY_DIR = RAW_DIR / "wood_density"
-WOOD_DENSITY_FILE = WOOD_DENSITY_DIR / "wood_density_database.csv"
+WOOD_DENSITY_FILE = WOOD_DENSITY_DIR / "GlobalWoodDensityDatabase.xls"
 
 # Land cover
 LAND_COVER_DIR = RAW_DIR / "land_cover"
@@ -103,7 +103,7 @@ BIOMASS_MAPS_FULL_COUNTRY_DIR = BIOMASS_MAPS_DIR / "full_country"
 # Biomass processing temporary files
 BIOMASS_MAPS_TEMP_DIR = PROCESSED_DIR / "biomass_maps" / "tmp"
 BIOMASS_MASKING_TEMP_DIR = BIOMASS_MAPS_TEMP_DIR / "masking"
-BIOMASS_MERGING_TEMP_DIR = BIOMASS_TEMP_DIR / "merging"
+BIOMASS_MERGING_TEMP_DIR = BIOMASS_MAPS_TEMP_DIR / "merging"
 BIOMASS_PROCESSING_TEMP_DIR = BIOMASS_MAPS_TEMP_DIR / "processing"
 
 # Biomass validation

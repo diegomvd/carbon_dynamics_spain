@@ -31,8 +31,8 @@ processing:
 
 # Forest Type Integration
 forest_types:
-  use_dissolved_files: true                        # Prefer dissolved MFE files
-  dissolved_prefix: "dissolved_"                   # Prefix for dissolved files
+  use_dissolved_files: true                       # Prefer dissolved MFE files
+  dissolved_prefix: "dissolved_by_form"           # Prefix for dissolved files
   default_forest_type: "Unknown"                  # Default when no match found
 
 # Data Validation
@@ -43,6 +43,10 @@ validation:
     utm29: { min_x: 166021, max_x: 833978, min_y: 4000000, max_y: 4900000 }
     utm30: { min_x: 166021, max_x: 833978, min_y: 4000000, max_y: 4900000 }
     utm31: { min_x: 166021, max_x: 833978, min_y: 4000000, max_y: 4900000 }
+
+# Output
+output:
+  target_crs: 'epsg:25830'
 
 # System Dependencies
 system:

@@ -20,6 +20,7 @@ from pathlib import Path
 
 # Shared utilities
 from shared_utils import setup_logging, get_logger
+from shared_utils.central_data_paths_constants import *
 
 
 def get_region_UTM(region, utmzone):
@@ -145,26 +146,23 @@ def compute_biomass(volume_stem, volume_branches, species_code, wddb, spdb):
     return agb
 
 
-def load_reference_databases(data_dir):
+def load_reference_databases():
     """
     Load reference databases needed for NFI processing.
-    
-    Args:
-        data_dir: Path to data directory
         
     Returns:
         tuple: (wood_density_db, ifn_species_codes)
         
     Examples:
-        >>> wood_db, species_db = load_reference_databases("/path/to/data")
+        >>> wood_db, species_db = load_reference_databases()
     """
     wood_density_db = pd.read_excel(
-        f"{data_dir}/GlobalWoodDensityDatabase.xls", 
+        WOOD_DENSITY_FILE, 
         sheet_name='Data'
     )
     
     ifn_species_codes = pd.read_csv(
-        f"{data_dir}/CODIGOS_IFN.csv", 
+        NFI4_SPECIES_CODE_FILE, 
         delimiter=";"
     ).dropna()
     ifn_species_codes["CODIGO ESPECIE"] = ifn_species_codes["CODIGO ESPECIE"].apply(lambda c: int(c))

@@ -17,7 +17,7 @@ import logging
 def load_config(
     config_path: Optional[Union[str, Path]] = None,
     component_name: Optional[str] = None,
-    default_config_name: str = "config.yaml"
+    default_config_name: str = "config.yml"
 ) -> Dict[str, Any]:
     """
     Load configuration from YAML file with standardized search patterns.

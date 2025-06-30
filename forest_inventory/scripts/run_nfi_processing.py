@@ -21,7 +21,6 @@ import time
 from pathlib import Path
 from typing import Optional
 
-
 # Component imports
 from forest_inventory.core.nfi_processing import NFIProcessingPipeline
 from shared_utils.central_data_paths_constants import *
