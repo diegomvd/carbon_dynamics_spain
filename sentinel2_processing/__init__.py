@@ -54,8 +54,8 @@ from .core.postprocessing import (
 # Import script entry points
 from .scripts.run_mosaic_processing import main as run_mosaic_processing
 from .scripts.run_downsampling import main as run_downsampling
-from .scripts.run_missing_analysis import main as run_missing_analysis
-from .scripts.run_robustness_assessment import main as run_robustness_assessment
+from .scripts.run_missing_tiles import main as run_missing_tiles
+from .scripts.run_robustness_analysis import main as run_robustness_analysis
 from .scripts.run_consistency_analysis import main as run_consistency_analysis
 from .scripts.run_postprocessing import main as run_postprocessing
 
@@ -89,7 +89,7 @@ __all__ = [
     # Script entry points
     "run_mosaic_processing",
     "run_downsampling",
-    "run_missing_analysis",
+    "run_missing_tiles",
     "run_robustness_assessment",
     "run_consistency_analysis",
     "run_postprocessing",

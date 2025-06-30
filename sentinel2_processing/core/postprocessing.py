@@ -545,7 +545,7 @@ class MissingTilesAnalyzer:
         
         self.logger.info(f"Missing file paths saved to: {output_file}")
     
-    def run_missing_analysis(self) -> Dict[str, Any]:
+    def run_missing_tiles(self) -> Dict[str, Any]:
         """
         Execute complete missing tiles analysis workflow.
         
@@ -554,7 +554,7 @@ class MissingTilesAnalyzer:
             
         Examples:
             >>> analyzer = MissingTilesAnalyzer(config)
-            >>> results = analyzer.run_missing_analysis()
+            >>> results = analyzer.run_missing_tiles()
         """
         self.logger.info("Starting Sentinel-2 missing mosaics analysis...")
         

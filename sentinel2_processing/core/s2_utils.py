@@ -8,9 +8,6 @@ This module provides comprehensive utilities for Sentinel-2 L2A data processing 
 - Geospatial operations for tiling and coordinate transformations
 - Data loading and preprocessing for large-scale satellite imagery
 
-Key algorithms preserve exact logic for performance-critical operations including
-best scene selection based on valid pixel percentage and distributed processing
-patterns optimized for memory management.
 
 Author: Diego Bengochea
 """
@@ -46,7 +43,7 @@ def create_scl_mask(scl, valid_classes):
     Examples:
         >>> mask = create_scl_mask(dataset.scl, [4, 5, 6, 11])
     """
-    # CRITICAL: Preserve exact algorithmic logic
+    # Preserve exact algorithmic logic
     mask = scl.isin(valid_classes)
     return mask
 
@@ -65,7 +62,7 @@ def mask_scene(dataset, valid_classes):
     Examples:
         >>> masked_data, mask = mask_scene(dataset, [4, 5, 6, 11])
     """
-    # CRITICAL: Preserve exact algorithmic logic
+    # Preserve exact algorithmic logic
     mask = create_scl_mask(dataset.scl, valid_classes)
     masked_dataset = dataset.where(mask)
     return masked_dataset, mask
@@ -93,7 +90,7 @@ def select_best_scenes(dataset, n_scenes, valid_classes, bands_to_drop):
     Examples:
         >>> dataset, time_span = select_best_scenes(data, 12, [4,5,6,11], ['scl'])
     """
-    # CRITICAL: Preserve exact algorithmic logic - this is performance critical
+    # Preserve exact algorithmic logic - this is performance critical
     masked_dataset, mask = mask_scene(dataset, valid_classes)
 
     # Calculate valid pixel percentage for each scene - EXACT LOGIC PRESERVED
@@ -136,7 +133,7 @@ def create_processing_tiles(spain_polygon_path, tile_size):
     Examples:
         >>> tiles = create_processing_tiles("/path/to/spain.shp", 12288)
     """
-    # CRITICAL: Preserve exact geospatial processing logic
+    # Preserve exact geospatial processing logic
     spain = (
         gpd.read_file(spain_polygon_path)
         .to_crs(epsg='25830')
@@ -169,7 +166,7 @@ def create_processing_list(spain_polygon_path, tile_size, years):
     Examples:
         >>> processing_list = create_processing_list("/path/to/spain.shp", 12288, [2019, 2021])
     """
-    # CRITICAL: Preserve exact tile generation and combination logic
+    # Preserve exact tile generation and combination logic
     tiles = create_processing_tiles(spain_polygon_path, tile_size)
     return list(itertools.product(tiles, years))
 
@@ -188,7 +185,7 @@ def get_tile_bounding_box(tile):
         >>> bbox = get_tile_bounding_box(tile)
         >>> left, bottom, right, top = bbox
     """
-    # CRITICAL: Preserve exact coordinate transformation logic
+    # Preserve exact coordinate transformation logic
     bbox = tile.boundingbox.to_crs('EPSG:4326')
     return (bbox.left, bbox.bottom, bbox.right, bbox.top)
 
@@ -216,7 +213,7 @@ def search_catalog(catalog, bbox, time_range, cloud_threshold, min_n_items, max_
     Examples:
         >>> items = search_catalog(catalog, bbox, "2022-06-01/2022-09-01", 1, 40, 61)
     """
-    # CRITICAL: Preserve exact STAC search and recursive logic
+    # Preserve exact STAC search and recursive logic
     search = catalog.search(
         collections=['sentinel-2-l2a'],
         bbox=bbox,
@@ -252,7 +249,7 @@ def load_dataset(item_collection, tile, bands, chunk_size):
     Examples:
         >>> dataset = load_dataset(items, tile, ['red', 'green', 'blue'], 2048)
     """
-    # CRITICAL: Preserve exact data loading parameters and logic
+    # Preserve exact data loading parameters and logic
     dataset = load(
         item_collection,
         bands=bands,
@@ -284,7 +281,7 @@ def create_dataset(catalog, tile, time_range, config):
     Examples:
         >>> dataset = create_dataset(catalog, tile, "2022-06-01/2022-09-01", config)
     """
-    # CRITICAL: Preserve exact dataset creation workflow
+    # Preserve exact dataset creation workflow
     bounding_box = get_tile_bounding_box(tile)
     item_collection = search_catalog(
         catalog,
@@ -330,7 +327,7 @@ def setup_optimized_cluster(n_workers, threads_per_worker, memory_per_worker):
     client = None
     
     try:
-        # CRITICAL: Preserve exact cluster configuration parameters
+        # Preserve exact cluster configuration parameters
         cluster = dask.distributed.LocalCluster(
             n_workers=n_workers,
             threads_per_worker=threads_per_worker,
@@ -343,7 +340,7 @@ def setup_optimized_cluster(n_workers, threads_per_worker, memory_per_worker):
         logger.error(f"Error in cluster operations: {str(e)}")
         raise
     finally:
-        # CRITICAL: Preserve exact cleanup sequence for memory management
+        # Preserve exact cleanup sequence for memory management
         try:
             if client is not None:
                 logger.info("Closing client...")
@@ -402,7 +399,6 @@ def generate_output_filename(tile, year, base_dir):
     Examples:
         >>> filename = generate_output_filename(tile, 2022, "/output/dir")
     """
-    # CRITICAL: Preserve exact filename generation logic for compatibility
     # Get tile bounds for filename generation
     bbox = get_tile_bounding_box(tile)
     left, bottom, right, top = bbox

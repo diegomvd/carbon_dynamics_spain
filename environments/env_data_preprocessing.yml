@@ -10,7 +10,7 @@ dependencies:
   - python=3.12
   # Sentinel-2 processing dependencies
   - rasterio=1.4.2
-  - odc-stac=0.3.10
+  - odc-stac=0.4.0
   - numpy=1.26.4
   - rioxarray=0.17
   - geopandas=1.0.1

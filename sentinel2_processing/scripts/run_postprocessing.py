@@ -84,7 +84,7 @@ def run_missing_analysis_workflow(config: dict, args: argparse.Namespace) -> Dic
     logger.info("RUNNING MISSING TILES ANALYSIS")
     
     analyzer = MissingTilesAnalyzer(config)
-    return analyzer.run_missing_analysis()
+    return analyzer.run_missing_tiles()
 
 
 def run_robustness_workflow(config: dict, args: argparse.Namespace) -> Dict[str, Any]:

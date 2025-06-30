@@ -9,10 +9,10 @@ processing:
   n_scenes: 12                    # Number of best scenes to select for mosaic
   chunk_size: 2048                # Chunk size for dask processing (pixels)
   cloud_threshold: 1              # Initial cloud cover threshold (%)
-  years: [2019, 2021, 2022, 2023] # Years to process
+  years: [2017, 2018, 2019, 2020, 2021, 2022, 2023, 2024] # Years to process
   min_month: 6                    # Start month for summer period (June)
   max_month: 9                    # End month for summer period (September)
-  tile_size: 12288                # Processing tile size in pixels (12.288 km at 10m resolution)
+  tile_size: 12288               # Processing tile size in pixels (12.288 km at 10m resolution) 2048*6
   
 # Data Configuration  
 data:

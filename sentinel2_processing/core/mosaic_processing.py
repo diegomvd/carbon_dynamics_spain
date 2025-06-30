@@ -31,6 +31,7 @@ from typing import Optional, Dict, Any, Tuple
 
 # Shared utilities
 from shared_utils import setup_logging, get_logger, load_config, ensure_directory
+from shared_utils.central_data_paths_constants import *
 
 # Component utilities - using refactored imports
 from .s2_utils import (
@@ -60,7 +61,7 @@ class MosaicProcessingPipeline:
             config_path: Path to configuration file, uses default if None
         """
         # Load configuration using shared utilities
-        self.config = load_config(config_path) if config_path else load_config()
+        self.config = load_config(config_path, component_name="sentinel2_processing") if config_path else load_config(component_name="sentinel2_processing")
         
         # Setup logging
         self.logger = setup_logging(
@@ -162,7 +163,7 @@ class MosaicProcessingPipeline:
             >>> print(f"Processing {len(pipeline.processing_list)} combinations")
         """
         self.processing_list = create_processing_list(
-            SPAIN_BOUNDARIES,
+            SPAIN_BOUNDARIES_FILE,
             self.config['processing']['tile_size'],
             self.config['processing']['years']
         )
@@ -359,7 +360,7 @@ class MosaicProcessingPipeline:
                 return False
         
         # Validate Spain polygon file exists
-        spain_polygon_path = SPAIN_BOUNDARIES
+        spain_polygon_path = SPAIN_BOUNDARIES_FILE
         if not spain_polygon_path.exists():
             self.logger.error(f"Spain polygon file not found: {spain_polygon_path}")
             return False
