@@ -38,6 +38,7 @@ from visualization.utils import (
     save_figure_multiple_formats, load_trend_data,
     get_figure_output_path, validate_required_files
 )
+from shared_utils.central_data_paths_constants import *
 
 # Set up logging
 logger = setup_logging('figure_01')
@@ -445,6 +446,8 @@ def main():
     # Get data file paths TODO: adapt this logic to get all biomass files
     biomass_paths = {}
     for year in [start_year, end_year]:
+        biomass_maps_path = BIOMASS_MAPS_FULL_COUNTRY_DIR / 'mean'
+        # glob extracting pattern TBD_YYYY
         biomass_paths[year] = data_paths.get_biomass_path(
             biomass_type='TBD',
             year=year,

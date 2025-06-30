@@ -25,7 +25,7 @@ repo_root = Path(__file__).parent.parent
 if str(repo_root) not in sys.path:
     sys.path.insert(0, str(repo_root))
 
-from shared_utils.central_data_paths import CentralDataPaths
+from shared_utils.central_data_paths_constants import *
 from shared_utils.config_utils import load_config
 
 def setup_logging(script_name: str) -> logging.Logger:
@@ -158,7 +158,6 @@ def format_ticks_no_decimals(x: float, pos: int) -> str:
     return f"{int(x)}" if x == int(x) else f"{x:.1f}"
 
 def load_biomass_data(
-    data_paths: CentralDataPaths, 
     years: List[int], 
     biomass_type: str = 'TBD',
     measure: str = 'mean',
@@ -168,7 +167,6 @@ def load_biomass_data(
     Load biomass data file paths for multiple years.
     
     Args:
-        data_paths: CentralDataPaths instance
         years: List of years to load
         biomass_type: Type of biomass (TBD, AGBD, BGBD)
         measure: Measure type (mean, uncertainty)
@@ -177,6 +175,8 @@ def load_biomass_data(
     Returns:
         Dictionary mapping years to file paths
     """
+
+    # TODO: this uses old data path centralization trend!
     biomass_files = {}
     for year in years:
         file_path = data_paths.get_biomass_path(
@@ -189,7 +189,6 @@ def load_biomass_data(
     return biomass_files
 
 def load_trend_data(
-    data_paths: CentralDataPaths,
     filename: str = 'biomass_national_by_year.csv',
     biomass_to_carbon: float = 0.5
 ) -> pd.DataFrame:
@@ -197,7 +196,6 @@ def load_trend_data(
     Load and process temporal trend data.
     
     Args:
-        data_paths: CentralDataPaths instance
         filename: Name of the trend data file
         biomass_to_carbon: Conversion factor from biomass to carbon
         
@@ -205,13 +203,12 @@ def load_trend_data(
         Processed DataFrame with carbon values and midyear points
     """
     try:
+        # TODO: this is old path centralization logic
+
         # Look for trend data in analysis outputs
-        trend_path = data_paths.get_path('analysis_outputs') / filename
-        
-        if not trend_path.exists():
-            # Fallback to results directory
-            trend_path = data_paths.get_path('results') / filename
-            
+        trend_path = BIOMASS_COUNTRY_TIMESERIES_DIR
+
+        # TODO: maybe we should not pass filename as argument    
         if not trend_path.exists():
             raise FileNotFoundError(f"Trend data file not found: {filename}")
         
@@ -232,36 +229,25 @@ def load_trend_data(
     except Exception as e:
         raise RuntimeError(f"Error loading trend data: {e}")
 
-def load_climate_analysis_results(data_paths: CentralDataPaths) -> Dict[str, Any]:
+def load_climate_analysis_results() -> Dict[str, Any]:
     """
     Load pre-computed climate analysis results for Figure 3.
     
     Args:
-        data_paths: CentralDataPaths instance
         
     Returns:
         Dictionary containing SHAP analysis results
     """
     # Look for SHAP analysis results in multiple possible locations
-    possible_locations = [
-        data_paths.get_path('ml_outputs') / 'shap_analysis',
-        data_paths.get_path('analysis_outputs') / 'shap_analysis',
-        data_paths.get_path('results') / 'climate_biomass_analysis' / 'shap_analysis'
-    ]
-    
-    results_dir = None
-    for location in possible_locations:
-        if location.exists():
-            results_dir = location
-            break
+    results_dir = CLIMATE_BIOMASS_SHAP_OUTPUT_DIR
     
     if results_dir is None:
         raise FileNotFoundError(
-            "SHAP analysis results not found. Expected locations:\n" +
-            "\n".join(f"  - {loc}" for loc in possible_locations)
+            f"SHAP analysis results not found. Expected locations:{results_dir}"
         )
     
     results = {}
+    # TODO: should names be also centralized in the path manager?
     required_files = {
         'feature_frequencies': 'feature_frequencies_df.csv',
         'pdp_lowess_data': 'pdp_lowess_data.pkl',

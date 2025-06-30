@@ -30,6 +30,7 @@ from visualization.utils import (
     setup_data_paths, save_figure_multiple_formats,
     get_figure_output_path, validate_required_files
 )
+from shared_utils.central_data_paths_constants import *
 
 # Set up logging
 logger = setup_logging('figure_04')
@@ -46,16 +47,15 @@ def load_analysis_data(data_paths) -> tuple:
     """
     logger.info("Loading analysis data from CSV files...")
     
-    # Define expected file paths TODO: work out the actual paths 
-    analysis_outputs = data_paths.get_path('analysis_outputs')
+    # Define expected file paths
     data_files = {
-        'genus': analysis_outputs / "biomass_by_genus_year.csv",
-        'clade': analysis_outputs / "biomass_by_clade_year.csv", 
-        'height': analysis_outputs / "biomass_by_height_year.csv"
+        'genus': BIOMASS_PER_GENUS_FILE,
+        'clade': BIOMASS_PER_CLADE_FILE, 
+        'height': BIOMASS_PER_HEIGHT_BIN_FILE
     }
     
     # Validate files exist
-    validate_required_files(list(data_files.values()), 'figure_02')
+    validate_required_files(list(data_files.values()), 'figure_04')
     
     # Load dataframes
     dataframes = {}
@@ -76,8 +76,10 @@ def prepare_forest_type_data(genus_df: pd.DataFrame, config: dict) -> pd.DataFra
     Returns:
         Processed DataFrame with forest type and genus data
     """
+
+    # TODO: check column names
     constants = config['constants']
-    biomass_to_carbon = config['figure_params']['figure2']['biomass_to_carbon']
+    biomass_to_carbon = config['figure_params']['figure4']['biomass_to_carbon']
     start_year = constants['start_year']
     end_year = constants['end_year']
     
