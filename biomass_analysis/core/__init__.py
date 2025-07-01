@@ -14,14 +14,14 @@ Modules:
 Author: Diego Bengochea
 """
 
-from .monte_carlo_analysis import MonteCarloAnalyzer
-from .aggregation_analysis import BiomassAggregator
-from .interannual_analysis import InterannualAnalyzer
-from .carbon_flux_analysis import CarbonFluxAnalyzer
+from .monte_carlo_analysis import MonteCarloAggregationPipeline
+from .aggregation_analysis import BiomassAggregationPipeline
+from .interannual_analysis import InterannualChangePipeline
+from .carbon_flux_analysis import CarbonFluxPipeline
 
 __all__ = [
-    "MonteCarloAnalyzer",
-    "BiomassAggregator",
-    "InterannualAnalyzer",
-    "CarbonFluxAnalyzer"
+    "MonteCarloAggregationPipeline",
+    "BiomassAggregationPipeline",
+    "InterannualChangePipeline",
+    "CarbonFluxPipeline"
 ]

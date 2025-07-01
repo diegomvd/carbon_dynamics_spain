@@ -154,7 +154,7 @@ class BiomassAggregationPipeline:
                 
         # Load CSV files
         # TODO: VERIFIY EXACTLY WHAT THESE FILES ARE
-        forest_types_path = FOREST_TYPE_CSV
+        forest_types_path = FOREST_TYPES_TIERS_FILE
         forest_codes_path = FOREST_TYPE_CODES
         
         forest_types = pd.read_csv(forest_types_path)
@@ -476,7 +476,7 @@ class BiomassAggregationPipeline:
             bool: True if masks were created successfully, False otherwise
         """
         height_dir = HEIGHT_MAPS_100M_DIR
-        mask_dir = HEIGHT_MAPS_BIN_MASKS_DIR
+        mask_dir = HEIGHT_MASK_BINS_DIR
         
         # Get height ranges from config
         height_bins = self.config['height_ranges']['bins']

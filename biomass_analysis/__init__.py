@@ -17,17 +17,17 @@ Components:
 Author: Diego Bengochea
 """
 
-from .core.monte_carlo_analysis import MonteCarloAnalyzer
-from .core.aggregation_analysis import BiomassAggregator
-from .core.interannual_analysis import InterannualAnalyzer
-from .core.carbon_flux_analysis import CarbonFluxAnalyzer
+from .core.monte_carlo_analysis import MonteCarloAggregationPipeline
+from .core.aggregation_analysis import BiomassAggregationPipeline
+from .core.interannual_analysis import InterannualChangePipeline
+from .core.carbon_flux_analysis import CarbonFluxPipeline
 
 __version__ = "1.0.0"
 __component__ = "biomass_analysis"
 
 __all__ = [
-    "MonteCarloAnalyzer",
-    "BiomassAggregator",
-    "InterannualAnalyzer", 
-    "CarbonFluxAnalyzer"
+    "MonteCarloAggregationPipeline",
+    "BiomassAggregationPipeline",
+    "InterannualChangePipeline", 
+    "CarbonFluxPipeline"
 ]
