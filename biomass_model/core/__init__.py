@@ -19,13 +19,7 @@ from .allometry import AllometryManager
 from .monte_carlo import MonteCarloEstimator
 
 # Import allometry fitting modules
-from .allometry_fitting import (
-    run_allometry_fitting_pipeline, 
-    save_allometry_results,
-    fit_height_agb_allometry,
-    calculate_bgb_ratios,
-    process_hierarchical_allometries
-)
+from .allometry_fitting import AllometryFittingPipeline
 
 from .allometry_utils import (
     AllometryResults,
@@ -40,24 +34,18 @@ from .allometry_utils import (
 )
 
 # Import I/O utilities
-from .io_utils import RasterManager
+from .biomass_utils import BiomassUtils
 
 # Import processing pipelines
-from .land_use_masking import LandUseMaskingPipeline, create_land_use_masking_pipeline
-from .forest_type_merging import ForestTypeMergingPipeline, create_forest_type_merging_pipeline
+from .land_use_masking import LandUseMaskingPipeline
+from .forest_type_merging import ForestTypeMergingPipeline
 
 __all__ = [
     # Core pipeline components
     "BiomassEstimationPipeline",
     "AllometryManager", 
     "MonteCarloEstimator",
-    
-    # Allometry fitting pipeline
-    "run_allometry_fitting_pipeline",
-    "save_allometry_results", 
-    "fit_height_agb_allometry",
-    "calculate_bgb_ratios",
-    "process_hierarchical_allometries",
+    "AllometryFittingPipeline",
     
     # Allometry utilities
     "AllometryResults",
@@ -75,7 +63,5 @@ __all__ = [
     
     # Processing pipelines
     "LandUseMaskingPipeline",
-    "create_land_use_masking_pipeline",
     "ForestTypeMergingPipeline", 
-    "create_forest_type_merging_pipeline"
 ]

@@ -26,6 +26,7 @@ import dask
 from dask.diagnostics import ProgressBar
 import pandas as pd
 import dask.array as da
+from typing import Optional, Union, Any, Dict
 
 # Current code structure imports
 from shared_utils import setup_logging, get_logger, load_config
@@ -55,7 +56,7 @@ class BiomassEstimationPipeline:
             config: Configuration dictionary (processing parameters only)
         """
         # Store configuration and data paths
-        self.config = load_config(config_path, component='biomass_estimation')
+        self.config = load_config(config_path, component='biomass_model')
         
         # Setup logging
         self.logger = setup_logging(

@@ -21,7 +21,7 @@ from rasterio.windows import Window
 from rasterio.enums import Resampling
 
 # Shared utilities
-from shared_utils import get_logger, find_files, validate_file_exists
+from shared_utils import get_logger, find_files # validate_file_exists
 from shared_utils.central_data_paths_constants import *
 
 

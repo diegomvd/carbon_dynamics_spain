@@ -5,9 +5,6 @@ This module provides essential utilities for data validation, outlier removal,
 hierarchical forest type processing, and spatial sampling for the integrated
 biomass estimation and allometry fitting pipeline.
 
-Ported and adapted from original fitting_utils.py to work with harmonized
-path structure and current biomass_model component architecture.
-
 Author: Diego Bengochea
 """
 
@@ -55,15 +52,14 @@ class BGBRatioResults:
     q95: float
 
 
-def validate_height_biomass_data(df: pd.DataFrame, height_col: str, biomass_col: str, 
-                                min_samples: int, max_height: float, min_height: float) -> bool:
+def validate_height_biomass_data(df: pd.DataFrame, height_col: str = 'Height', 
+                                 min_samples: int=20, max_height: float=60.0, min_height: float=0.0) -> bool:
     """
     Validate input data for height-biomass allometry fitting.
     
     Args:
         df (pd.DataFrame): Input dataframe
         height_col (str): Name of height column
-        biomass_col (str): Name of biomass column
         min_samples (int): Minimum required samples
         max_height (float): Maximum allowed height
         min_height (float): Minimum allowed height
@@ -73,12 +69,7 @@ def validate_height_biomass_data(df: pd.DataFrame, height_col: str, biomass_col:
     """
     if len(df) < min_samples:
         return False
-        
-    # Check for non-positive values
-    if df[height_col].min() <= 0 or df[biomass_col].min() <= 0:
-        warnings.warn("Found non-positive values in data")
-        return False
-
+    
     # Check height constraints
     valid_heights = (df[height_col] >= min_height) & (df[height_col] <= max_height)
     if not valid_heights.all():
@@ -148,8 +139,8 @@ def prepare_ratio_data(df: pd.DataFrame, ratio_col: str = 'BGB_Ratio') -> pd.Dat
     return df_valid
 
 
-def remove_outliers(df: pd.DataFrame, height_col: str, biomass_col: str, 
-                   contamination: float) -> pd.DataFrame:
+def remove_outliers(df: pd.DataFrame, height_col: str = 'Height', biomass_col: str = 'AGB', 
+                    contamination: float = 0.12) -> pd.DataFrame:
     """
     Remove outliers using Elliptic Envelope method for height-biomass data.
     
@@ -183,17 +174,19 @@ def remove_outliers(df: pd.DataFrame, height_col: str, biomass_col: str,
     return df_clean
 
 
-def remove_ratio_outliers(ratios: np.ndarray, contamination: float) -> np.ndarray:
+def remove_ratio_outliers(ratios: pd.DataFrame) -> pd.DataFrame:
     """
     Remove outliers from BGB ratio data using IQR method.
     
     Args:
-        ratios (np.ndarray): BGB ratio values
-        contamination (float): Expected proportion of outliers (not used for IQR)
+        ratios (pd.DataFrame): Dataframe with ratio values 
         
     Returns:
-        np.ndarray: Ratios with outliers removed
+        pd.DataFrame: Processed dataframe without outliers
     """
+    ratios_validated = prepare_ratio_data(ratios)
+    ratios = np.array(ratios_validated['BGB_Ratio'])
+
     Q1 = np.percentile(ratios, 25)
     Q3 = np.percentile(ratios, 75)
     IQR = Q3 - Q1
@@ -203,8 +196,9 @@ def remove_ratio_outliers(ratios: np.ndarray, contamination: float) -> np.ndarra
     upper_bound = Q3 + multiplier * IQR
     
     # Filter outliers
-    outlier_mask = (ratios >= lower_bound) & (ratios <= upper_bound)
-    return ratios[outlier_mask]
+    ratios_clean = ratios_validated[(ratios_validated['BGB_Ratio'] >= lower_bound) & (ratios_validated['BGB_Ratio'] <= upper_bound)]
+   
+    return ratios_clean
 
 
 def get_tier_class(forest_types_df: pd.DataFrame, mfe_class: str, tier: str) -> str:
@@ -274,7 +268,7 @@ def process_hierarchy_levels(df: pd.DataFrame, forest_types_df: pd.DataFrame,
     logger.info("Adding hierarchical tier columns...")
     
     # Add tier columns for hierarchical levels
-    tiers_to_add = ['Clade', 'Family', 'Genus']
+    tiers_to_add = ['Clade', 'Family', 'Genus', 'ForestTypeMFE']
     
     for tier in tiers_to_add:
         df = add_tier_column(df, forest_types_df, tier, forest_type_col)
@@ -399,7 +393,7 @@ def create_training_dataset(config: dict) -> pd.DataFrame:
         
         # Look for NFI shapefile for this year
         nfi_pattern = f'nfi4_{year}_biomass.shp'
-        nfi_path = nfi_processed_dir / nfi_pattern
+        nfi_path = nfi_processed_dir / 'per_year' / nfi_pattern
         
         if not nfi_path.exists():
             logger.warning(f"NFI file not found: {nfi_path}")
@@ -460,21 +454,21 @@ def create_output_directory(output_path: Path) -> None:
     output_dir.mkdir(parents=True, exist_ok=True)
 
 
-# # Tier name mapping for compatibility with existing pipeline
-# TIER_NAMES = {
-#     0: 'Dummy',
-#     1: 'Clade', 
-#     2: 'Family',
-#     3: 'Genus',
-#     4: 'ForestTypeMFE'
-# }
+# Tier name mapping for compatibility with existing pipeline
+TIER_NAMES = {
+    0: 'Dummy',
+    1: 'Clade', 
+    2: 'Family',
+    3: 'Genus',
+    4: 'ForestTypeMFE'
+}
 
 
-# # Forest type hierarchy levels (processed in order)
-# HIERARCHY_LEVELS = {
-#     'General': {'tier': 0, 'column': None},
-#     'Clade': {'tier': 1, 'column': 'Clade'},
-#     'Family': {'tier': 2, 'column': 'Family'},
-#     'Genus': {'tier': 3, 'column': 'Genus'},
-#     'ForestType': {'tier': 4, 'column': 'ForestType'}
-# }
+# Forest type hierarchy levels (processed in order)
+HIERARCHY_LEVELS = {
+    'General': {'tier': 0, 'column': None},
+    'Clade': {'tier': 1, 'column': 'Clade'},
+    'Family': {'tier': 2, 'column': 'Family'},
+    'Genus': {'tier': 3, 'column': 'Genus'},
+    'ForestTypeMFE': {'tier': 4, 'column': 'ForestTypeMFE'}
+}

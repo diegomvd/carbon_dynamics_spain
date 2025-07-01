@@ -74,11 +74,11 @@ fitting:
   quantiles: [0.15, 0.85]
   alpha: 0.05
   min_samples: 10
-  max_height: 50.0
-  min_height: 1.0
+  max_height: 60.0
+  min_height: 0.0
 
   min_bgb_samples: 25
-  percentiles: [5, 50, 95]
+  percentiles: [5, 95]
 
   outlier_removal: True
   outlier_contamination: 0.12
