@@ -21,6 +21,8 @@ import dask.array as da
 from rasterio.windows import Window
 from rasterio.enums import Resampling
 import pandas as pd
+import time 
+from contextlib import contextmanager
 
 # Shared utilities
 from shared_utils import get_logger, find_files # validate_file_exists
@@ -109,6 +111,15 @@ class BiomassUtils:
         
         return height_xr, mask_xr, out_meta
 
+    @contextmanager
+    def timer(self,description):
+        start = time.time()
+        try:
+            yield
+        finally:
+            elapsed = time.time() - start
+            print(f"{description}: {elapsed:.2f}s")
+
     def write_xarray_results(self, results, height_file, code, forest_type_name, mask_data, output_meta):
         """
         Write xarray Monte Carlo results using rioxarray with optimized GeoTIFF settings.
@@ -124,19 +135,25 @@ class BiomassUtils:
         Returns:
             bool: True if successful, False otherwise
         """
-        config = get_config()
         
         # Get GeoTIFF optimization settings from config
         geotiff_options = self.config['output']['geotiff'].copy()
         geotiff_options['dtype'] = output_meta.get('dtype', 'float32')
         
+        geotiff_options = {
+            'tiled': self.config['output']['geotiff']['tiled'],
+            'blockxsize': self.config['output']['geotiff']['blockxsize'], 
+            'blockysize': self.config['output']['geotiff']['blockysize'],
+            'compress': self.config['output']['geotiff']['compress'],
+            'dtype': output_meta.get('dtype', 'float32')
+        }
         try:
             # Process each variable in the results dataset
             for variable in results.data_vars:
                 # Parse variable name to determine output type and measure
                 parts = variable.split('_')
                 if len(parts) < 2:
-                    logger.warning(f"Unexpected variable name format: {variable}")
+                    self.logger.warning(f"Unexpected variable name format: {variable}")
                     continue
                     
                 output_type = parts[0]
@@ -144,16 +161,16 @@ class BiomassUtils:
                 
                 # Build save path using centralized configuration
                 try:
-                    savepath = build_savepath(Path(height_file), output_type, measure, code)
+                    savepath = self.build_savepath(Path(height_file), output_type, measure, code)
                 except ValueError as e:
-                    logger.error(f"Error building save path for {variable}: {e}")
+                    self.logger.error(f"Error building save path for {variable}: {e}")
                     continue
                 
                 # Ensure output directory exists
                 os.makedirs(os.path.dirname(savepath), exist_ok=True)
                 
-                logger.info(f"Writing {output_type} {measure} for {forest_type_name}")
-                with timer(f"Writing {output_type} {measure}"):
+                self.logger.info(f"Writing {output_type} {measure} for {forest_type_name}")
+                with self.timer(f"Writing {output_type} {measure}"):
                     # Get this result variable
                     result = results[variable]
                     
@@ -177,17 +194,17 @@ class BiomassUtils:
                             driver='GTiff',
                             **geotiff_options
                         )
-                        logger.info(f"Saved {output_type} {measure} to: {savepath}")
+                        self.logger.info(f"Saved {output_type} {measure} to: {savepath}")
                     except Exception as write_error:
-                        logger.error(f"Error writing {savepath}: {write_error}")
+                        self.logger.error(f"Error writing {savepath}: {write_error}")
                         return False
             
             return True
             
         except Exception as e:
-            logger.error(f"Error writing results for {forest_type_name}: {str(e)}")
+            self.logger.error(f"Error writing results for {forest_type_name}: {str(e)}")
             import traceback
-            logger.error(traceback.format_exc())
+            self.logger.error(traceback.format_exc())
             return False
 
     def build_savepath(self, fname, output_type, kind, code):
@@ -196,7 +213,7 @@ class BiomassUtils:
         
         Args:
             fname (Path): Input file path
-            output_type (str): Type of output ('agbd', 'bgbd', 'total')
+            output_type (str): Type of output ('agbd', 'bgbd', 'tbd')
             kind (str): Statistical measure ('mean', 'uncertainty')
             code (str): Forest type code
             
@@ -216,11 +233,17 @@ class BiomassUtils:
             raise ValueError(f"Invalid filename format: {stem}")
 
         # Get base output directory for this output type
-        output_dir = get_output_directory(output_type)
+        output_base_dir = BIOMASS_MAPS_PER_FOREST_TYPE_DIR
         
+        year = specs.split('_')[0]
         # Build filename components
-        prefix = self.config['output']['output_prefix']
-        filename = f"{output_type.upper()}_{prefix}_{kind}_{specs}_code{code}.tif"
+        subdir = f"{output_type.upper()}_MonteCarlo_{self.config['processing']['target_resolution']}"
+
+        output_dir = output_base_dir / year / subdir
+
+        Path(output_dir).mkdir(parents=True,exist_ok=True)
+
+        filename = f"{output_type.upper()}_S2_{kind}_{specs}_code{code}.tif"
         
         return os.path.join(output_dir, filename)
 

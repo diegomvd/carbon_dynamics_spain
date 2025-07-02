@@ -230,12 +230,12 @@ class MonteCarloEstimator:
         # Mean biomass estimates
         results['agbd_mean'] = agbd_mean
         results['bgbd_mean'] = bgbd_mean
-        results['total_mean'] = total_mean
+        results['tbd_mean'] = total_mean
         
         # Uncertainty estimates (half-width of 95% confidence intervals)
         results['agbd_uncertainty'] = agbd_uncertainty
         results['bgbd_uncertainty'] = bgbd_uncertainty
-        results['total_uncertainty'] = total_uncertainty
+        results['tbd_uncertainty'] = total_uncertainty
 
         # Clean up standard deviation arrays
         del agbd_std, bgbd_std, total_std

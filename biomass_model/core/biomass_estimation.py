@@ -98,51 +98,55 @@ class BiomassEstimationPipeline:
         try:
             logger.info(f"Processing forest type: {forest_type_name} (code: {code})")
 
-            # Get allometry parameters using current AllometryManager
-            try:
-                agb_params, bgb_params = self.allometry_manager.get_allometry_parameters(
-                    forest_type_name
-                )
-            except Exception as e:
-                logger.error(f"Failed to get allometry parameters for {forest_type_name}: {e}")
-                return False
-            
-            try:
-                height_data, mask_data, metadata = self.biomass_utils.read_height_and_mask_xarray(
-                    height_file, mask_file, 
-                )
-            except Exception as e:
-                logger.error(f"Failed to load raster data: {e}")
-                return False
+            with self.dask_manager.create_cluster() as client:
 
-            # Apply forest type mask to height data
-            masked_heights = height_data.where(mask_data)
-            
-            # Execute Monte Carlo biomass simulation using current MonteCarloEstimator
-            with ProgressBar():
-                logger.info("Running Monte Carlo biomass estimation...")
+                logger.info(f"Dask dashboard: {client.dashboard_link}")
+                
+                # Get allometry parameters using current AllometryManager
                 try:
-                    results = self.monte_carlo.run(
-                        masked_heights, agb_params, bgb_params
+                    agb_params, bgb_params = self.allometry_manager.get_allometry_parameters(
+                        forest_type_name
                     )
                 except Exception as e:
-                    logger.error(f"Monte Carlo estimation failed: {e}")
+                    logger.error(f"Failed to get allometry parameters for {forest_type_name}: {e}")
                     return False
-            
-            try:
-                success = self.biomass_utils.write_xarray_results(
-                    results, height_file, code, forest_type_name, mask_data, metadata
-                )
                 
-                if success:
-                    logger.info(f"Completed processing for {forest_type_name}")
-                    return True
-                else:
-                    logger.error(f"Failed to write results for {forest_type_name}")
+                try:
+                    height_data, mask_data, metadata = self.biomass_utils.read_height_and_mask_xarray(
+                        height_file, mask_file, 
+                    )
+                except Exception as e:
+                    logger.error(f"Failed to load raster data: {e}")
                     return False
-            except Exception as e:
-                logger.error(f"Failed to write results: {e}")
-                return False
+
+                # Apply forest type mask to height data
+                masked_heights = height_data.where(mask_data)
+                
+                # Execute Monte Carlo biomass simulation using current MonteCarloEstimator
+                with ProgressBar():
+                    logger.info("Running Monte Carlo biomass estimation...")
+                    try:
+                        results = self.monte_carlo.run(
+                            masked_heights, agb_params, bgb_params
+                        )
+                    except Exception as e:
+                        logger.error(f"Monte Carlo estimation failed: {e}")
+                        return False
+                
+                try:
+                    success = self.biomass_utils.write_xarray_results(
+                        results, height_file, code, forest_type_name, mask_data, metadata
+                    )
+                    
+                    if success:
+                        logger.info(f"Completed processing for {forest_type_name}")
+                        return True
+                    else:
+                        logger.error(f"Failed to write results for {forest_type_name}")
+                        return False
+                except Exception as e:
+                    logger.error(f"Failed to write results: {e}")
+                    return False
                 
         except Exception as e:
             logger.error(f"Error processing forest type {forest_type_name}: {str(e)}")

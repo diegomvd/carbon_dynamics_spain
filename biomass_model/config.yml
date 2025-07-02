@@ -46,13 +46,13 @@ output:
 
 # Compute configuration for distributed processing
 compute:
-  use_dask: false  # Whether to use Dask for distributed processing
+  use_dask: true  # Whether to use Dask for distributed processing
   num_workers: 4  # Number of Dask workers
-  memory_limit: '4GB'  # Memory limit per worker
+  memory_limit: '41GB'  # Memory limit per worker
   chunk_size: 1024  # Raster chunk size for processing
   max_memory_usage: 0.8  # Maximum memory usage threshold
   chunk_size: 1024       # Target chunk size in MB
-  threads_per_worker: 2  # Dask threads per worker
+  threads_per_worker: 1  # Dask threads per worker
 
 # Logging configuration
 logging:
