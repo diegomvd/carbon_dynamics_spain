@@ -78,82 +78,87 @@ class ForestTypeMergingPipeline:
         Returns:
             True if processing completed successfully, False otherwise
         """
-        input_dir = BIOMASS_MAPS_PER_FOREST_TYPE_DIR
+        input_dir = BIOMASS_MAPS_PER_FOREST_TYPE_MASKED_DIR
         output_dir = BIOMASS_MAPS_FULL_COUNTRY_DIR
 
         # Create output directory structure
         ensure_directory(input_dir)
         ensure_directory(output_dir)
-        mean_output_dir = output_dir / "mean"
-        uncertainty_output_dir = output_dir / "uncertainty"
-        ensure_directory(mean_output_dir)
-        ensure_directory(uncertainty_output_dir)
+        # Get processing parameters from config
+        target_years = self.config['processing']['target_years']
+        biomass_types = ['AGBD', 'BGBD', 'TBD']
+        measures = ['mean', 'uncertainty']
         
-        # Find biomass directories to process
-        biomass_dirs = self._find_biomass_directories(input_dir, self.config['output']['types'])    
-            
-        if not biomass_dirs:
-            self.logger.warning("No biomass directories found to process")
-            return True
-            
-        self.logger.info(f"Found {len(biomass_dirs)} biomass directories to process")
-            
-        # Process each biomass directory
+        self.logger.info(f"Processing years: {target_years}")
+        self.logger.info(f"Processing biomass types: {biomass_types}")
+        self.logger.info(f"Processing measures: {measures}")
+        
         success_count = 0
         error_count = 0
-            
-        for biomass_dir in biomass_dirs:
-            try:
-                self.logger.info(f"Processing directory: {biomass_dir}")
-                
-                # Auto-discover years if not specified
-                years_to_process = self.config['processing']['target_years']
-                measures_to_process = self.config['output']['measures']
-                
-                self.logger.debug(f"Years to process: {years_to_process}")
-                self.logger.debug(f"Measures to process: {measures_to_process}")
-                
-                resolution = '100'
-                compression = self.config['output']['geotiff']['compress']    
-
-                # Process each year and measure combination
-                for year in years_to_process:
-                    for measure in measures_to_process:
+        
+        # Process each biomass type and measure combination
+        for biomass_type in biomass_types:
+            for measure in measures:
+                try:
+                    self.logger.info(f"Processing {biomass_type} {measure}")
+                    
+                    # Create output directory for this type-measure combination
+                    output_dir = output_base_dir / f"{biomass_type}_{measure}"
+                    ensure_directory(output_dir)
+                    
+                    # Process each year for this type-measure combination
+                    for year in target_years:
+                        year_str = str(year)
+                        
                         try:
-                            # Determine output directory based on measure
-                            if measure == 'mean':
-                                target_output_dir = mean_output_dir
-                            elif measure == 'uncertainty':
-                                target_output_dir = uncertainty_output_dir
-                            else:
-                                # For other measures, create subdirectory
-                                target_output_dir = output_dir / measure
-                                ensure_directory(target_output_dir)
+                            # Input directory for this year and biomass type
+                            input_dir = input_base_dir / year_str / f"{biomass_type}_MonteCarlo_100"
+                            
+                            if not input_dir.exists():
+                                self.logger.warning(f"Input directory not found: {input_dir}")
+                                continue
+                            
+                            # Find all files for this measure in this directory
+                            pattern = f"*_{measure}_*_code*.tif"
+                            input_files = list(input_dir.glob(pattern))
+                            
+                            if not input_files:
+                                self.logger.warning(f"No {measure} files found in {input_dir}")
+                                continue
+                            
+                            self.logger.info(f"Found {len(input_files)} {measure} files for {biomass_type} {year}")
+                            
+                            # Generate output filename (no year subdirectory)
+                            output_filename = f"{biomass_type}_S2_{measure}_{year}_100m_merged.tif"
+                            output_file = output_dir / output_filename
+                            
+                            # Skip if output already exists
+                            if output_file.exists():
+                                self.logger.info(f"Output already exists, skipping: {output_filename}")
+                                success_count += 1
+                                continue
                             
                             # Merge rasters for this year and measure
-                            success = self._merge_rasters_by_year_and_type(
-                                biomass_dir, year, target_output_dir, measure,
-                                resolution, compression
+                            success = self._merge_raster_files(
+                                input_files, 
+                                output_file,
+                                compression=self.config['output']['geotiff']['compress']
                             )
                             
                             if success:
                                 success_count += 1
+                                self.logger.info(f"Successfully merged {biomass_type} {measure} {year}")
                             else:
                                 error_count += 1
-                                if not continue_on_error:
-                                    return False
-                        
+                                self.logger.error(f"Failed to merge {biomass_type} {measure} {year}")
+                            
                         except Exception as e:
                             error_count += 1
-                            self.logger.error(f"Error processing {biomass_dir} year {year} measure {measure}: {str(e)}")
-                            if not continue_on_error:
-                                raise
-                
-            except Exception as e:
-                error_count += 1
-                self.logger.error(f"Error processing directory {biomass_dir}: {str(e)}")
-                if not continue_on_error:
-                    raise
+                            self.logger.error(f"Error processing {biomass_type} {measure} {year}: {str(e)}")
+                            
+                except Exception as e:
+                    error_count += 1
+                    self.logger.error(f"Error processing {biomass_type} {measure}: {str(e)}")
         
         # Log completion
         self.logger.info(f"Merging completed: {success_count} succeeded, {error_count} failed")
@@ -161,7 +166,7 @@ class ForestTypeMergingPipeline:
         # Cleanup temporary files
         self._cleanup_temp_files()
         
-        return error_count == 0 or continue_on_error
+        return error_count == 0
         
 
     

@@ -89,41 +89,73 @@ class LandUseMaskingPipeline:
         # Create output directory
         ensure_directory(output_dir)
 
-        # Find raster files to process
-        raster_files = self._find_raster_files(input_dir)
-
-        if not raster_files:
-                self.logger.warning("No raster files found to process")
-                return True
-
-        self.logger.info(f"Found {len(raster_files)} raster files to process")        
-
-        # Process each raster file
+       # Get target years from config
+        target_years = self.config['processing']['target_years']
+        biomass_types = ['AGBD', 'BGBD', 'TBD']
+        
+        self.logger.info(f"Processing years: {target_years}")
+        self.logger.info(f"Processing biomass types: {biomass_types}")
+        
         success_count = 0
         error_count = 0
+        total_files = 0
         
-        for raster_file in raster_files:
-            try:
-                # Calculate relative path to maintain directory structure
-                relative_path = raster_file.relative_to(input_dir)
-                output_file = output_dir / relative_path
+        # Process each year and biomass type combination
+        for year in target_years:
+            year_str = str(year)
+            
+            for biomass_type in biomass_types:
+                # Construct input and output directory paths
+                input_dir = input_base_dir / year_str / f"{biomass_type}_MonteCarlo_100"
+                output_dir = output_base_dir / year_str / f"{biomass_type}_MonteCarlo_100"
                 
-                # Process the raster file
-                success = self._process_single_raster(
-                    raster_file, output_file, land_cover_file, mask_values
-                )
-                if success:
-                    success_count += 1
-                    self.logger.debug(f"Successfully processed: {relative_path}")
-                else:
-                    error_count += 1
-                    
-            except Exception as e:
-                error_count += 1
-                self.logger.error(f"Error processing {raster_file}: {str(e)}")
-
+                if not input_dir.exists():
+                    self.logger.warning(f"Input directory not found: {input_dir}")
+                    continue
+                
+                # Create output directory
+                ensure_directory(output_dir)
+                
+                # Find raster files in this directory
+                raster_files = self._find_raster_files(input_dir)
+                
+                if not raster_files:
+                    self.logger.warning(f"No raster files found in: {input_dir}")
+                    continue
+                
+                self.logger.info(f"Processing {len(raster_files)} files in {input_dir}")
+                total_files += len(raster_files)
+                
+                # Process each raster file
+                for raster_file in raster_files:
+                    try:
+                        # Calculate relative path to maintain filename structure
+                        relative_path = raster_file.relative_to(input_dir)
+                        output_file = output_dir / relative_path
+                        
+                        # Skip if output already exists
+                        if output_file.exists():
+                            self.logger.debug(f"Output already exists, skipping: {relative_path}")
+                            success_count += 1
+                            continue
+                        
+                        # Process the raster file
+                        success = self._process_single_raster(
+                            raster_file, output_file, land_cover_file, mask_values
+                        )
+                        
+                        if success:
+                            success_count += 1
+                            self.logger.debug(f"Successfully processed: {relative_path}")
+                        else:
+                            error_count += 1
+                            
+                    except Exception as e:
+                        error_count += 1
+                        self.logger.error(f"Error processing {raster_file}: {str(e)}")
+        
         # Log completion
-        self.logger.info(f"Masking completed: {success_count} succeeded, {error_count} failed")
+        self.logger.info(f"Masking completed: {success_count}/{total_files} succeeded, {error_count} failed")
         
         # Cleanup temporary files
         self._cleanup_temp_files()
