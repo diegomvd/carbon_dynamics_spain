@@ -89,12 +89,12 @@ class BiomassEstimationRecipe:
         
         self.logger.info(f"Found {len(height_files)} country-wide height maps (100m)")
         
-        # Check for height maps (10m for allometry calibration) 
-        height_10m_dir = HEIGHT_MAPS_10M_DIR
-        if not height_10m_dir.exists():
-            self.logger.error(f"Height maps (10m) directory not found: {height_10m_dir}")
-            self.logger.error("10m height maps needed for allometry calibration")
-            return False
+        # Check for height maps (10m for allometry calibration) NOT PROVIDED ONLINE BECAUSE OF SIZE CONSTRAINTS
+        # height_10m_dir = HEIGHT_MAPS_10M_DIR
+        # if not height_10m_dir.exists():
+        #     self.logger.error(f"Height maps (10m) directory not found: {height_10m_dir}")
+        #     self.logger.error("10m height maps needed for allometry calibration")
+        #     return False
         
         height_10m_files = list(height_10m_dir.glob("*.tif"))
         if not height_10m_files:
@@ -103,7 +103,7 @@ class BiomassEstimationRecipe:
         
         self.logger.info(f"Found {len(height_10m_files)} sanitized height maps (10m)")
         
-        # Check for processed NFI data - UPDATED PATH
+        # Check for processed NFI data 
         nfi_processed_dir = FOREST_INVENTORY_PROCESSED_DIR
         if not nfi_processed_dir.exists():
             self.logger.error(f"Processed NFI directory not found: {nfi_processed_dir}")
@@ -163,21 +163,7 @@ class BiomassEstimationRecipe:
         ]
 
         for directory in directories:
-            directory.mkdir(parents=True, exist_ok=True)
-
-        for biomass_type in ['AGBD_MC_100m', 'BGBD_MC_100m', 'TBD_MC_100m']:
-            type_dir = full_country_dir / biomass_type
-            type_dir.mkdir(parents=True, exist_ok=True)
-        
-        # Create biomass-specific subdirectories TODO: is this properly implemented??
-        # biomass_base = self.data_paths.get_path('biomass_maps')
-        # for subdir in self.data_paths.subdirs['biomass_maps'].values():
-        #     (biomass_base / subdir).mkdir(parents=True, exist_ok=True)
-            
-        #     # Create biomass type subdirectories in each
-        #     for biomass_type in ['AGBD_MC_100m', 'BGBD_MC_100m', 'TBD_MC_100m']:
-        #         (biomass_base / subdir / biomass_type).mkdir(parents=True, exist_ok=True)
-        
+            directory.mkdir(parents=True, exist_ok=True)  
     
     def run_biomass_estimation(self, 
                               years: Optional[List[int]] = None,
@@ -201,22 +187,6 @@ class BiomassEstimationRecipe:
         
         try:
             
-            full_country_dir = BIOMASS_MAPS_FULL_COUNTRY_DIR
-            existing_outputs = []
-            for biomass_type in ['AGBD_MC_100m', 'BGBD_MC_100m', 'TBD_MC_100m']:
-                type_dir = full_country_dir / biomass_type
-                if type_dir.exists():
-                    existing_outputs.extend(list(type_dir.glob("*_merged.tif")))
-            
-            if existing_outputs:
-                self.logger.info(f"{stage_name} - Found existing outputs: {len(existing_outputs)} merged files")
-                self.stage_results[stage_name] = {
-                    'success': True,
-                    'duration_minutes': 0,
-                    'result': 'existing_outputs_used'
-                }
-                return True
-                
             # Run the pipeline
             result = run_biomass_pipeline_main()
             

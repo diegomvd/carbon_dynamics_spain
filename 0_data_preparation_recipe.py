@@ -108,7 +108,7 @@ class DataPreparationRecipe:
         else:
             self.logger.info(f"✅ Found Spain boundary: {spain_boundaries[0].name}")
         
-        nfi4_codes_file = FOREST_TYPE_CODES
+        nfi4_codes_file = NFI4_SPECIES_CODE_FILE
         if not nfi4_codes_file.exists():
             self.logger.error(f"NFI4 codes file not found: {nfi4_codes_file}")
             return False
@@ -116,7 +116,7 @@ class DataPreparationRecipe:
         self.logger.info(f"✅ NFI4 codes file found")
         
         # Check for forest types CSV
-        forest_types_file = FOREST_TYPE_CSV
+        forest_types_file = NFI4_FOREST_TYPES_CSV
         if not forest_types_file.exists():
             self.logger.error(f"Forest types file not found: {forest_types_file}")
             return False

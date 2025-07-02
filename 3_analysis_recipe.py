@@ -123,48 +123,7 @@ class AnalysisRecipe:
         
         return True
     
-    def create_output_structure(self) -> None:
-        """Create necessary output directories."""
-        self.logger.info("Creating output directory structure...")
-        
-        # TODO: this should be updated with the new results directory structure.
-
-        # Create analysis output directories
-        self.data_paths.create_directories([
-            'analysis_outputs',
-            'tables',
-            'ml_outputs'
-        ])
-        
-        # Create analysis-specific subdirectories
-        analysis_base = self.data_paths.get_path('analysis_outputs')
-        analysis_subdirs = [
-            'biomass_trends',
-            'aggregation_analysis',
-            'interannual_differences',
-            'transition_analysis',
-            'carbon_fluxes',
-            'climate_analysis',
-            'optimization_results',
-            'shap_analysis'
-        ]
-        
-        for subdir in analysis_subdirs:
-            (analysis_base / subdir).mkdir(parents=True, exist_ok=True)
-        
-        # Create processed bioclim directories - NEW STRUCTURE
-        self.data_paths.create_directories(['bioclim'])
-        bioclim_base = self.data_paths.get_path('bioclim')
-        bioclim_subdirs = ['harmonized', 'variables', 'anomalies']
-        
-        for subdir in bioclim_subdirs:
-            (bioclim_base / subdir).mkdir(parents=True, exist_ok=True)
-        
-        self.logger.info("✅ Output directory structure created")
-        self.logger.info(f"   📁 analysis_outputs/ - analysis results")
-        self.logger.info(f"   📁 bioclim/ - processed climate data")
-        self.logger.info(f"   📁 tables/ - tabular results")
-        self.logger.info(f"   📁 ml_outputs/ - ML models and predictions")
+    
     
     def run_biomass_analysis(self) -> bool:
         """
@@ -301,9 +260,6 @@ def main():
         recipe.logger.error("Prerequisites validation failed")
         recipe.logger.error("Please ensure biomass maps and climate data are available")
         sys.exit(1)
-        
-    # Create output structure
-    recipe.create_output_structure()
         
     # Track overall success
     overall_success = True

@@ -5,9 +5,9 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "carbon_dynamics_spain"
 version = "0.1.0"
-description = "Iberian Carbon Assessment - Forest Carbon Dynamics Analysis"
+description = "Recent climate change reduced Spanish forests' carbon sink capacity"
 authors = [
-    {name = "Diego Bengochea", email = "your.email@domain.com"}
+    {name = "Diego Bengochea", email = "diego.bengochea@mncn.csic.es"}
 ]
 readme = "README.md"
 requires-python = ">=3.8"

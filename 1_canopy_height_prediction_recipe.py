@@ -110,7 +110,7 @@ class HeightModelingRecipe:
         else:
             self.logger.info("ℹ️  No processed ALS data found (optional for height prediction)")
         
-        # Check for model checkpoint - UPDATED PATH
+        # Check for model checkpoint 
         pretrained_models_dir = PRETRAINED_HEIGHT_MODELS_DIR
         if not pretrained_models_dir.exists():
             self.logger.error(f"Pretrained height models directory not found: {pretrained_models_dir}")

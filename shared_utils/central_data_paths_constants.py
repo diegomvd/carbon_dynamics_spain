@@ -26,12 +26,14 @@ RESULTS_DIR = DATA_ROOT / "results"
 FOREST_INVENTORY_RAW_DIR = RAW_DIR / "forest_inventory"
 NFI4_DATABASE_DIR = FOREST_INVENTORY_RAW_DIR / "nfi4"
 NFI4_SPECIES_CODE_FILE = FOREST_INVENTORY_RAW_DIR / "nfi4_codes.csv"
+NFI4_FOREST_TYPES_CSV = FOREST_INVENTORY_RAW_DIR / "all_forest_types.csv"
 
 FOREST_INVENTORY_PROCESSED_DIR = PROCESSED_DIR / "forest_inventory"
 
 # Forest type data
 FOREST_TYPE_MAPS_DIR = RAW_DIR / "forest_type_maps"
 FOREST_TYPES_TIERS_FILE = FOREST_TYPE_MAPS_DIR / "Forest_Types_Tiers.csv"
+
 
 FOREST_TYPE_MASKS_DIR = PROCESSED_DIR / "forest_type_masks" / "100m" 
 
@@ -159,10 +161,6 @@ CLIMATE_BIOMASS_SHAP_OUTPUT_DIR = CLIMATE_BIOMASS_RESULTS_DIR / "shap_interpreta
 FIGURE_DIR = DATA_ROOT / 'figures' 
 FIGURE_MAIN_DIR = FIGURE_DIR / 'main'
 FIGURE_SI_DIR = FIGURE_DIR / 'si'
-
-
-FOREST_TYPE_CSV = ""
-FOREST_TYPE_CODES = ""
 
 def create_all_directories():
     """Create all necessary directories in the data structure."""

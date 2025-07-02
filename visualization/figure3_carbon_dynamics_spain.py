@@ -41,7 +41,7 @@ from visualization.utils import (
 from shared_utils.central_data_paths_constants import *
 
 # Set up logging
-logger = setup_logging('figure_01')
+logger = setup_logging('figure_03')
 
 def load_raster(
     file_path: Path, 
