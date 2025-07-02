@@ -11,6 +11,7 @@ output:
 
 # Analysis parameters
 analysis:
+  # target_years: [2017]
   target_years: [2017, 2018, 2019, 2020, 2021, 2022, 2023, 2024]
   pixel_area_ha: 1  # Each 100m x 100m pixel = 1 ha
   
@@ -28,8 +29,8 @@ monte_carlo:
 
 # File naming patterns
 file_patterns:
-  biomass_mean: '{biomass_type}_S2_mean_{year}_100m_{suffix}_merged.tif'
-  biomass_uncertainty: '{biomass_type}_S2_uncertainty_{year}_100m_{suffix}_merged.tif'
+  biomass_mean: '{biomass_type}_S2_mean_{year}_100m_merged.tif'
+  biomass_uncertainty: '{biomass_type}_S2_uncertainty_{year}_100m_merged.tif'
   biomass_types: ['TBD', 'AGBD', 'BGBD']
 
 # Height range settings

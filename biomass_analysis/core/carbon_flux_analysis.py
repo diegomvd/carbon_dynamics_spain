@@ -103,10 +103,10 @@ class CarbonFluxPipeline:
         """
         
         # Look for MC samples in output directory
-        mc_samples_dir = BIOMASS_MC_SAMPLES_DIR
+        mc_samples_dir = BIOMASS_COUNTRY_TIMESERIES_DIR
         
         # Find the most recent MC samples file
-        pattern = BIOMASS_MC_SAMPLES_DIR / "country_biomass_mc_samples_*.npz"
+        pattern = str(mc_samples_dir / "country_biomass_mc_samples_*.npz")
         mc_files = glob(pattern)
         
         if mc_files:
@@ -116,7 +116,7 @@ class CarbonFluxPipeline:
             self.logger.info(f"Found MC samples file: {latest_file}")
             return latest_file
         else:
-            self.logger.error(f"No MC samples files found in {BIOMASS_MC_SAMPLES_DIR}")
+            self.logger.error(f"No MC samples files found in {BIOMASS_COUNTRY_TIMESERIES_DIR}")
             return None
 
     def load_mc_samples(self, npz_file: str) -> Optional[Dict[str, np.ndarray]]:
@@ -172,21 +172,40 @@ class CarbonFluxPipeline:
         # Extract years and biomass types from keys
         entries = {}
         for key, samples in mc_samples.items():
-            # Parse key format: "biomass_type_year"
-            parts = key.split('_')
-            if len(parts) >= 2:
-                year = int(parts[-1])
-                biomass_type = '_'.join(parts[:-1])
+            self.logger.debug(f"Processing key: {key}")
+    
+            # Handle different key formats
+            if '_' in key:
+                # Format: "biomass_type_year" (e.g., "TBD_2017")
+                parts = key.split('_')
+                if len(parts) >= 2:
+                    year = int(parts[-1])
+                    biomass_type = '_'.join(parts[:-1])
+            else:
+                # Format: just year (e.g., "2017") - assume TBD
+                try:
+                    year = int(key)
+                    biomass_type = 'TBD'  # Default to TBD since samples are calculated for TBD
+                    self.logger.info(f"Key '{key}' interpreted as year {year} for biomass type TBD")
+                except ValueError:
+                    self.logger.warning(f"Could not parse key '{key}', skipping")
+                    continue
                 
                 if biomass_type not in entries:
                     entries[biomass_type] = {}
                 entries[biomass_type][year] = samples
         
+        # Log what we found
+        self.logger.info(f"Found biomass types: {list(entries.keys())}")
+        for biomass_type, years in entries.items():
+            self.logger.info(f"  {biomass_type}: years {sorted(years.keys())}")
+
         # Focus on TBD (Total Biomass Density) for flux calculations
         if 'TBD' not in entries:
             self.logger.error("No TBD (Total Biomass Density) samples found for flux calculation")
+            self.logger.error(f"Available biomass types: {list(entries.keys())}")
             return pd.DataFrame(), {}
-        
+
         tbd_samples = entries['TBD']
         years = sorted(tbd_samples.keys())
         

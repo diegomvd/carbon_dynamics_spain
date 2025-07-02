@@ -153,9 +153,8 @@ class BiomassAggregationPipeline:
         self.logger.info("Loading forest type mappings...")
                 
         # Load CSV files
-        # TODO: VERIFIY EXACTLY WHAT THESE FILES ARE
         forest_types_path = FOREST_TYPES_TIERS_FILE
-        forest_codes_path = FOREST_TYPE_CODES
+        forest_codes_path = FOREST_TYPE_MFE_CODE_TO_NAME_FILE
         
         forest_types = pd.read_csv(forest_types_path)
         forest_codes = pd.read_csv(forest_codes_path)
@@ -173,12 +172,12 @@ class BiomassAggregationPipeline:
         if 0 not in merged['code'].values:
             non_forest_row = pd.DataFrame({
                 'code': [0],
-                'name': ['Non forest'],
-                'ForestTypeMFE': ['Non forest'],
-                'Species': ['Non forest'],
-                'Genus': ['Non forest'],
-                'Family': ['Non forest'],
-                'Clade': ['Non forest']
+                'name': ['Low-density woodlands and agroforestry'],
+                'ForestTypeMFE': ['Low-density woodlands and agroforestry'],
+                'Species': ['Low-density woodlands and agroforestry'],
+                'Genus': ['Low-density woodlands and agroforestry'],
+                'Family': ['Low-density woodlands and agroforestry'],
+                'Clade': ['Low-density woodlands and agroforestry']
             })
             merged = pd.concat([merged, non_forest_row], ignore_index=True)
         
@@ -211,7 +210,9 @@ class BiomassAggregationPipeline:
         """
         mask_dir = FOREST_TYPE_MASKS_DIR
         
-        mask_files = glob(os.path.join(mask_dir, "forest_type_mask_100m_code*.tif"))
+        # TODO: forest type masks should have a more general naming pattern non-height specific and 
+        # year repetitions are unnecessary
+        mask_files = glob(os.path.join(mask_dir, "canopy_height_2017_100m_code*.tif"))
         
         if not mask_files:
             self.logger.error(f"No forest type mask files found in {mask_dir}")
@@ -235,9 +236,9 @@ class BiomassAggregationPipeline:
         self.logger.info(f"Processing biomass for year {year}...")
         
         # Build biomass file path
-        biomass_dir = BIOMASS_MAPS_FULL_COUNTRY_DIR / "mean" 
-        biomass_file = os.path.join(biomass_dir, f"TBD_S2_mean_{year}_100m_TBD_merged.tif")
-        
+        biomass_dir = BIOMASS_MAPS_FULL_COUNTRY_DIR / "TBD_mean" 
+        biomass_file = biomass_dir / f"TBD_S2_mean_{year}_100m_merged.tif"        
+       
         if not os.path.exists(biomass_file):
             self.logger.error(f"Biomass file not found for year {year}: {biomass_file}")
             return None
@@ -306,6 +307,7 @@ class BiomassAggregationPipeline:
             
             # Convert to DataFrame
             if results:
+                self.logger.info(f"Processed {len(results)} forest types for year {year}")
                 return pd.DataFrame(results)
             else:
                 self.logger.warning(f"No forest type results for year {year}")
@@ -350,7 +352,7 @@ class BiomassAggregationPipeline:
         Returns:
             List of result dictionaries
         """
-        biomass_dir = BIOMASS_MAPS_FULL_COUNTRY_DIR / "mean" 
+        biomass_dir = BIOMASS_MAPS_FULL_COUNTRY_DIR / "TBD_mean" 
         corine_raster_path = CORINE_LAND_COVER_FILE
         
         # Get landcover groups from config
@@ -377,7 +379,7 @@ class BiomassAggregationPipeline:
                 self.logger.info(f"Processing year: {year}")
                 
                 # Load biomass data
-                biomass_file = f"TBD_S2_mean_{year}_100m_TBD_merged.tif"
+                biomass_file = f"TBD_S2_mean_{year}_100m_merged.tif"
                 biomass_path = os.path.join(biomass_dir, biomass_file)
                 
                 if not os.path.exists(biomass_path):
@@ -399,7 +401,7 @@ class BiomassAggregationPipeline:
                         self.logger.info(f"Reprojecting Corine data from {corine_src.crs} to {biomass_src.crs}")
                         
                         # Reproject Corine to match biomass CRS and shape
-                        corine_resized = np.zeros(biomass_data.shape, dtype=corine_src.dtypes[0])
+                        corine_resized = np.zeros(biomass_data.shape, dtype=np.uint8)
                         
                         reproject(
                             source=rasterio.band(corine_src, 1),
@@ -460,7 +462,7 @@ class BiomassAggregationPipeline:
                         'biomass': total_biomass
                     })
                     
-                    self.logger.info(f"    Landcover group {group_name}: {total_biomass:.2f} tonnes")
+                    self.logger.info(f"Landcover group {group_name}: {total_biomass:.2f} tonnes")
         
         return results
 
@@ -476,7 +478,7 @@ class BiomassAggregationPipeline:
             bool: True if masks were created successfully, False otherwise
         """
         height_dir = HEIGHT_MAPS_100M_DIR
-        mask_dir = HEIGHT_MASK_BINS_DIR
+        mask_dir = HEIGHT_MAPS_BIN_MASKS_DIR
         
         # Get height ranges from config
         height_bins = self.config['height_ranges']['bins']
@@ -548,7 +550,7 @@ class BiomassAggregationPipeline:
         Returns:
             List of result dictionaries
         """
-        biomass_dir = BIOMASS_MAPS_FULL_COUNTRY_DIR
+        biomass_dir = BIOMASS_MAPS_FULL_COUNTRY_DIR / "TBD_mean"
         mask_dir = HEIGHT_MAPS_BIN_MASKS_DIR
         height_labels = self.config['height_ranges']['labels']
         pixel_area_ha = self.config['analysis']['pixel_area_ha']
@@ -560,7 +562,7 @@ class BiomassAggregationPipeline:
             self.logger.info(f"Processing biomass by height ranges for year {year}")
             
             # Load biomass data
-            biomass_file = f"TBD_S2_mean_{year}_100m_TBD_merged.tif"
+            biomass_file = f"TBD_S2_mean_{year}_100m_merged.tif"
             biomass_path = os.path.join(biomass_dir, biomass_file)
             
             if not os.path.exists(biomass_path):
@@ -771,6 +773,8 @@ class BiomassAggregationPipeline:
             genus_df = results_data['genus']
             clade_df = results_data['clade']
             
+            print(forest_type_df)
+
             # Save forest type level results
             forest_type_file = BIOMASS_PER_FOREST_TYPE_FILE
             forest_type_df.to_csv(forest_type_file, index=False)
@@ -793,16 +797,11 @@ class BiomassAggregationPipeline:
             output_dir = BIOMASS_PER_LAND_COVER_DIR
             os.makedirs(output_dir, exist_ok=True)
 
-            results = results_data['results']
+            results = results_data['landcover']
             output_csv = BIOMASS_PER_LAND_COVER_FILE
             
             # Write results to CSV
-            with open(output_csv, 'w', newline='') as csvfile:
-                if results:
-                    fieldnames = ['landcover_group', 'year', 'biomass']
-                    writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
-                    writer.writeheader()
-                    writer.writerows(results)
+            results.to_csv(output_csv, index= False)
             
             self.logger.info(f"Results saved to: {output_csv}")
             return output_csv
@@ -812,16 +811,10 @@ class BiomassAggregationPipeline:
             output_dir = BIOMASS_PER_HEIGHT_BIN_DIR
             os.makedirs(output_dir, exist_ok=True)
 
-            results = results_data['results']
+            results = results_data['height_bin']
             output_csv = BIOMASS_PER_HEIGHT_BIN_FILE
             
-            # Write results to CSV
-            with open(output_csv, 'w', newline='') as csvfile:
-                if results:
-                    fieldnames = ['height_bin', 'year', 'biomass']
-                    writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
-                    writer.writeheader()
-                    writer.writerows(results)
+            results.to_csv(output_csv, index= False)
             
             self.logger.info(f"Results saved to: {output_csv}")
             return output_csv

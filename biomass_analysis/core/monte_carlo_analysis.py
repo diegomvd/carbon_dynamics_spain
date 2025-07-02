@@ -78,21 +78,23 @@ class MonteCarloAggregationPipeline:
         
         Returns:
             Complete file path
+
+        Examples:
+            >>> build_file_path('TBD', '2020', 'mean')<
+            'data/processed/biomass_maps/merged/TBD_mean/TBD_S2_mean_2020_100m_merged.tif'
         """
         biomass_maps_dir = BIOMASS_MAPS_FULL_COUNTRY_DIR 
         
-        if file_type == 'mean':
-            pattern = self.config['file_patterns']['biomass_mean']
-        else:
-            pattern = self.config['file_patterns']['biomass_uncertainty']
+        # Directory is now TYPE_measure (e.g., "TBD_mean", "AGBD_uncertainty")
+        type_measure_dir = f"{biomass_type}_{file_type}"
         
-        filename = pattern.format(
-            biomass_type=biomass_type,
-            year=year,
-            suffix=biomass_type
-        )
+        # NEW filename pattern: TYPE_S2_measure_YEAR_100m_merged.tif
+        filename = f"{biomass_type}_S2_{file_type}_{year}_100m_merged.tif"
         
-        return os.path.join(base_dir, biomass_maps_dir, file_type, filename)
+        # Construct full path
+        full_path = biomass_maps_dir / type_measure_dir / filename
+        
+        return str(full_path)
 
     def load_raster(self, file_path: str, bounds_path: Optional[str] = None) -> Tuple[Optional[np.ndarray], Optional[Any], Optional[Any], Optional[Any]]:
         """
@@ -464,7 +466,7 @@ class MonteCarloAggregationPipeline:
         # Save Monte Carlo samples if requested
         samples_file = None
         if self.config['output']['save_monte_carlo_samples'] and year_samples:
-            output_dir = BIOMASS_MC_SAMPLES_DIR
+            output_dir = BIOMASS_COUNTRY_TIMESERIES_DIR
             os.makedirs(output_dir, exist_ok=True)
             
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")

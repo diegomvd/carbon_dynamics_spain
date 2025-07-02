@@ -21,6 +21,7 @@ import gc
 
 # Shared utilities
 from shared_utils import setup_logging, get_logger, load_config
+from shared_utils.central_data_paths_constants import *
 
 
 class InterannualChangePipeline:
@@ -75,7 +76,7 @@ class InterannualChangePipeline:
             dict: Dictionary with years as keys and file paths as values
         """
         # Find all raster files matching the pattern
-        raster_pattern = os.path.join(input_dir, "TBD_S2_mean_*_100m_TBD_merged.tif")
+        raster_pattern = os.path.join(input_dir, "TBD_S2_mean_*_100m_merged.tif")
         raster_files = glob(raster_pattern)
         
         if not raster_files:
@@ -83,7 +84,7 @@ class InterannualChangePipeline:
             return {}
         
         # Extract years from filenames
-        year_pattern = re.compile(r"TBD_S2_mean_(\d{4})_100m_TBD_merged\.tif")
+        year_pattern = re.compile(r"TBD_S2_mean_(\d{4})_100m_merged\.tif")
         year_files = {}
         
         for file in raster_files:
@@ -288,7 +289,7 @@ class InterannualChangePipeline:
         # Calculate differences
         raw_diff = y2_valid - y1_valid
         
-        carbon_changes = raw_diff * biomass_to_carbon * pixel_area_ha / 1e6 
+        carbon_changes = raw_diff * self.config['interannual']['carbon_fluxes']['biomass_to_carbon'] * self.config['analysis']['pixel_area_ha'] / 1e6 
 
         # Calculate relative differences (avoiding division by zero)
         denominator = y1_valid + y2_valid
@@ -398,20 +399,31 @@ class InterannualChangePipeline:
         # Calculate differences
         raw_diff = y2_valid - y1_valid
         
-        # Create DataFrame
-        df = pd.DataFrame({
-            'biomass_y1': y1_valid,
-            'biomass_y2': y2_valid,
-            'raw_diff': raw_diff
-        })
+        # Create metadata dictionary
+        metadata = {
+            'year1': year1,
+            'year2': year2,
+            'n_valid_pixels': len(y1_valid),
+            'data_shape': year1_data.shape,
+            'timestamp': datetime.now().isoformat()
+        }
         
         # Save to output directory
         output_dir = BIOMASS_TRANSITIONS_DIR
         os.makedirs(output_dir, exist_ok=True)
         
-        output_file = os.path.join(output_dir, f"raw_transition_data_{year1}_{year2}.csv")
-        df.to_csv(output_file, index=False)
-        self.logger.info(f"  Saved raw transition data: {output_file}")
+        output_file = os.path.join(output_dir, f"raw_transition_data_{year1}_{year2}.npz")
+        
+        # Save as compressed NPZ with spatial coordinates
+        np.savez_compressed(
+            output_file,
+            biomass_y1=y1_valid.astype(np.float32),
+            biomass_y2=y2_valid.astype(np.float32), 
+            raw_diff=raw_diff.astype(np.float32),
+            metadata=np.array([metadata], dtype=object)  # Store metadata as object array
+        )
+        
+        self.logger.info(f"  Saved raw transition data: {output_file} ({len(y1_valid):,} pixels)")
 
     def calculate_transition_distributions(self, data_dir: str, target_years: Optional[List[int]] = None, save_raw_data: bool = False) -> bool:
         """
@@ -484,7 +496,7 @@ class InterannualChangePipeline:
                 self.logger.error('Could not analyze interannual transitions, no results were produced.')
                 return False
             else:
-                transition_stats_path = self.save_transition_statistics(transitions)
+                transition_stats_path = self.save_transition_statistics(results)
                 self.logger.info(f'Transition statistisc saved to {transition_stats_path}')
 
         return True
@@ -505,7 +517,7 @@ class InterannualChangePipeline:
         target_years = self.config['analysis']['target_years']
         
         # Get input and output directories from config
-        input_dir = BIOMASS_MAPS_FULL_COUNTRY_DIR / "mean"
+        input_dir = BIOMASS_MAPS_FULL_COUNTRY_DIR / "TBD_mean"
         output_raw_dir = BIOMASS_CHANGE_MAPS_DIFF_DIR
         output_relative_dir = BIOMASS_CHANGE_MAPS_REL_DIFF_DIR
         
@@ -514,7 +526,7 @@ class InterannualChangePipeline:
         self.logger.info(f"Relative output directory: {output_relative_dir}")
         
         # Find biomass files
-        year_files = self.find_biomass_files(input_dir)
+        year_files = self.find_biomass_files(str(input_dir))
         
         if len(year_files) < 2:
             self.logger.error("Need at least 2 years of biomass data")
@@ -542,7 +554,7 @@ class InterannualChangePipeline:
         target_years = self.config['analysis']['target_years']
 
         # Get input directory from config
-        input_dir = BIOMASS_MAPS_FULL_COUNTRY_DIR / "mean"
+        input_dir = BIOMASS_MAPS_FULL_COUNTRY_DIR / "TBD_mean"
         
         self.logger.info(f"Input directory: {input_dir}")
         
