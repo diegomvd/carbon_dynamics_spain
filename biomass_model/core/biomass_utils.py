@@ -16,9 +16,11 @@ from typing import List, Dict, Optional, Tuple, Any, Union
 import numpy as np
 import rasterio
 import xarray as xr
+import rioxarray as rxr
 import dask.array as da
 from rasterio.windows import Window
 from rasterio.enums import Resampling
+import pandas as pd
 
 # Shared utilities
 from shared_utils import get_logger, find_files # validate_file_exists
@@ -50,14 +52,13 @@ class BiomassUtils:
         self.logger.info("RasterManager initialized")
     
 
-    def read_height_and_mask_xarray(height_file, mask_file):
+    def read_height_and_mask_xarray(self, height_file, mask_file):
         """
         Read height and mask rasters into xarray with dask chunking.
         
         Args:
             height_file (str): Path to height raster
             mask_file (str): Path to forest type mask
-            chunk_size (int): Size for dask chunks
             
         Returns:
             tuple: (height_xr, mask_xr, out_meta) where:
@@ -82,7 +83,8 @@ class BiomassUtils:
             height_xr = rxr.open_rasterio(height_file, chunks={'x': chunk_size, 'y': chunk_size})
             mask_xr = rxr.open_rasterio(mask_file, chunks={'x': chunk_size, 'y': chunk_size})
         except Exception as e:
-            logger.error(f"Error reading raster files: {e}")
+            print('here')
+            self.logger.error(f"Error reading raster files: {e}")
             raise
         
         # Verify CRS match
@@ -107,7 +109,7 @@ class BiomassUtils:
         
         return height_xr, mask_xr, out_meta
 
-    def write_xarray_results(results, height_file, code, forest_type_name, mask_data, output_meta):
+    def write_xarray_results(self, results, height_file, code, forest_type_name, mask_data, output_meta):
         """
         Write xarray Monte Carlo results using rioxarray with optimized GeoTIFF settings.
         
@@ -188,7 +190,7 @@ class BiomassUtils:
             logger.error(traceback.format_exc())
             return False
 
-    def build_savepath(fname, output_type, kind, code):
+    def build_savepath(self, fname, output_type, kind, code):
         """
         Build output file path based on input filename, output type and statistical measure.
         
@@ -223,7 +225,7 @@ class BiomassUtils:
         return os.path.join(output_dir, filename)
 
 
-    def extract_tile_info(filepath):
+    def extract_tile_info(self, filepath):
         """
         Extract year and pattern information from a canopy height filename.
         TODO: 100m resolution hardcoded in filename pattern, this does not allow flexibility to make bioass estimation at 10m resolution.    
@@ -252,7 +254,7 @@ class BiomassUtils:
         logger.error(f"Failed to extract tile info from: {stem}")
         return None
 
-    def find_masks_for_tile(tile_info, masks_dir):
+    def find_masks_for_tile(self, tile_info, masks_dir):
         """
         Find all mask files for a given tile.
         
@@ -296,7 +298,7 @@ class BiomassUtils:
         return results
 
 
-    def build_forest_type_mapping(mfe_dir, cache_path=None, use_cache=True):
+    def build_forest_type_mapping(self, mfe_dir, cache_path=None, use_cache=True):
         """
         Build forest type code-to-name mapping from MFE data.
         
@@ -313,9 +315,10 @@ class BiomassUtils:
         # Try to load from cache first
         if use_cache and cache_path and Path(cache_path).exists():
             try:
-                import pickle
-                with open(cache_path, 'rb') as f:
-                    mapping = pickle.load(f)
+                mapping = pd.read_csv(cache_path)
+                # import pickle
+                # with open(cache_path, 'rb') as f:
+                #     mapping = pickle.load(f)
                 logger.info(f"Loaded forest type mapping from cache: {len(mapping)} entries")
                 return mapping
             except Exception as e:

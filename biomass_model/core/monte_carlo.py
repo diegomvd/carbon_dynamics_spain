@@ -71,7 +71,7 @@ class MonteCarloEstimator:
                 - bgbd_mean, bgbd_uncertainty: Below-ground biomass  
                 - total_mean, total_uncertainty: Total biomass
         """
-        self.logger.info(f"Starting vectorized Monte Carlo simulation with {num_samples} samples")
+        self.logger.info(f"Starting vectorized Monte Carlo simulation with {self.num_samples} samples")
         
         num_samples = self.num_samples
         seed = self.random_seed

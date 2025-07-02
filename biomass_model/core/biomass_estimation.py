@@ -56,7 +56,7 @@ class BiomassEstimationPipeline:
             config: Configuration dictionary (processing parameters only)
         """
         # Store configuration and data paths
-        self.config = load_config(config_path, component='biomass_model')
+        self.config = load_config(config_path, component_name='biomass_model')
         
         # Setup logging
         self.logger = setup_logging(
@@ -71,7 +71,7 @@ class BiomassEstimationPipeline:
         self.dask_manager = DaskClusterManager(self.config)
 
         # TODO: fix config to accept this
-        self.target_resolution = config['processing']['target_resolution']
+        self.target_resolution = self.config['processing']['target_resolution']
         
         # Pipeline state
         self.client = None
@@ -80,7 +80,7 @@ class BiomassEstimationPipeline:
         self.logger.info(f"Initialized BiomassEstimationPipeline")
 
 
-    def process_forest_type(height_file, mask_file, code, forest_type_name):
+    def process_forest_type(self, height_file, mask_file, code, forest_type_name):
         """
         Process a single forest type with current components for biomass estimation.
         
@@ -93,7 +93,7 @@ class BiomassEstimationPipeline:
         Returns:
             bool: True if processing succeeded, False otherwise
         """
-        logger = get_logger('biomass_estimation')
+        logger = self.logger
         
         try:
             logger.info(f"Processing forest type: {forest_type_name} (code: {code})")
@@ -101,7 +101,7 @@ class BiomassEstimationPipeline:
             # Get allometry parameters using current AllometryManager
             try:
                 agb_params, bgb_params = self.allometry_manager.get_allometry_parameters(
-                    forest_type_name, code
+                    forest_type_name
                 )
             except Exception as e:
                 logger.error(f"Failed to get allometry parameters for {forest_type_name}: {e}")
@@ -110,7 +110,6 @@ class BiomassEstimationPipeline:
             try:
                 height_data, mask_data, metadata = self.biomass_utils.read_height_and_mask_xarray(
                     height_file, mask_file, 
-                    chunk_size=self.config.get('compute', {}).get('chunk_size', 750)
                 )
             except Exception as e:
                 logger.error(f"Failed to load raster data: {e}")
@@ -152,7 +151,7 @@ class BiomassEstimationPipeline:
             return False
 
 
-    def process_tile(height_file, forest_types_table, code_to_name):
+    def process_tile(self, height_file, forest_types_table, code_to_name):
         """
         Process a single tile with all associated forest types.
         
@@ -190,12 +189,11 @@ class BiomassEstimationPipeline:
         
         # Process each forest type independently
         results = []
-        
         for mask_path, code in tqdm(masks, desc=f"Processing forest types for {tile_name}"):
-            forest_type = code_to_name.get(code, f"Unknown_{code}")
+            forest_type = code_to_name.get(int(code), f"Unknown_{code}")
             
             # Process this specific forest type
-            success = process_forest_type(
+            success = self.process_forest_type(
                 height_file, mask_path, code, forest_type
             )
             
@@ -211,7 +209,7 @@ class BiomassEstimationPipeline:
         return success_count > 0
 
 
-    def run_full_pipeline() -> bool:
+    def run_full_pipeline(self) -> bool:
         """
         Main orchestration function to process all tiles using tile-based approach.
         
@@ -230,38 +228,40 @@ class BiomassEstimationPipeline:
             # Load forest type hierarchy using current path structure
             forest_types = pd.read_csv(FOREST_TYPES_TIERS_FILE)
             forest_types['Dummy'] = 'General'  # Add dummy tier for hierarchy traversal
-            logger.info(f"Loaded forest types hierarchy with {len(forest_types)} entries")
+            self.logger.info(f"Loaded forest types hierarchy with {len(forest_types)} entries")
             
             # Build forest type code-to-name mapping using current paths
             code_to_name = self.biomass_utils.build_forest_type_mapping(
                 FOREST_TYPE_MAPS_DIR,
-                cache_path=CACHE_PAT, # TODO: add this path!
+                cache_path=FOREST_TYPE_MFE_CODE_TO_NAME_FILE, 
                 use_cache=config.get('forest_types', {}).get('use_cache', True)
             )
-            logger.info(f"Built forest type mapping with {len(code_to_name)} entries")
+          
+            code_to_name = dict(zip(code_to_name.code, code_to_name.name))
+            self.logger.info(f"Built forest type mapping with {len(code_to_name)} entries")
             
         except Exception as e:
-            logger.error(f"Failed to load reference data: {str(e)}")
+            self.logger.error(f"Failed to load reference data: {str(e)}")
             import traceback
-            logger.error(traceback.format_exc())
+            self.logger.error(traceback.format_exc())
             return False
         
         # Discover input files using current path structure
         if self.target_resolution == 100:
-            input_dir = HEIGHT_MAPS_100M_DIR  # Use current path constants
+            input_dir = HEIGHT_MAPS_100M_DIR   # Use current path constants
         elif self.target_resolution == 10:
-            input_dir = HEIGHT_MAPS_10M_DIR
+            input_dir = HEIGHT_MAPS_10M_DIR 
         else: 
             self.logger.error(f'Height maps at {self.target_resolution}m are not available. Ending execution.')
             return False
 
         file_pattern = self.config.get('processing', {}).get('file_pattern', '*.tif')
-        logger.info(f"Looking for canopy height files in {input_dir}")
+        self.logger.info(f"Looking for canopy height files in {input_dir}")
         
         try:
-            files = list(Path(input_dir).glob(file_pattern))
+            files = list(Path(input_dir).rglob(file_pattern))
         except Exception as e:
-            logger.error(f"Failed to list input files: {str(e)}")
+            self.logger.error(f"Failed to list input files: {str(e)}")
             return False
             
         # Randomize processing order for better load balancing
@@ -292,7 +292,7 @@ class BiomassEstimationPipeline:
             
             try:
                 # Process this individual tile using current components
-                success = process_tile(
+                success = self.process_tile(
                     fname, 
                     forest_types,
                     code_to_name,
@@ -305,9 +305,9 @@ class BiomassEstimationPipeline:
                     failed_tiles += 1
                     
             except Exception as e:
-                logger.error(f"Failed to process tile {fname}: {str(e)}")
+                self.logger.error(f"Failed to process tile {fname}: {str(e)}")
                 import traceback
-                logger.error(traceback.format_exc())
+                self.logger.error(traceback.format_exc())
                 failed_tiles += 1
             
             # Calculate and log progress statistics

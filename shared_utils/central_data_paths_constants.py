@@ -35,6 +35,8 @@ FOREST_TYPES_TIERS_FILE = FOREST_TYPE_MAPS_DIR / "Forest_Types_Tiers.csv"
 
 FOREST_TYPE_MASKS_DIR = PROCESSED_DIR / "forest_type_masks" / "100m" 
 
+FOREST_TYPE_MFE_CODE_TO_NAME_FILE = FOREST_TYPE_MAPS_DIR / "forest_type_cache.csv"
+
 # Wood density database
 WOOD_DENSITY_DIR = RAW_DIR / "wood_density"
 WOOD_DENSITY_FILE = WOOD_DENSITY_DIR / "GlobalWoodDensityDatabase.xls"
