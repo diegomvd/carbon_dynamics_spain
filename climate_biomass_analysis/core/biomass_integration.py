@@ -62,11 +62,11 @@ class BiomassIntegrationPipeline:
         self.logger.info("Starting biomass-climate integration pipeline...")
         
         # Extract config parameters
-        biomass_diff_dir = BIOMASS_MAPS_RELDIFF_DIR
+        biomass_diff_dir = BIOMASS_CHANGE_MAPS_REL_DIFF_DIR
         anomaly_dir = BIOCLIM_ANOMALIES_DIR
         output_dir = CLIMATE_BIOMASS_TEMP_RESAMPLED_DIR 
         training_dataset_path = CLIMATE_BIOMASS_DATASET_FILE
-        biomass_pattern = self.integration_config.get('pattern', "*_rel_change_*.tif")
+        biomass_pattern = self.integration_config.get('pattern', "*_relative_change_*.tif")
         
         # Get reference raster from first available anomaly file
         first_anomaly_dir = None
@@ -265,25 +265,14 @@ class BiomassIntegrationPipeline:
                 
                 # Look for a part containing YYYY-YYYY pattern
                 for part in parts:
-                    if '-' in part and len(part) == 9:  # YYYY-YYYY is 9 characters
+                    if '-' in part and len(part) == 15:  # YYYY-YYYY is 9 characters
                         try:
                             year_parts = part.split('-')
-                            if (len(year_parts) == 2 and 
-                                len(year_parts[0]) == 4 and year_parts[0].isdigit() and
-                                len(year_parts[1]) == 4 and year_parts[1].isdigit()):
-                                years_str = part
-                                break
+                            start_year = int(year_parts[0][:4])
+                            end_year = int(year_parts[1][:4])
                         except:
                             continue
                 
-                if years_str is None:
-                    self.logger.warning(f"Could not parse years from filename: {basename}")
-                    continue
-                    
-                start_year, end_year = years_str.split('-')
-                start_year = int(start_year)
-                end_year = int(end_year)
-            
             except Exception as e:
                 self.logger.error(f"Error parsing filename {basename}: {e}")
                 continue

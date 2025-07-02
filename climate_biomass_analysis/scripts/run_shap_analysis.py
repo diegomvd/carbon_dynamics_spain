@@ -21,7 +21,6 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 from climate_biomass_analysis.core.shap_analysis import ShapAnalysisPipeline
 from shared_utils import setup_logging
-from shared_utils.central_data_paths_constants import *
 
 
 def parse_arguments():

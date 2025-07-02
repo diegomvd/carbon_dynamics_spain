@@ -1,11 +1,5 @@
 """
-FIXED: Optimization pipeline with restored feature selection logic.
-
-Key fixes:
-1. Restored original feature selection algorithm from old implementation
-2. Fixed standardization logic (always standardize, avoid zero division)
-3. Maintained spatial cross-validation approach
-4. Restored complex objective function with feature sampling
+Optimization pipeline with restored feature selection logic.
 
 Author: Diego Bengochea
 """
@@ -25,6 +19,7 @@ from typing import Dict, List, Optional, Union, Tuple, Any
 
 # Shared utilities
 from shared_utils import setup_logging, get_logger, load_config, ensure_directory
+from shared_utils.central_data_paths_constants import *
 
 
 class CustomEarlyStopping:
@@ -102,7 +97,7 @@ class OptimizationPipeline:
         self.cv_config = self.opt_config['cv_strategy']
         self.early_stopping_config = self.opt_config.get('early_stopping', {'patience': 40, 'min_trials': 100})
         
-        self.max_features = self.opt_config.get('max_features', 15)  # Default to 15 like in old implementation
+        self.max_features = self.opt_config.get('max_features', 10)  # Default to 15 like in old implementation
         
         self.logger.info("Initialized OptimizationPipeline")
     
@@ -131,16 +126,20 @@ class OptimizationPipeline:
         # Ensure we have enough seeds
         while len(random_seeds) < n_runs:
             random_seeds.append(random_seeds[-1] + 1000)
-        
-        all_results = []
-        
+
+        # Save detailed results
+        output_dir = CLIMATE_BIOMASS_MODELS_DIR
+        ensure_directory(output_dir)
+
         for run_id in range(n_runs):
             try:
                 run_results = self.run_single_optimization(
                     df_processed, predictor_cols, target_col, run_id, random_seeds[run_id]
                 )
-                all_results.append(run_results)
-                
+                output_file = output_dir / f'run_{run_id + 1}_model.pkl'
+                with open(output_file, 'wb') as f:
+                    pickle.dump(run_results, f)  
+               
             except Exception as e:
                 self.logger.error(f"Error in optimization run {run_id + 1}: {e}")
                 continue
@@ -148,30 +147,8 @@ class OptimizationPipeline:
         if not all_results:
             self.logger.error("All optimization runs failed")
             return False
-        
-        # Analyze results
-        self.logger.info("Analyzing optimization results...")
-        summary = self.analyze_optimization_results(all_results)
-        
-        # Save detailed results
-        output_dir = CLIMATE_BIOMASS_MODELS_DIR
-        ensure_directory(output_dir)
-        
-        # Save individual run results
-        with open(output_dir / "individual_run_results.pkl", 'wb') as f:
-            pickle.dump(all_results, f)
-        
-        # Save summary
-        with open(output_dir / "optimization_summary.pkl", 'wb') as f:
-            pickle.dump(summary, f)
-        
-        # Log summary statistics
+               
         self.logger.info(f"Optimization completed successfully!")
-        self.logger.info(f"Validation R² - Mean: {summary['validation_r2']['mean']:.4f} "
-                        f"± {summary['validation_r2']['std']:.4f}")
-        self.logger.info(f"Test R² - Mean: {summary['test_r2']['mean']:.4f} "
-                        f"± {summary['test_r2']['std']:.4f}")
-        self.logger.info(f"Top features: {', '.join(summary['feature_analysis']['top_features'][:5])}")
         
         return True
 
@@ -213,7 +190,6 @@ class OptimizationPipeline:
         target_col = 'biomass_rel_change'
         predictor_cols = [col for col in analysis_cols if col != target_col]
         
-        # FIXED: Always standardize all variables (like old implementation)
         # But add zero-division protection
         df_std = df.copy()
         for col in analysis_cols:
@@ -295,7 +271,6 @@ class OptimizationPipeline:
         Returns:
             Validation R² score
         """
-        # FIXED: Restore feature selection logic
         # Let the model decide how many features to use (1 to max_features)
         n_features = trial.suggest_int('n_features', 1, self.max_features)
         

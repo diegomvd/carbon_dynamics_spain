@@ -25,6 +25,7 @@ import pickle
 
 # Shared utilities
 from shared_utils import setup_logging, get_logger, load_config, ensure_directory
+from shared_utils.central_data_paths_constants import *
 
 warnings.filterwarnings('ignore')
 
@@ -237,7 +238,7 @@ class SpatialAnalysisPipeline:
         )
         
         # Extract configuration
-        self.spatial_config = self.config['spatial_analysis']
+        self.spatial_config = self.config['spatial']
         
         # Initialize semivariogram calculator
         self.semivariogram = MemoryEfficientSemivariogram(
@@ -279,7 +280,7 @@ class SpatialAnalysisPipeline:
         total_time = time.time() - start_time
         
         # Step 3: Save results and create plots
-        output_dir = Path("autocorr_results")
+        output_dir = BIOMASS_CHANGE_AUTOCORRELATION_DIR
         summary_file, detailed_file = self.save_results(results, output_dir)
         self.plot_results(results, output_dir)
         
@@ -320,7 +321,7 @@ class SpatialAnalysisPipeline:
         self.logger.info(f"Loaded {len(df)} data points with columns: {', '.join(df.columns)}")
         
         # Create spatial clusters
-        k = self.spatial_config['clustering'].get('n_clusters_range', [10, 50])[0]  # Use minimum as default
+        k = self.spatial_config['max_clusters']
         autocorr_lengths_m = [r['autocorr_length_m'] for r in valid_results if not np.isnan(r['autocorr_length_m'])]
         
         df_clustered = self.create_spatial_clusters_advanced(df, k, autocorr_lengths_m)
@@ -719,7 +720,7 @@ class SpatialAnalysisPipeline:
         """
         import glob
         
-        base_dir = BIOMASS_MAPS_RELDIFF_DIR
+        base_dir = BIOMASS_CHANGE_MAPS_REL_DIFF_DIR
         
         # Look for relative difference files (they have more interesting spatial patterns)
         pattern = os.path.join(base_dir, "*_rel_change_*.tif")

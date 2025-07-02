@@ -7,7 +7,7 @@ calculation, biomass integration, spatial analysis, ML optimization, and
 SHAP analysis.
 
 Modules:
-    climate_raster_processing: GRIB to GeoTIFF conversion and harmonization
+    climate_raster_conversion: GRIB to GeoTIFF conversion and harmonization
     bioclim_calculation: Bioclimatic variables calculation and anomaly analysis
     biomass_integration: Integration of biomass changes with climate data
     spatial_analysis: Spatial autocorrelation analysis and clustering
@@ -17,18 +17,18 @@ Modules:
 Author: Diego Bengochea
 """
 
-from .climate_raster_processing import ClimateProcessor
-from .bioclim_calculation import BioclimCalculator
-from .biomass_integration import BiomassIntegrator
-from .spatial_analysis import SpatialAnalyzer
+from .climate_raster_conversion import ClimateRasterConversionPipeline
+from .bioclim_calculation import BioclimCalculationPipeline
+from .biomass_integration import BiomassIntegrationPipeline
+from .spatial_analysis import SpatialAnalysisPipeline
 from .optimization_pipeline import OptimizationPipeline
-from .shap_analysis import ShapAnalyzer
+from .shap_analysis import ShapAnalysisPipeline
 
 __all__ = [
-    "ClimateProcessor",
-    "BioclimCalculator",
-    "BiomassIntegrator", 
-    "SpatialAnalyzer",
+    "ClimateRasterConversionPipeline",
+    "BioclimCalculationPipeline",
+    "BiomassIntegrationPipeline", 
+    "SpatialAnalysisPipeline",
     "OptimizationPipeline",
-    "ShapAnalyzer"
+    "ShapAnalysisPipeline"
 ]

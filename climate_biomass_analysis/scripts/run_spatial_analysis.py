@@ -18,7 +18,7 @@ from pathlib import Path
 # Add parent directory to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
-from climate_biomass_analysis.core.spatial_analysis import SpatialAnalyzer
+from climate_biomass_analysis.core.spatial_analysis import SpatialAnalysisPipeline
 from shared_utils import setup_logging
 from shared_utils.central_data_paths_constants import *
 

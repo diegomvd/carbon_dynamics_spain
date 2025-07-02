@@ -21,7 +21,6 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 from climate_biomass_analysis.core.optimization_pipeline import OptimizationPipeline
 from shared_utils import setup_logging, ensure_directory
-from shared_utils.central_data_paths import *
 
 
 def parse_arguments():
@@ -46,7 +45,7 @@ def main():
     args = parse_arguments()
 
     optimization = OptimizationPipeline(args.config)
-    success = optimization.run_optimization_pipeline()
+    success = optimization.run_full_pipeline()
     return success 
 
 if __name__ == "__main__":

@@ -45,7 +45,7 @@ def main():
     """Main entry point for climate processing script."""
     args = parse_arguments()
     climate_processing = ClimateRasterConversionPipeline(args.config)
-    success = ClimateProcessingPipeline.run_full_pipeline()
+    success = climate_processing.run_full_pipeline()
     return success
 
 if __name__ == "__main__":

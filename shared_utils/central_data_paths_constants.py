@@ -140,6 +140,8 @@ BIOMASS_TRANSITIONS_DIR = RESULTS_DIR / "biomass_transitions"
 # Carbon changes stats
 CARBON_CHANGES_DIR = RESULTS_DIR / "carbon_changes"
 
+BIOMASS_CHANGE_AUTOCORRELATION_DIR = CARBON_CHANGES_DIR / "spatial_autocorrelation"
+
 # Climate biomass results
 CLIMATE_BIOMASS_DATA_DIR = PROCESSED_DIR / "climate_biomass"
 CLIMATE_BIOMASS_DATASET_FILE = CLIMATE_BIOMASS_DATA_DIR / "climate_biomass_ml_dataset.csv"

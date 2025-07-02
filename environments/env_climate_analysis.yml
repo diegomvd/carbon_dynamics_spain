@@ -23,6 +23,11 @@ dependencies:
   - eccodes
   - tqdm
   - pyyaml
+  - earthkit-data
+  - kneed
+  - optuna
+  - xgboost
+  - shap
   - scikit-learn
   - shapely
   - pyproj

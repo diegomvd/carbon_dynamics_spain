@@ -164,18 +164,18 @@ class ShapAnalysisPipeline:
             ensure_directory(output_dir)
             
             # Save feature frequencies
-            freq_df.to_csv(os.path.join(output_dir, 'feature_frequencies_df.csv'), index=False)
+            freq_df.to_csv(os.path.join(output_dir, 'feature_frequencies.csv'), index=False)
             
             # Save SHAP importance
-            with open(os.path.join(output_dir, 'avg_shap_importance.pkl'), 'wb') as f:
+            with open(os.path.join(output_dir, 'shap_importance.pkl'), 'wb') as f:
                 pickle.dump(avg_shap_importance, f)
             
             # Save permutation importance
-            with open(os.path.join(output_dir, 'avg_permutation_importance.pkl'), 'wb') as f:
+            with open(os.path.join(output_dir, 'permutation_importance.pkl'), 'wb') as f:
                 pickle.dump(avg_permutation_importance, f)
             
             # Save PDP data
-            with open(os.path.join(output_dir, 'pdp_data.pkl'), 'wb') as f:
+            with open(os.path.join(output_dir, 'shap_pdp_data.pkl'), 'wb') as f:
                 pickle.dump(pdp_data, f)
             
             # Save PDP LOWESS data
@@ -183,7 +183,7 @@ class ShapAnalysisPipeline:
                 pickle.dump(pdp_lowess_data, f)
             
             # Save interaction results
-            with open(os.path.join(output_dir, 'interaction_results.pkl'), 'wb') as f:
+            with open(os.path.join(output_dir, 'focused_shap_interactions.pkl'), 'wb') as f:
                 pickle.dump(interaction_results, f)
             
             # Create analysis summary
@@ -232,7 +232,7 @@ class ShapAnalysisPipeline:
             raise FileNotFoundError(f"Models directory not found: {models_dir}")
         
         models = {}
-        model_files = glob.glob(os.path.join(models_dir, '**', 'model_*.pkl'), recursive=True)
+        model_files = glob.glob(os.path.join(models_dir, '**', 'run_*.pkl'), recursive=True)
         
         if not model_files:
             raise FileNotFoundError(f"No model files found in {models_dir}")

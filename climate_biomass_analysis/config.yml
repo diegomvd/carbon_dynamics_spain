@@ -5,18 +5,36 @@
 time_periods:
   # Reference period for calculating climatology
   reference:
-    start_year: 1981
-    end_year: 2010
+    start_year: 1985
+    end_year: 2015
     rolling: true                             # Use Sep-Aug rolling years
     
   # Analysis period for anomaly calculation
   analysis:
-    start_year: 2017
-    end_year: 2024
-    rolling: true  
+    # start_year: 2017
+    # end_year: 2024
+    # rolling: true  
     start_year: 2015
     end_year: 2024
     rolling: true                            # Use Sep-Aug rolling years
+
+# Climate processing configuration  
+climate_processing:
+  # Variable patterns (restore original functionality)
+  variable_patterns:
+    temperature: "2t_*.tif"    # Temperature variable names
+    precipitation: "tp_*.tif"    # Precipitation variable names
+  
+  # File pattern for processed climate files
+  file_pattern: "{var}_{year}-{month}.tif"    # Pattern from your original script
+  
+  # Resampling method
+  resampling_method: "bilinear"
+  
+  # Data organization
+  temporal_ranges:
+    historical: [1983, 2013]                  # First GRIB file range
+    recent: [2014, 2024]                      # Second GRIB file range
 
 # Bioclimatic variables configuration
 bioclim:
@@ -38,6 +56,10 @@ spatial:
   max_lag_distance: 300000                    # Maximum lag distance in meters
   n_lags: 50                                  # Number of lag bins
   
+  max_points_per_bin: 1000
+  n_reference_points: 100000
+  n_distance_bins: 20
+
   # Autocorrelation analysis
   sill_threshold: 0.95                        # Threshold for 95% of sill
   knee_sensitivity: 1.0                       # Sensitivity for knee detection
@@ -45,7 +67,8 @@ spatial:
   # Clustering configuration
   autocorr_factor: 1.5                        # Factor to multiply autocorr range
   elbow_sensitivity: 1.0                      # Sensitivity for elbow detection
-  max_clusters: 50                            # Maximum number of clusters to test
+  max_clusters: 15                            # Maximum number of clusters to test
+  sample_fraction: 0.1
 
 # Machine learning optimization configuration
 optimization:
@@ -68,13 +91,14 @@ optimization:
     
   # Model hyperparameters
   hyperparameters:
-    n_estimators: [50, 500]                   # Range for number of estimators
-    max_depth: [3, 12]                        # Range for maximum depth
-    subsample: [0.8, 1.0]                     # Range for subsample ratio
-    colsample_bytree: [0.8, 1.0]              # Range for feature sampling
+    n_estimators: [50, 300]                   # Range for number of estimators
+    max_depth: [3, 8]                        # Range for maximum depth
+    subsample: [0.6, 1.0]                     # Range for subsample ratio
+    colsample_bytree: [0.6, 1.0]              # Range for feature sampling
     learning_rate: [0.01, 0.3]                # Range for learning rate
-    reg_alpha: [0, 10]                        # Range for L1 regularization
-    reg_lambda: [1, 100]                      # Range for L2 regularization
+    reg_alpha: [0, 0.5]                        # Range for L1 regularization
+    reg_lambda: [0, 0.5]                      # Range for L2 regularization
+    min_child_weight: [1, 10]
     
   # Early stopping
   early_stopping:
@@ -82,7 +106,7 @@ optimization:
     min_trials: 100                           # Minimum trials before stopping
     
   # Feature selection constraints
-  max_features: 15                            # Maximum number of features to select
+  max_features: 10                            # Maximum number of features to select
 
 # SHAP Analysis configuration
 shap_analysis:

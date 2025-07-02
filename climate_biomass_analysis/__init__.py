@@ -29,21 +29,21 @@ Components:
 Author: Diego Bengochea
 """
 
-from .core.climate_raster_processing import ClimateProcessor
-from .core.bioclim_calculation import BioclimCalculator
-from .core.biomass_integration import BiomassIntegrator
-from .core.spatial_analysis import SpatialAnalyzer
+from .core.climate_raster_conversion import ClimateRasterConversionPipeline
+from .core.bioclim_calculation import BioclimCalculationPipeline
+from .core.biomass_integration import BiomassIntegrationPipeline
+from .core.spatial_analysis import SpatialAnalysisPipeline
 from .core.optimization_pipeline import OptimizationPipeline
-from .core.shap_analysis import ShapAnalyzer
+from .core.shap_analysis import ShapAnalysisPipeline
 
 __version__ = "1.1.0"
 __component__ = "climate_biomass_analysis"
 
 __all__ = [
-    "ClimateProcessor",
-    "BioclimCalculator", 
-    "BiomassIntegrator",
-    "SpatialAnalyzer",
+    "ClimateRasterConversionPipeline",
+    "BioclimCalculationPipeline",
+    "BiomassIntegrationPipeline", 
+    "SpatialAnalysisPipeline",
     "OptimizationPipeline",
-    "ShapAnalyzer"
+    "ShapAnalysisPipeline"
 ]
