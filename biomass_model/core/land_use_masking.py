@@ -75,8 +75,8 @@ class LandUseMaskingPipeline:
         Process a directory of biomass rasters with annual cropland masking.
         """
 
-        input_dir = BIOMASS_MAPS_RAW_DIR
-        output_dir = BIOMASS_MAPS_PER_FOREST_TYPE_DIR
+        input_dir = BIOMASS_MAPS_PER_FOREST_TYPE_RAW_DIR
+        output_dir = BIOMASS_MAPS_PER_FOREST_TYPE_MASKED_DIR
         land_cover_file = CORINE_LAND_COVER_FILE
 
         mask_values = self.annual_crop_values

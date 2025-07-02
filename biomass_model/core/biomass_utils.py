@@ -233,7 +233,7 @@ class BiomassUtils:
             raise ValueError(f"Invalid filename format: {stem}")
 
         # Get base output directory for this output type
-        output_base_dir = BIOMASS_MAPS_PER_FOREST_TYPE_DIR
+        output_base_dir = BIOMASS_MAPS_PER_FOREST_TYPE_RAW_DIR
         
         year = specs.split('_')[0]
         # Build filename components
