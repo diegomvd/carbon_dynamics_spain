@@ -1,21 +1,11 @@
 
 project_temptative_structure.txt
 
-data/raw/forest_type_maps/
-
-data/raw/forest_inventory/nfi4/
-
 *.pyc
 
 *.xls
 
-data/processed/forest_inventory/per_utm/
-
-data/processed/forest_inventory/per_year/
-
-sentinel2_processing/.DS_Store
-
-data/processed/forest_inventory/
+*.DS_Store
 
 *.tif
 
@@ -28,7 +18,5 @@ data/processed/forest_inventory/
 *.shx
 
 *.pkl
-
-als_pnoa/
 
 data/
