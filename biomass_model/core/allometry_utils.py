@@ -103,6 +103,7 @@ def parse_height_tile_metadata(filepath: Path) -> Optional[Dict]:
 
 def extract_heights_at_plot_robust(
     height_maps_dir: Path,
+    masks_dir: Path,
     plot_geom: Point,
     plot_year: int,
     plot_forest_type_code: int,
@@ -110,73 +111,95 @@ def extract_heights_at_plot_robust(
     min_pixels: int = 5
 ) -> Optional[Dict]:
     """
-    Extract all 10m pixels within plot radius, compute statistics.
+    Extract heights within plot buffer, applying forest type mask.
     
-    Returns dict with: n_pixels, H_mean, H_p75, H_p90, H_std
+    Args:
+        height_maps_dir: Directory with height tiles (pattern: *_interpolated.tif)
+        masks_dir: Directory with forest type masks (pattern: *_code{N}.tif)
+        plot_geom: Plot center point
+        plot_year: Year of measurement
+        plot_forest_type_code: Forest type code to filter
+        plot_radius: Extraction radius (25m = 50m diameter)
+        min_pixels: Minimum valid pixels required
+        
+    Returns:
+        dict with height statistics or None
     """
     logger = get_logger('biomass_estimation.allometry_utils')
     
     buffer = plot_geom.buffer(plot_radius)
     
-    # Find matching tiles: canopy_height_2017_*_code12.tif
-    pattern = f"canopy_height_{plot_year}_*_code{plot_forest_type_code}.tif"
-    matching_tiles = list(height_maps_dir.glob(pattern))
+    # Find all mask tiles for this year + forest type
+    mask_pattern = f"canopy_height_{plot_year}_*_code{plot_forest_type_code}.tif"
+    mask_tiles = list(masks_dir.glob(mask_pattern))
     
-    if not matching_tiles:
-        # DEBUG: Log why no tiles found
-        logger.info(f"No tiles found: pattern={pattern}, dir={height_maps_dir}")
-        # Check what tiles DO exist for this year
-        year_tiles = list(height_maps_dir.glob(f"canopy_height_{plot_year}_*.tif"))
-        if not year_tiles:
-            logger.info(f"  No tiles at all for year {plot_year}")
-        else:
-            logger.info(f"  Found {len(year_tiles)} tiles for {plot_year}, but none for code {plot_forest_type_code}")
+    if not mask_tiles:
         return None
     
-    logger.info(f"Found {len(matching_tiles)} matching tiles for year={plot_year}, code={plot_forest_type_code}")
-
     heights = []
-    tiles_checked = 0
-    tiles_intersected = 0
-    for tile_path in matching_tiles:
-        tiles_checked += 1
+    
+    for mask_path in mask_tiles:
         try:
-            with rasterio.open(tile_path) as src:
-                # Quick bounds check
-                tile_bounds = src.bounds
-                if not (buffer.bounds[0] <= tile_bounds[2] and 
-                       buffer.bounds[2] >= tile_bounds[0] and
-                       buffer.bounds[1] <= tile_bounds[3] and 
-                       buffer.bounds[3] >= tile_bounds[1]):
-                    continue
-
-                tiles_intersected += 1
+            # Extract coordinates from mask filename
+            # Example: canopy_height_2018_N44.0_W2.0_code12.tif
+            stem = mask_path.stem
+            coord_match = re.search(r'canopy_height_(\d{4})_(N[\d.]+_W[\d.]+)_code\d+', stem)
+            
+            if not coord_match:
+                logger.info(f"Could not parse coordinates from: {mask_path.name}")
+                continue
+            
+            year_str = coord_match.group(1)
+            coords = coord_match.group(2)  # e.g., "N44.0_W2.0"
+            
+            # Build corresponding height tile path
+            height_filename = f"canopy_height_{year_str}_{coords}_interpolated.tif"
+            height_path = height_maps_dir / height_filename
+            
+            if not height_path.exists():
+                logger.info(f"Height tile not found: {height_filename}")
+                continue
+            
+            # Open both height and mask tiles
+            with rasterio.open(height_path) as height_src, rasterio.open(mask_path) as mask_src:
                 
-                # Extract pixels within buffer
-                out_image, _ = mask(src, [buffer], crop=True)
-                height_data = out_image[0].astype(float)  # Convert to float for easier handling
-
-                # Handle source nodata value
-                src_nodata = src.nodata
-                if src_nodata is not None:
-                    height_data[height_data == src_nodata] = np.nan
-
-                # Filter valid heights
-                valid = height_data[(~np.isnan(height_data)) & (height_data > 0)]
+                # Quick bounds check
+                if not (buffer.bounds[0] <= height_src.bounds[2] and 
+                       buffer.bounds[2] >= height_src.bounds[0] and
+                       buffer.bounds[1] <= height_src.bounds[3] and 
+                       buffer.bounds[3] >= height_src.bounds[1]):
+                    continue
+                
+                # Extract height within buffer
+                height_img, height_transform = mask(height_src, [buffer], crop=True)
+                height_data = height_img[0].astype(float)
+                
+                # Handle height nodata
+                if height_src.nodata is not None:
+                    height_data[height_data == height_src.nodata] = np.nan
+                
+                # Extract mask within same buffer
+                mask_img, _ = mask(mask_src, [buffer], crop=True)
+                mask_data = mask_img[0]
+                
+                # Apply forest type mask to heights
+                height_masked = height_data.copy()
+                height_masked[mask_data == 0] = np.nan  # Zero out non-forest-type pixels
+                
+                # Get valid heights
+                valid = height_masked[(~np.isnan(height_masked)) & (height_masked > 0)]
+                
                 if len(valid) > 0:
                     heights.extend(valid)
                     
         except Exception as e:
-            logger.info(f"Error reading {tile_path.name}: {e}")
+            logger.info(f"Error processing {mask_path.name}: {e}")
             continue
     
     if len(heights) < min_pixels:
-        logger.info(f"Insufficient pixels: got {len(heights)}, need {min_pixels} "
-                    f"(checked {tiles_checked} tiles, {tiles_intersected} intersected)")
         return None
     
     heights = np.array(heights)
-    logger.info(f"SUCCESS: {len(heights)} pixels extracted")
     
     return {
         'n_pixels': len(heights),
@@ -503,7 +526,8 @@ def create_training_dataset(config: dict, height_metric: str = 'mean') -> pd.Dat
     
     nfi_processed_dir = FOREST_INVENTORY_PROCESSED_DIR
     height_maps_dir = HEIGHT_MAPS_10M_DIR  # All tiles in single dir now
-    
+    masks_dir = FOREST_TYPE_MASKS_DIR 
+
     target_years = config['processing']['target_years']
     plot_radius = config['fitting'].get('plot_radius', 25.0)
     min_pixels = config['fitting'].get('min_pixels_per_plot', 5)
@@ -536,6 +560,7 @@ def create_training_dataset(config: dict, height_metric: str = 'mean') -> pd.Dat
             # Extract heights
             height_stats = extract_heights_at_plot_robust(
                 height_maps_dir,
+                masks_dir,
                 plot.geometry,
                 year,
                 forest_type_code,
