@@ -77,11 +77,11 @@ class AllometryFittingPipeline:
             self.logger.info(f"Loaded forest types hierarchy with {len(forest_types_df)} entries")
             
             # Create training dataset by sampling height maps at NFI locations
-            training_df = create_training_dataset(self.config)
-            self.logger.info(f"Created training dataset with {len(training_df)} samples")
+            self.training_df = create_training_dataset(self.config)
+            self.logger.info(f"Created training dataset with {len(self.training_df)} samples")
 
             allometry_df, ratio_df = self._process_hierarchical_allometries(
-                training_df, forest_types_df, self.config
+                self.training_df, forest_types_df, self.config
             )
 
             # Validation
@@ -578,7 +578,7 @@ class AllometryFittingPipeline:
 
         for _, row in allometry_df.iterrows():
             # Get training data for this forest type
-            type_data = training_df[training_df['ForestType'] == row['forest_type']]
+            type_data = self.training_df[self.training_df['ForestType'] == row['forest_type']]
             
             if len(type_data) > 0:
                 result = AllometryResults(**row.to_dict())
@@ -586,5 +586,5 @@ class AllometryFittingPipeline:
 
         # Save and log metrics
         self._save_and_log_metrics(allometry_df, FITTED_PARAMETERS_FILE.parent) 
-        
+
         return output_files

@@ -21,6 +21,11 @@ from sklearn.covariance import EllipticEnvelope
 import warnings    
 from scipy.stats import theilslopes
 
+from rasterio.mask import mask
+from rasterio.mask import mask as rio_mask
+
+from shapely.geometry import Point
+
 
 # Shared utilities
 from shared_utils import get_logger, setup_logging, load_config
@@ -118,11 +123,23 @@ def extract_heights_at_plot_robust(
     matching_tiles = list(height_maps_dir.glob(pattern))
     
     if not matching_tiles:
+        # DEBUG: Log why no tiles found
+        logger.info(f"No tiles found: pattern={pattern}, dir={height_maps_dir}")
+        # Check what tiles DO exist for this year
+        year_tiles = list(height_maps_dir.glob(f"canopy_height_{plot_year}_*.tif"))
+        if not year_tiles:
+            logger.info(f"  No tiles at all for year {plot_year}")
+        else:
+            logger.info(f"  Found {len(year_tiles)} tiles for {plot_year}, but none for code {plot_forest_type_code}")
         return None
     
+    logger.info(f"Found {len(matching_tiles)} matching tiles for year={plot_year}, code={plot_forest_type_code}")
+
     heights = []
-    
+    tiles_checked = 0
+    tiles_intersected = 0
     for tile_path in matching_tiles:
+        tiles_checked += 1
         try:
             with rasterio.open(tile_path) as src:
                 # Quick bounds check
@@ -132,24 +149,34 @@ def extract_heights_at_plot_robust(
                        buffer.bounds[1] <= tile_bounds[3] and 
                        buffer.bounds[3] >= tile_bounds[1]):
                     continue
+
+                tiles_intersected += 1
                 
                 # Extract pixels within buffer
-                from rasterio.mask import mask as rio_mask
-                out_image, _ = rio_mask(src, [buffer], crop=True, nodata=np.nan)
-                height_data = out_image[0]
-                
+                out_image, _ = mask(src, [buffer], crop=True)
+                height_data = out_image[0].astype(float)  # Convert to float for easier handling
+
+                # Handle source nodata value
+                src_nodata = src.nodata
+                if src_nodata is not None:
+                    height_data[height_data == src_nodata] = np.nan
+
+                # Filter valid heights
                 valid = height_data[(~np.isnan(height_data)) & (height_data > 0)]
                 if len(valid) > 0:
                     heights.extend(valid)
                     
         except Exception as e:
-            logger.debug(f"Error reading {tile_path.name}: {e}")
+            logger.info(f"Error reading {tile_path.name}: {e}")
             continue
     
     if len(heights) < min_pixels:
+        logger.info(f"Insufficient pixels: got {len(heights)}, need {min_pixels} "
+                    f"(checked {tiles_checked} tiles, {tiles_intersected} intersected)")
         return None
     
     heights = np.array(heights)
+    logger.info(f"SUCCESS: {len(heights)} pixels extracted")
     
     return {
         'n_pixels': len(heights),

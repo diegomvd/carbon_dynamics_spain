@@ -17,7 +17,7 @@ import logging
 # Shared utilities
 from shared_utils import get_logger # validate_file_exists
 from shared_utils.central_data_paths_constants import *
-from shared_utils.urban_data_paths_constants import *
+#from shared_utils.urban_data_paths_constants import *
 
 class AllometryManager:
     """
