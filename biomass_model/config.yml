@@ -72,17 +72,23 @@ fitting:
   height_res: 10
   height_metric: 'mean'
 
+  use_dataset_cache: True 
+
+  # Conformal prediction
+  conformal_coverage: 0.80  # 70% coverage (15th-85th percentile equivalent)
+  conformal_cal_ratio: 0.30  # 30% of data for calibration
+
   quantiles: [0.15, 0.85]
   alpha: 0.05
-  min_samples: 10
+  min_samples: 50
   max_height: 60.0
   min_height: 0.0
 
-  min_bgb_samples: 25
-  percentiles: [15, 85]
+  min_bgb_samples: 50
+  percentiles: [10, 90]
 
   outlier_removal: False
   outlier_contamination: 0.12
          
-  min_r2: 0.1
-  min_slope: 0.0
+  min_r2: 0.2
+  min_slope: 0.3

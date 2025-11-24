@@ -25,7 +25,7 @@ from .allometry_utils import (
     AllometryResults, BGBRatioResults, HIERARCHY_LEVELS,
     validate_height_biomass_data, validate_ratio_data, prepare_ratio_data,
     remove_outliers, remove_ratio_outliers, process_hierarchy_levels,
-    create_training_dataset, create_output_directory, fit_theil_sen_allometry
+    create_training_dataset, create_output_directory, fit_theil_sen_allometry, fit_conformal_allometry
 )
 
 
@@ -54,6 +54,8 @@ class AllometryFittingPipeline:
             log_file=self.config['logging'].get('log_file')
         )
         
+        self.training_data = {}
+
         self.logger.info("AllometryFittingPipeline initialized")
     
     def run_full_pipeline(self) -> bool:
@@ -159,30 +161,45 @@ class AllometryFittingPipeline:
             # Return default values if fitting fails
             return (1.0, 1.0, 0.0), float('inf')
 
-    def _fit_height_agb_allometry(self, data: pd.DataFrame, forest_type: str, tier: int, config: dict) -> Optional[AllometryResults]:
+    def _fit_height_agb_allometry(
+        self, 
+        data: pd.DataFrame, 
+        forest_type: str, 
+        tier: int, 
+        config: dict
+    ) -> Optional[AllometryResults]:
         """
-        Fit height-AGB allometry for specific forest type using quantile regression.
-
+        Fit height-AGB allometry using Theil-Sen with conformal prediction intervals.
+        
+        Uses split-conformal prediction for guaranteed coverage bounds.
+        No outlier removal needed - Theil-Sen is already robust.
+        
         Args:
-            data (pd.DataFrame): Training data for this forest type
-            forest_type (str): Forest type name
-            tier (int): Hierarchy tier level
-            config (dict): Configuration dictionary
+            data: Training data for this forest type
+            forest_type: Forest type name
+            tier: Hierarchy tier level
+            config: Configuration dictionary
             
         Returns:
-            AllometryResults: Results object or None if fitting failed
+            AllometryResults object or None if fitting failed
         """
         logger = get_logger('biomass_estimation.allometry_fitting')
+        
         try:
             # Get configuration parameters
-            quantiles = config['fitting']['quantiles']
-            alpha = config['fitting']['alpha']
             min_samples = config['fitting']['min_samples']
             max_height = config['fitting']['max_height']
             min_height = config['fitting']['min_height']
+            coverage = config['fitting'].get('conformal_coverage', 0.70)
+            cal_ratio = config['fitting'].get('conformal_cal_ratio', 0.30)
             
             # Validate input data
-            valid_data = validate_height_biomass_data(data, min_samples = min_samples, max_height = max_height, min_height = min_height)
+            valid_data = validate_height_biomass_data(
+                data, 
+                min_samples=min_samples, 
+                max_height=max_height, 
+                min_height=min_height
+            )
             if not valid_data:
                 logger.debug(f"Insufficient samples for {forest_type}")
                 return None
@@ -192,114 +209,183 @@ class AllometryFittingPipeline:
                 (data['Height'] >= min_height) & 
                 (data['Height'] <= max_height)
             ].copy()
-                        
-            # Remove outliers if configured
-            if config['fitting']['outlier_removal']:
-                clean_data = remove_outliers(height_filtered, contamination=config['fitting']['outlier_contamination'])
-            else:
-                clean_data = height_filtered
-
-            if len(clean_data) < min_samples:
-                logger.debug(f"Insufficient samples after outlier removal for {forest_type}: {len(clean_data)}")
+            
+            # Check we still have enough samples after filtering
+            if len(height_filtered) < min_samples:
+                logger.debug(
+                    f"Insufficient samples after height filtering for {forest_type}: "
+                    f"{len(height_filtered)} < {min_samples}"
+                )
                 return None
             
             # Extract height and AGB values
-            height = clean_data['Height'].values
-            agb = clean_data['AGB'].values
-
-            # Fit power law for median (0.5 quantile)
-            median_intercept, median_slope, rmse = fit_theil_sen_allometry(height, agb)
+            height = height_filtered['Height'].values
+            agb = height_filtered['AGB'].values
+            
+            # Fit using conformal prediction
+            median_params, lower_params, upper_params, metrics = fit_conformal_allometry(
+                heights=height,
+                agbd=agb,
+                coverage=coverage,
+                cal_ratio=cal_ratio,
+                random_state=42
+            )
+            
+            median_intercept, median_slope = median_params
+            lower_intercept, lower_slope = lower_params
+            upper_intercept, upper_slope = upper_params
+            
+            # Calculate quality metrics on full dataset
+            log_h = np.log(height)
+            log_agb = np.log(agb)
             predictions = np.exp(median_intercept) * height ** median_slope
+            
+            # R² calculation
             ss_res = np.sum((agb - predictions) ** 2)
             ss_tot = np.sum((agb - np.mean(agb)) ** 2)
-            r2 = 1 - (ss_res / ss_tot) if ss_tot > 0 else 0
-
-
-            # Fit for confidence interval bounds
-            lower_params, _ = self._fit_power_law_quantile(height, agb, quantiles[0], alpha)
-            upper_params, _ = self._fit_power_law_quantile(height, agb, quantiles[1], alpha)
-
+            r2 = 1 - (ss_res / ss_tot)
+            
+            # RMSE calculation
+            rmse = np.sqrt(np.mean((agb - predictions) ** 2))
             
             # Apply quality filters
             min_r2 = config['fitting']['min_r2']
             min_slope = config['fitting']['min_slope']
-
+            max_slope = config['fitting'].get('max_slope', np.inf)
+            
             if r2 < min_r2:
-                logger.debug(f"R² too low for {forest_type}: {median_params[2]:.3f} < {min_r2}")
+                logger.debug(
+                    f"R² too low for {forest_type}: {r2:.3f} < {min_r2}"
+                )
                 return None
             
             if median_slope < min_slope:
-                logger.debug(f"Slope too low for {forest_type}: {median_params[0]:.3f} < {min_slope}")
+                logger.debug(
+                    f"Slope too low for {forest_type}: {median_slope:.3f} < {min_slope}"
+                )
+                return None
+            
+            if median_slope > max_slope:
+                logger.debug(
+                    f"Slope too high for {forest_type}: {median_slope:.3f} > {max_slope}"
+                )
                 return None
             
             # Create results object
             result = AllometryResults(
                 forest_type=forest_type,
                 tier=tier,
-                n_samples=len(clean_data),
+                n_samples=len(height_filtered),
                 function_type='power',
                 median_intercept=median_intercept,
                 median_slope=median_slope,
-                low_bound_intercept=lower_params[1],
-                low_bound_slope=lower_params[0],
-                upper_bound_intercept=upper_params[1],
-                upper_bound_slope=upper_params[0],
+                low_bound_intercept=lower_intercept,
+                low_bound_slope=lower_slope,
+                upper_bound_intercept=upper_intercept,
+                upper_bound_slope=upper_slope,
                 r2=r2,
                 rmse=rmse
             )
             
-            logger.debug(f"Successfully fitted allometry for {forest_type}: "
-                        f"a={result.median_intercept:.3f}, b={result.median_slope:.3f}, R²={result.r2:.3f}")
+            # Store data for validation plots
+            self.training_data[forest_type] = {
+                'height': height,
+                'agb': agb,
+                'tier': tier,
+                'conformal_q': metrics['q'],
+                'n_train': metrics['n_train'],
+                'n_cal': metrics['n_cal']
+            }
+            
+            logger.info(
+                f"✓ Fitted conformal allometry for {forest_type}: "
+                f"slope={median_slope:.3f}, R²={r2:.3f}, "
+                f"conformal_q={metrics['q']:.3f}, coverage={coverage*100:.0f}%"
+            )
+            
             return result
             
         except Exception as e:
-            logger.warning(f"Failed to fit allometry for {forest_type} (tier {tier}): {str(e)}")
+            logger.warning(
+                f"Failed to fit allometry for {forest_type} (tier {tier}): {str(e)}"
+            )
             return None
 
-    def _save_allometry_validation_plot(self, result: AllometryResults, data: pd.DataFrame, output_dir: Path):
+    def _save_allometry_validation_plot(
+        self, 
+        forest_type: str, 
+        allometry_result: AllometryResults,
+        output_dir: Path
+    ) -> None:
         """
-        Save allometry validation plot without showing.
-        
-        Args:
-            result: Fitted allometry results
-            data: Training data used for fitting
-            output_dir: Directory to save plots
+        Save validation plot showing Theil-Sen fit with conformal prediction bounds.
         """
         import matplotlib.pyplot as plt
         
-        output_dir.mkdir(parents=True, exist_ok=True)
+        # Get stored training data
+        if forest_type not in self.training_data:
+            self.logger.warning(f"No training data stored for {forest_type}, skipping plot")
+            return
         
-        h = data['Height'].values
-        agb = data['AGB'].values
+        data = self.training_data[forest_type]
+        height = data['height']
+        agb = data['agb']
+        tier = data['tier']
+        conformal_q = data['conformal_q']
+        n_train = data['n_train']
+        n_cal = data['n_cal']
         
-        # Predictions
-        h_range = np.linspace(h.min(), h.max(), 100)
-        pred_median = np.exp(result.median_intercept) * h_range ** result.median_slope
-        pred_lower = np.exp(result.low_bound_intercept) * h_range ** result.low_bound_slope
-        pred_upper = np.exp(result.upper_bound_intercept) * h_range ** result.upper_bound_slope
+        # Create figure
+        fig, ax = plt.subplots(figsize=(10, 6))
         
-        fig, ax = plt.subplots(figsize=(8, 6))
+        # Plot data points
+        ax.scatter(height, agb, alpha=0.5, s=30, color='gray', label='Training data')
         
-        # Scatter
-        ax.scatter(h, agb, alpha=0.3, s=10, c='gray', label='Training data')
+        # Generate prediction curves
+        h_range = np.linspace(height.min(), height.max(), 200)
         
-        # Allometry curves
-        ax.plot(h_range, pred_median, 'r-', lw=2, label='Theil-Sen median')
-        ax.plot(h_range, pred_lower, 'b--', lw=1, label=f'Q{int(self.config["fitting"]["quantiles"][0]*100)}')
-        ax.plot(h_range, pred_upper, 'b--', lw=1, label=f'Q{int(self.config["fitting"]["quantiles"][1]*100)}')
-        ax.fill_between(h_range, pred_lower, pred_upper, alpha=0.2, color='blue')
+        # Median (Theil-Sen)
+        agb_median = np.exp(allometry_result.median_intercept) * h_range ** allometry_result.median_slope
         
-        ax.set_xlabel('Height (m)')
-        ax.set_ylabel('AGB (Mg/ha)')
-        ax.set_title(f'{result.forest_type} (Tier {result.tier})\n'
-                    f'n={result.n_samples}, R²={result.r2:.3f}, RMSE={result.rmse:.1f} Mg/ha')
-        ax.legend()
-        ax.grid(alpha=0.3)
+        # Conformal bounds
+        agb_lower = np.exp(allometry_result.low_bound_intercept) * h_range ** allometry_result.low_bound_slope
+        agb_upper = np.exp(allometry_result.upper_bound_intercept) * h_range ** allometry_result.upper_bound_slope
+        
+        # Plot curves
+        ax.plot(h_range, agb_median, 'b-', linewidth=2, label='Theil-Sen median')
+        ax.plot(h_range, agb_lower, 'r--', linewidth=1.5, label=f'Conformal bounds (±{conformal_q:.2f} log-units)')
+        ax.plot(h_range, agb_upper, 'r--', linewidth=1.5)
+        ax.fill_between(h_range, agb_lower, agb_upper, alpha=0.2, color='red')
+        
+        # Labels and title
+        ax.set_xlabel('Height (m)', fontsize=12)
+        ax.set_ylabel('AGB (Mg/ha)', fontsize=12)
+        ax.set_xscale('log')
+        ax.set_yscale('log')
+        
+        title = (
+            f'{forest_type} (Tier {tier})\n'
+            f'n={allometry_result.n_samples} (train={n_train}, cal={n_cal}), '
+            f'R²={allometry_result.r2:.3f}, RMSE={allometry_result.rmse:.1f} Mg/ha\n'
+            f'Slope={allometry_result.median_slope:.3f}, Conformal q={conformal_q:.3f}'
+        )
+        ax.set_title(title, fontsize=11)
+        
+        ax.legend(loc='upper left')
+        ax.grid(True, alpha=0.3)
         
         # Save
-        filename = f'allometry_tier{result.tier}_{result.forest_type.replace(" ", "_")}.png'
-        plt.savefig(output_dir / filename, dpi=150, bbox_inches='tight')
+        plot_dir = output_dir / 'validation_plots'
+        plot_dir.mkdir(parents=True, exist_ok=True)
+        
+        safe_name = forest_type.replace(' ', '_').replace('/', '_')
+        plot_file = plot_dir / f'allometry_tier{tier}_{safe_name}.png'
+        
+        plt.tight_layout()
+        plt.savefig(plot_file, dpi=150, bbox_inches='tight')
         plt.close()
+        
+        self.logger.debug(f"Saved validation plot: {plot_file}")
 
     def _save_and_log_metrics(self, allometry_df: pd.DataFrame, output_dir: Path):
         """
@@ -423,7 +509,8 @@ class AllometryFittingPipeline:
         ratio_results = []
         
         # Process hierarchy levels in order (0=General, 1=Clade, 2=Family, 3=Genus, 4=ForestType)
-        training_df = process_hierarchy_levels(training_df,forest_types_df)
+        training_df = process_hierarchy_levels(training_df, forest_types_df)
+        print(training_df)
         
         for tier_name, tier_level in HIERARCHY_LEVELS.items():
             logger.info(f"Processing tier {tier_level['tier']}: {tier_name}")
@@ -476,7 +563,7 @@ class AllometryFittingPipeline:
                 
                     # Fit height-AGB allometry
                     try:
-                        allometry_result = self._fit_height_agb_allometry(type_data, forest_type, tier_level, config)
+                        allometry_result = self._fit_height_agb_allometry(type_data, forest_type, tier_level['tier'], config)
                         if allometry_result:
                             allometry_results.append(allometry_result)
                             logger.info(f"✓ Fitted allometry for {forest_type}")
@@ -485,7 +572,7 @@ class AllometryFittingPipeline:
                         
                     # Calculate BGB ratios
                     try:
-                        ratio_result = self._calculate_bgb_ratios(type_data, forest_type, tier_level, config)
+                        ratio_result = self._calculate_bgb_ratios(type_data, forest_type, tier_level['tier'], config)
                         if ratio_result:
                             ratio_results.append(ratio_result)
                             logger.info(f"✓ Calculated BGB ratios for {forest_type}")
@@ -507,6 +594,12 @@ class AllometryFittingPipeline:
         else:
             ratio_df = pd.DataFrame()
         
+        self.allometry_results = allometry_results
+        self.ratio_results = ratio_results
+
+        allometry_df = pd.DataFrame([vars(r) for r in allometry_results])
+        ratio_df = pd.DataFrame([vars(r) for r in ratio_results])   
+
         return allometry_df, ratio_df
 
     def _save_allometry_results(self, allometry_df: pd.DataFrame, ratio_df: pd.DataFrame) -> Dict[str, Path]:
@@ -574,15 +667,20 @@ class AllometryFittingPipeline:
 
         # Save validation plots
         plots_dir = FITTED_PARAMETERS_FILE.parent / 'validation_plots'
-        logger.info("Saving validation plots...")
 
-        for _, row in allometry_df.iterrows():
-            # Get training data for this forest type
-            type_data = self.training_df[self.training_df['ForestType'] == row['forest_type']]
+        if hasattr(self, 'allometry_results') and self.allometry_results:
+            logger.info("Saving validation plots...")
+            output_dir = FITTED_PARAMETERS_FILE.parent
             
-            if len(type_data) > 0:
-                result = AllometryResults(**row.to_dict())
-                self._save_allometry_validation_plot(result, type_data, plots_dir)
+            for allometry_result in self.allometry_results:
+                try:
+                    self._save_allometry_validation_plot(
+                        forest_type=allometry_result.forest_type,
+                        allometry_result=allometry_result,
+                        output_dir=output_dir
+                    )
+                except Exception as e:
+                    logger.warning(f"Failed to save plot for {allometry_result.forest_type}: {e}")
 
         # Save and log metrics
         self._save_and_log_metrics(allometry_df, FITTED_PARAMETERS_FILE.parent) 

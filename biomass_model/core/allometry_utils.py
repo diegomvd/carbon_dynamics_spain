@@ -21,6 +21,8 @@ from sklearn.covariance import EllipticEnvelope
 import warnings    
 from scipy.stats import theilslopes
 import re
+from sklearn.model_selection import train_test_split
+
 
 from rasterio.mask import mask
 from rasterio.mask import mask as rio_mask
@@ -56,8 +58,8 @@ class BGBRatioResults:
     tier: int
     n_samples: int
     mean: float
-    q05: float
-    q95: float
+    q10: float
+    q90: float
 
 
 def load_forest_type_code_mapping() -> pd.DataFrame:
@@ -518,7 +520,7 @@ def sample_height_at_points(height_maps_dir: Path, points_gdf: gpd.GeoDataFrame)
     return height_values
 
 
-def create_training_dataset(config: dict, height_metric: str = 'mean') -> pd.DataFrame:
+def create_training_dataset(config: dict, height_metric: str = 'mean', use_cache: bool = True) -> pd.DataFrame:
     """
     Create training dataset with robust plot-aggregated heights.
     
@@ -526,8 +528,16 @@ def create_training_dataset(config: dict, height_metric: str = 'mean') -> pd.Dat
         height_metric: 'mean', 'p75', or 'p90'
     """
     logger = get_logger('biomass_estimation.allometry_utils')
+
+    cache_file = FITTED_PARAMETERS_FILE.parent / f'training_dataset_{height_metric}.csv'
+    if use_cache and cache_file.exists():
+        logger.info(f"Loading cached training dataset from {cache_file}")
+        df = pd.read_csv(cache_file)
+        logger.info(f"Loaded {len(df)} cached samples")
+        return df
+
     logger.info(f"Creating training dataset using H_{height_metric}...")
-    
+
     nfi_processed_dir = FOREST_INVENTORY_PROCESSED_DIR
     height_maps_dir = HEIGHT_MAPS_10M_DIR  # All tiles in single dir now
     masks_dir = FOREST_TYPE_MASKS_DIR 
@@ -592,6 +602,10 @@ def create_training_dataset(config: dict, height_metric: str = 'mean') -> pd.Dat
     df = pd.DataFrame(all_data)
     logger.info(f"Created dataset: {len(df)} samples, {df['n_pixels'].mean():.1f} pixels/plot avg")
     
+    cache_file.parent.mkdir(parents=True, exist_ok=True)
+    df.to_csv(cache_file, index=False)
+    logger.info(f"Saved training dataset cache to {cache_file}")
+
     return df
 
 
@@ -617,6 +631,87 @@ def fit_theil_sen_allometry(heights: np.ndarray, agbd: np.ndarray) -> Tuple[floa
     rmse = np.sqrt(np.mean((agbd - pred) ** 2))
     
     return log_intercept, slope, rmse
+
+def fit_conformal_allometry(
+    heights: np.ndarray, 
+    agbd: np.ndarray, 
+    coverage: float = 0.70,
+    cal_ratio: float = 0.30,
+    random_state: int = 42
+) -> Tuple[Tuple[float, float], Tuple[float, float], Tuple[float, float], Dict]:
+    """
+    Fit allometric relationship with conformal prediction intervals.
+    
+    Uses split-conformal prediction to provide guaranteed coverage intervals
+    around a Theil-Sen median fit. This is distribution-free and handles
+    heteroscedasticity in log-space.
+    
+    Args:
+        heights: Tree heights (meters)
+        agbd: Above-ground biomass density (Mg/ha)
+        coverage: Desired coverage probability (default 0.70 for 15th-85th percentile)
+        cal_ratio: Fraction of data for calibration (default 0.30)
+        random_state: Random seed for train/cal split
+        
+    Returns:
+        tuple: (median_params, lower_params, upper_params, metrics) where:
+            - median_params: (intercept, slope) from Theil-Sen
+            - lower_params: (intercept, slope) for lower bound
+            - upper_params: (intercept, slope) for upper bound  
+            - metrics: dict with 'q' (conformal quantile), 'n_train', 'n_cal'
+    """
+    
+    # Convert to log-space for power-law fitting
+    log_heights = np.log(heights)
+    log_agbd = np.log(agbd)
+    
+    # 1. Split into training and calibration sets
+    indices = np.arange(len(heights))
+    train_idx, cal_idx = train_test_split(
+        indices, 
+        test_size=cal_ratio, 
+        random_state=random_state
+    )
+    
+    log_h_train = log_heights[train_idx]
+    log_agb_train = log_agbd[train_idx]
+    log_h_cal = log_heights[cal_idx]
+    log_agb_cal = log_agbd[cal_idx]
+    
+    # 2. Fit Theil-Sen on training set only
+    result = theilslopes(log_agb_train, log_h_train)
+    median_slope = result.slope
+    median_intercept = result.intercept
+    
+    # 3. Compute absolute residuals on calibration set
+    predictions_cal = median_intercept + median_slope * log_h_cal
+    residuals_cal = np.abs(log_agb_cal - predictions_cal)
+    
+    # 4. Find conformal quantile for desired coverage
+    # For 70% coverage, we want 85th percentile of absolute errors
+    # Formula: quantile = (1 - alpha) * 100 where alpha = 1 - coverage
+    alpha = 1 - coverage
+    conformal_quantile_pct = (1 - alpha) * 100
+    q = np.percentile(residuals_cal, conformal_quantile_pct)
+    
+    # 5. Construct bounds: median ± q (parallel in log-space)
+    lower_intercept = median_intercept - q
+    upper_intercept = median_intercept + q
+    
+    # All have same slope (parallel bounds)
+    median_params = (median_intercept, median_slope)
+    lower_params = (lower_intercept, median_slope)
+    upper_params = (upper_intercept, median_slope)
+    
+    # 6. Collect metrics
+    metrics = {
+        'q': q,
+        'n_train': len(train_idx),
+        'n_cal': len(cal_idx),
+        'conformal_quantile_pct': conformal_quantile_pct
+    }
+    
+    return median_params, lower_params, upper_params, metrics    
 
 def create_output_directory(output_path: Path) -> None:
     """
