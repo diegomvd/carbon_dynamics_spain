@@ -20,6 +20,7 @@ from typing import Dict, Any, Literal, Optional, Tuple, List
 from sklearn.covariance import EllipticEnvelope
 import warnings    
 from scipy.stats import theilslopes
+import re
 
 from rasterio.mask import mask
 from rasterio.mask import mask as rio_mask
@@ -143,8 +144,11 @@ def extract_heights_at_plot_robust(
             # Extract coordinates from mask filename
             # Example: canopy_height_2018_N44.0_W2.0_code12.tif
             stem = mask_path.stem
-            coord_match = re.search(r'canopy_height_(\d{4})_(N[\d.]+_W[\d.]+)_code\d+', stem)
             
+            coord_match = re.search(r'canopy_height_(\d{4})_(N[\d.]+_W[\d.]+)_code\d+', stem)
+            if not coord_match:
+                coord_match = re.search(r'canopy_height_(\d{4})_(N[\d.]+_E[\d.]+)_code\d+', stem)
+
             if not coord_match:
                 logger.info(f"Could not parse coordinates from: {mask_path.name}")
                 continue
