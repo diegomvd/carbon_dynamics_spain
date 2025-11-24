@@ -14,7 +14,7 @@ processing:
   compute_no_arbolado: true  # Whether to compute non-forest areas
   file_pattern: '*.tif'
   target_years: [2017, 2018, 2019, 2020, 2021, 2022, 2023, 2024]
-  target_resolution: 100
+  target_resolution: 10
   
   # Masking parameters
   annual_crop_values: [12, 13, 14]  # Corine land cover values for arable land

@@ -15,11 +15,13 @@ Author: Diego Bengochea
 
 # Package level imports for easy access
 from .run_biomass_estimation import main as run_biomass_estimation
+from .run_agbd_estimation import main as run_agbd_estimation
 from .run_allometry_fitting import main as run_allometry_fitting
 from .run_masking import main as run_masking
 from .run_merging import main as run_merging
 
 __all__ = [
+    "run_agbd_estimation",
     "run_biomass_estimation",
     "run_allometry_fitting", 
     "run_masking",

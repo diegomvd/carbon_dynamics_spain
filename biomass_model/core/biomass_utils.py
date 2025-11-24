@@ -120,6 +120,140 @@ class BiomassUtils:
             elapsed = time.time() - start
             print(f"{description}: {elapsed:.2f}s")
 
+
+    def write_agbd_results(self, results, height_file, code, forest_type_name, mask_data, output_meta):
+        """
+        Write AGBD-only results (mean, lower, upper) using rioxarray with optimized GeoTIFF settings.
+        
+        Parallel method to write_xarray_results() but for AGBD-only pipeline.
+        Writes 3 separate rasters: mean, lower, upper bounds.
+        
+        Args:
+            results (xarray.Dataset): Results from AGBDDirectEstimator.run()
+            height_file (str): Path to input height file
+            code (str): Forest type code
+            forest_type_name (str): Name of forest type
+            mask_data (xarray.DataArray): Boolean mask array
+            output_meta (dict): Raster metadata for outputs
+            
+        Returns:
+            bool: True if successful, False otherwise
+        """
+        
+        # Get GeoTIFF optimization settings from config
+        geotiff_options = {
+            'tiled': self.config['output']['geotiff']['tiled'],
+            'blockxsize': self.config['output']['geotiff']['blockxsize'], 
+            'blockysize': self.config['output']['geotiff']['blockysize'],
+            'compress': self.config['output']['geotiff']['compress'],
+            'dtype': output_meta.get('dtype', 'float32')
+        }
+        
+        try:
+            # Process each variable in the results dataset
+            for variable in results.data_vars:
+                # Parse variable name: agbd_mean, agbd_lower, agbd_upper
+                parts = variable.split('_')
+                if len(parts) != 2 or parts[0] != 'agbd':
+                    self.logger.warning(f"Unexpected variable name format: {variable}")
+                    continue
+                
+                measure = parts[1]  # 'mean', 'lower', or 'upper'
+                
+                # Build save path using new AGBD path structure
+                try:
+                    savepath = self.build_agbd_savepath(Path(height_file), measure, code)
+                except ValueError as e:
+                    self.logger.error(f"Error building save path for {variable}: {e}")
+                    continue
+                
+                # Ensure output directory exists
+                os.makedirs(os.path.dirname(savepath), exist_ok=True)
+                
+                self.logger.info(f"Writing AGBD {measure} for {forest_type_name}")
+                with self.timer(f"Writing AGBD {measure}"):
+                    # Get this result variable
+                    result = results[variable]
+                    
+                    # Apply mask and handle nodata values
+                    masked_result = result.where(mask_data, output_meta['nodata'])
+                    masked_result = masked_result.fillna(output_meta['nodata'])
+                    
+                    # Set CRS information for proper georeferencing
+                    if hasattr(mask_data, 'rio') and hasattr(mask_data.rio, 'crs'):
+                        masked_result.rio.write_crs(mask_data.rio.crs, inplace=True)
+                    elif 'crs' in output_meta:
+                        masked_result.rio.write_crs(output_meta['crs'], inplace=True)
+                    
+                    # Set nodata value
+                    masked_result.rio.write_nodata(output_meta['nodata'], inplace=True)
+                    
+                    # Write to optimized GeoTIFF
+                    try:
+                        masked_result.rio.to_raster(
+                            savepath,
+                            driver='GTiff',
+                            **geotiff_options
+                        )
+                        self.logger.info(f"Saved AGBD {measure} to: {savepath}")
+                    except Exception as write_error:
+                        self.logger.error(f"Error writing {savepath}: {write_error}")
+                        return False
+            
+            return True
+            
+        except Exception as e:
+            self.logger.error(f"Error writing AGBD results for {forest_type_name}: {str(e)}")
+            import traceback
+            self.logger.error(traceback.format_exc())
+            return False
+
+    def build_agbd_savepath(self, fname, measure, code):
+        """
+        Build output file path for AGBD-only outputs.
+        
+        Parallel method to build_savepath() but for AGBD-only structure:
+        AGBD_mean/2020/AGBD_mean_2020_100m_tile_XXX_code_YY.tif
+        
+        Args:
+            fname (Path): Input height file path
+            measure (str): Measure type ('mean', 'lower', or 'upper')
+            code (str): Forest type code
+            
+        Returns:
+            str: Full path to output file
+            
+        Raises:
+            ValueError: If filename format is invalid
+        """
+        stem = fname.stem
+
+        # Extract specifications from canopy height filename
+        try:
+            specs = re.findall(r'canopy_height_(.*)', stem)[0]
+        except IndexError:
+            self.logger.error(f"Could not extract specifications from filename: {stem}")
+            raise ValueError(f"Invalid filename format: {stem}")
+
+        # Get base output directory
+        output_base_dir = BIOMASS_MAPS_PER_FOREST_TYPE_RAW_DIR
+        
+        # Extract year from specs
+        year = specs.split('_')[0]
+        
+        # Build directory structure: AGBD_<measure>/year/
+        subdir = f"AGBD_{measure}"
+        output_dir = output_base_dir / subdir / year
+        
+        # Create directory if needed
+        Path(output_dir).mkdir(parents=True, exist_ok=True)
+        
+        # Build filename: AGBD_<measure>_S2_<specs>_code<code>.tif
+        filename = f"AGBD_{measure}_S2_{specs}_code{code}.tif"
+        
+        return os.path.join(output_dir, filename)
+ 
+
     def write_xarray_results(self, results, height_file, code, forest_type_name, mask_data, output_meta):
         """
         Write xarray Monte Carlo results using rioxarray with optimized GeoTIFF settings.
