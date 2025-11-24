@@ -26,3 +26,9 @@ data/processed/forest_inventory/
 *.shp
 
 *.shx
+
+*.pkl
+
+als_pnoa/
+
+data/
