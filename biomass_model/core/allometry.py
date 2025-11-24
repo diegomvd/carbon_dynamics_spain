@@ -17,7 +17,7 @@ import logging
 # Shared utilities
 from shared_utils import get_logger # validate_file_exists
 from shared_utils.central_data_paths_constants import *
-
+from shared_utils.urban_data_paths_constants import *
 
 class AllometryManager:
     """
@@ -27,7 +27,7 @@ class AllometryManager:
     forest types with hierarchical fallback system.
     """
     
-    def __init__(self):
+    def __init__(self, urban: bool = False):
         """
         Initialize the allometry manager.
         
@@ -53,16 +53,20 @@ class AllometryManager:
         }
         
         # Load all allometric data
-        self._load_allometric_data()
+        self._load_allometric_data(urban)
         
         self.logger.info("AllometryManager initialized successfully")
     
-    def _load_allometric_data(self) -> None:
+    def _load_allometric_data(self, urban: bool = False) -> None:
         """Load all allometric data files using CentralDataPaths."""
         self.logger.info("Loading allometric data files...")
         
         # Load allometry relationships - UPDATED: Use CentralDataPaths
-        allometry_file = FITTED_PARAMETERS_FILE
+        if urban:
+            allometry_file = ALLOMETRY_DATA_FILE
+        else:
+            allometry_file = FITTED_PARAMETERS_FILE
+
         if allometry_file.exists():
             self.allometry_data = pd.read_csv(allometry_file)
             # Set forest_type as index for efficient lookup
