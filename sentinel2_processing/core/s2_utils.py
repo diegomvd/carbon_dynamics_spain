@@ -143,7 +143,7 @@ def create_processing_tiles(spain_polygon_path, tile_size):
     spain = odc.geo.geom.Geometry(spain, crs='EPSG:25830')
     spain = odc.geo.geobox.GeoBox.from_geopolygon(spain, resolution=10)
 
-    # Divide the full geobox in Geotiles for processing - EXACT LOGIC PRESERVED
+    # Divide the full geobox in Geotiles for processing 
     geotiles_spain = odc.geo.geobox.GeoboxTiles(spain, (tile_size, tile_size))
     geotiles_spain = [
         geotiles_spain.__getitem__(tile) for tile in geotiles_spain._all_tiles()
