@@ -25,7 +25,7 @@ from .allometry_utils import (
     AllometryResults, BGBRatioResults, HIERARCHY_LEVELS,
     validate_height_biomass_data, validate_ratio_data, prepare_ratio_data,
     remove_outliers, remove_ratio_outliers, process_hierarchy_levels,
-    create_training_dataset, create_output_directory
+    create_training_dataset, create_output_directory, fit_theil_sen_allometry
 )
 
 
@@ -208,8 +208,13 @@ class AllometryFittingPipeline:
             agb = clean_data['AGB'].values
 
             # Fit power law for median (0.5 quantile)
-            median_params, rmse = self._fit_power_law_quantile(height, agb, 0.5, alpha)
-            
+            median_intercept, median_slope, rmse = fit_theil_sen_allometry(height, agb)
+            predictions = np.exp(median_intercept) * height ** median_slope
+            ss_res = np.sum((agb - predictions) ** 2)
+            ss_tot = np.sum((agb - np.mean(agb)) ** 2)
+            r2 = 1 - (ss_res / ss_tot) if ss_tot > 0 else 0
+
+
             # Fit for confidence interval bounds
             lower_params, _ = self._fit_power_law_quantile(height, agb, quantiles[0], alpha)
             upper_params, _ = self._fit_power_law_quantile(height, agb, quantiles[1], alpha)
@@ -219,11 +224,11 @@ class AllometryFittingPipeline:
             min_r2 = config['fitting']['min_r2']
             min_slope = config['fitting']['min_slope']
 
-            if median_params[2] < min_r2:
+            if r2 < min_r2:
                 logger.debug(f"R² too low for {forest_type}: {median_params[2]:.3f} < {min_r2}")
                 return None
             
-            if median_params[0] < min_slope:
+            if median_slope < min_slope:
                 logger.debug(f"Slope too low for {forest_type}: {median_params[0]:.3f} < {min_slope}")
                 return None
             
@@ -233,13 +238,13 @@ class AllometryFittingPipeline:
                 tier=tier,
                 n_samples=len(clean_data),
                 function_type='power',
-                median_intercept=median_params[1],
-                median_slope=median_params[0],
+                median_intercept=median_intercept,
+                median_slope=median_slope,
                 low_bound_intercept=lower_params[1],
                 low_bound_slope=lower_params[0],
                 upper_bound_intercept=upper_params[1],
                 upper_bound_slope=upper_params[0],
-                r2=median_params[2],
+                r2=r2,
                 rmse=rmse
             )
             
@@ -250,6 +255,84 @@ class AllometryFittingPipeline:
         except Exception as e:
             logger.warning(f"Failed to fit allometry for {forest_type} (tier {tier}): {str(e)}")
             return None
+
+    def _save_allometry_validation_plot(self, result: AllometryResults, data: pd.DataFrame, output_dir: Path):
+        """
+        Save allometry validation plot without showing.
+        
+        Args:
+            result: Fitted allometry results
+            data: Training data used for fitting
+            output_dir: Directory to save plots
+        """
+        import matplotlib.pyplot as plt
+        
+        output_dir.mkdir(parents=True, exist_ok=True)
+        
+        h = data['Height'].values
+        agb = data['AGB'].values
+        
+        # Predictions
+        h_range = np.linspace(h.min(), h.max(), 100)
+        pred_median = np.exp(result.median_intercept) * h_range ** result.median_slope
+        pred_lower = np.exp(result.low_bound_intercept) * h_range ** result.low_bound_slope
+        pred_upper = np.exp(result.upper_bound_intercept) * h_range ** result.upper_bound_slope
+        
+        fig, ax = plt.subplots(figsize=(8, 6))
+        
+        # Scatter
+        ax.scatter(h, agb, alpha=0.3, s=10, c='gray', label='Training data')
+        
+        # Allometry curves
+        ax.plot(h_range, pred_median, 'r-', lw=2, label='Theil-Sen median')
+        ax.plot(h_range, pred_lower, 'b--', lw=1, label=f'Q{int(self.config["fitting"]["quantiles"][0]*100)}')
+        ax.plot(h_range, pred_upper, 'b--', lw=1, label=f'Q{int(self.config["fitting"]["quantiles"][1]*100)}')
+        ax.fill_between(h_range, pred_lower, pred_upper, alpha=0.2, color='blue')
+        
+        ax.set_xlabel('Height (m)')
+        ax.set_ylabel('AGB (Mg/ha)')
+        ax.set_title(f'{result.forest_type} (Tier {result.tier})\n'
+                    f'n={result.n_samples}, R²={result.r2:.3f}, RMSE={result.rmse:.1f} Mg/ha')
+        ax.legend()
+        ax.grid(alpha=0.3)
+        
+        # Save
+        filename = f'allometry_tier{result.tier}_{result.forest_type.replace(" ", "_")}.png'
+        plt.savefig(output_dir / filename, dpi=150, bbox_inches='tight')
+        plt.close()
+
+    def _save_and_log_metrics(self, allometry_df: pd.DataFrame, output_dir: Path):
+        """
+        Print and save allometry performance metrics.
+        """
+        logger = self.logger
+        
+        # Print to console/log
+        logger.info("\n" + "="*60)
+        logger.info("ALLOMETRY FITTING SUMMARY")
+        logger.info("="*60)
+        
+        for tier in sorted(allometry_df['tier'].unique()):
+            tier_data = allometry_df[allometry_df['tier'] == tier]
+            logger.info(f"\nTier {tier}:")
+            logger.info(f"  Relationships fitted: {len(tier_data)}")
+            logger.info(f"  Mean R²: {tier_data['r2'].mean():.3f} (±{tier_data['r2'].std():.3f})")
+            logger.info(f"  Mean RMSE: {tier_data['rmse'].mean():.1f} Mg/ha (±{tier_data['rmse'].std():.1f})")
+            logger.info(f"  Mean slope: {tier_data['median_slope'].mean():.3f}")
+            logger.info(f"  Mean samples: {tier_data['n_samples'].mean():.0f}")
+        
+        logger.info("\n" + "="*60)
+        
+        # Save to CSV
+        summary = allometry_df.groupby('tier').agg({
+            'r2': ['mean', 'std', 'min', 'max'],
+            'rmse': ['mean', 'std', 'min', 'max'],
+            'median_slope': ['mean', 'std'],
+            'n_samples': ['mean', 'sum', 'min', 'max']
+        }).round(3)
+        
+        summary.to_csv(output_dir / 'allometry_summary_by_tier.csv')
+        logger.info(f"Saved summary to {output_dir / 'allometry_summary_by_tier.csv'}")
 
     def _calculate_bgb_ratios(self, data: pd.DataFrame, forest_type: str, tier: int, config: dict) -> Optional[BGBRatioResults]:
         """
@@ -488,5 +571,20 @@ class AllometryFittingPipeline:
             summary_df.to_csv(summary_path, index=False)
             output_files['summary'] = summary_path
             logger.info(f"Fitting summary saved to {summary_path}")
+
+        # Save validation plots
+        plots_dir = FITTED_PARAMETERS_FILE.parent / 'validation_plots'
+        logger.info("Saving validation plots...")
+
+        for _, row in allometry_df.iterrows():
+            # Get training data for this forest type
+            type_data = training_df[training_df['ForestType'] == row['forest_type']]
+            
+            if len(type_data) > 0:
+                result = AllometryResults(**row.to_dict())
+                self._save_allometry_validation_plot(result, type_data, plots_dir)
+
+        # Save and log metrics
+        self._save_and_log_metrics(allometry_df, FITTED_PARAMETERS_FILE.parent) 
         
         return output_files

@@ -69,7 +69,8 @@ quality:
 
 
 fitting:
-  height_res: 100
+  height_res: 10
+  height_metric: 'mean'
 
   quantiles: [0.15, 0.85]
   alpha: 0.05
@@ -78,9 +79,9 @@ fitting:
   min_height: 0.0
 
   min_bgb_samples: 25
-  percentiles: [5, 95]
+  percentiles: [15, 85]
 
-  outlier_removal: True
+  outlier_removal: False
   outlier_contamination: 0.12
          
   min_r2: 0.1

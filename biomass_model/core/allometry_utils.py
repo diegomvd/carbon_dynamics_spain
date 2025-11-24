@@ -18,7 +18,9 @@ from pathlib import Path
 from dataclasses import dataclass
 from typing import Dict, Any, Literal, Optional, Tuple, List
 from sklearn.covariance import EllipticEnvelope
-import warnings
+import warnings    
+from scipy.stats import theilslopes
+
 
 # Shared utilities
 from shared_utils import get_logger, setup_logging, load_config
@@ -51,6 +53,111 @@ class BGBRatioResults:
     q05: float
     q95: float
 
+
+def load_forest_type_code_mapping() -> pd.DataFrame:
+    """
+    Load forest type name → code mapping (cached).
+    
+    Returns DataFrame with columns: code, name
+    """
+    cache_file = FOREST_TYPE_MFE_CODE_TO_NAME_FILE  
+    return pd.read_csv(cache_file)
+    
+def get_forest_type_code(forest_type_name: str) -> Optional[int]:
+    """Map forest type name to code."""
+    mapping = load_forest_type_code_mapping()
+    match = mapping[mapping['name'] == forest_type_name]
+    
+    if len(match) > 0:
+        return int(match.iloc[0]['code'])
+    return None
+
+def parse_height_tile_metadata(filepath: Path) -> Optional[Dict]:
+    """
+    Extract year and forest type code from filename.
+    
+    Pattern: canopy_height_{year}_{coords}_code{code}.tif
+    Example: canopy_height_2017_N36.0_W3.0_code0.tif
+    """
+    stem = filepath.stem
+    
+    # Extract year: canopy_height_2017_...
+    year_match = re.search(r'canopy_height_(\d{4})_', stem)
+    if not year_match:
+        return None
+    
+    # Extract code: ..._code12.tif
+    code_match = re.search(r'_code(\d+)', stem)
+    if not code_match:
+        return None
+    
+    return {
+        'year': int(year_match.group(1)),
+        'forest_type_code': int(code_match.group(1))
+    }
+
+def extract_heights_at_plot_robust(
+    height_maps_dir: Path,
+    plot_geom: Point,
+    plot_year: int,
+    plot_forest_type_code: int,
+    plot_radius: float = 25.0,
+    min_pixels: int = 5
+) -> Optional[Dict]:
+    """
+    Extract all 10m pixels within plot radius, compute statistics.
+    
+    Returns dict with: n_pixels, H_mean, H_p75, H_p90, H_std
+    """
+    logger = get_logger('biomass_estimation.allometry_utils')
+    
+    buffer = plot_geom.buffer(plot_radius)
+    
+    # Find matching tiles: canopy_height_2017_*_code12.tif
+    pattern = f"canopy_height_{plot_year}_*_code{plot_forest_type_code}.tif"
+    matching_tiles = list(height_maps_dir.glob(pattern))
+    
+    if not matching_tiles:
+        return None
+    
+    heights = []
+    
+    for tile_path in matching_tiles:
+        try:
+            with rasterio.open(tile_path) as src:
+                # Quick bounds check
+                tile_bounds = src.bounds
+                if not (buffer.bounds[0] <= tile_bounds[2] and 
+                       buffer.bounds[2] >= tile_bounds[0] and
+                       buffer.bounds[1] <= tile_bounds[3] and 
+                       buffer.bounds[3] >= tile_bounds[1]):
+                    continue
+                
+                # Extract pixels within buffer
+                from rasterio.mask import mask as rio_mask
+                out_image, _ = rio_mask(src, [buffer], crop=True, nodata=np.nan)
+                height_data = out_image[0]
+                
+                valid = height_data[(~np.isnan(height_data)) & (height_data > 0)]
+                if len(valid) > 0:
+                    heights.extend(valid)
+                    
+        except Exception as e:
+            logger.debug(f"Error reading {tile_path.name}: {e}")
+            continue
+    
+    if len(heights) < min_pixels:
+        return None
+    
+    heights = np.array(heights)
+    
+    return {
+        'n_pixels': len(heights),
+        'H_mean': np.mean(heights),
+        'H_p75': np.percentile(heights, 75),
+        'H_p90': np.percentile(heights, 90),
+        'H_std': np.std(heights)
+    }
 
 def validate_height_biomass_data(df: pd.DataFrame, height_col: str = 'Height', 
                                  min_samples: int=20, max_height: float=60.0, min_height: float=0.0) -> bool:
@@ -357,91 +464,103 @@ def sample_height_at_points(height_maps_dir: Path, points_gdf: gpd.GeoDataFrame)
     return height_values
 
 
-def create_training_dataset(config: dict) -> pd.DataFrame:
+def create_training_dataset(config: dict, height_metric: str = 'mean') -> pd.DataFrame:
     """
-    Create training dataset by combining NFI data with sampled height values.
-    
-    Updated to handle both 10m and 100m height maps as specified in config.
+    Create training dataset with robust plot-aggregated heights.
     
     Args:
-        config (dict): Configuration dictionary
-        
-    Returns:
-        pd.DataFrame: Combined training dataset with height, AGB, BGB, and forest type
+        height_metric: 'mean', 'p75', or 'p90'
     """
     logger = get_logger('biomass_estimation.allometry_utils')
-    logger.info("Creating training dataset...")
+    logger.info(f"Creating training dataset using H_{height_metric}...")
     
-    # Get paths using centralized path management
     nfi_processed_dir = FOREST_INVENTORY_PROCESSED_DIR
-    
-    # Determine which height maps to use (10m for fitting, 100m for estimation)
-    use_10m = config['fitting']['height_res'] == 10
-    if use_10m:
-        height_maps_dir = HEIGHT_MAPS_10M_DIR
-        logger.info("Using 10m height maps for allometry fitting")
-    else:
-        height_maps_dir = HEIGHT_MAPS_100M_DIR
-        logger.info("Using 100m height maps for allometry fitting")
+    height_maps_dir = HEIGHT_MAPS_10M_DIR  # All tiles in single dir now
     
     target_years = config['processing']['target_years']
+    plot_radius = config['fitting'].get('plot_radius', 25.0)
+    min_pixels = config['fitting'].get('min_pixels_per_plot', 5)
     
     all_data = []
     
     for year in target_years:
         logger.info(f"Processing year {year}...")
         
-        # Look for NFI shapefile for this year
-        nfi_pattern = f'nfi4_{year}_biomass.shp'
-        nfi_path = nfi_processed_dir / 'per_year' / nfi_pattern
-        
+        nfi_path = nfi_processed_dir / 'per_year' / f'nfi4_{year}_biomass.shp'
         if not nfi_path.exists():
             logger.warning(f"NFI file not found: {nfi_path}")
             continue
         
-        # Check if height maps directory exists for this year
-        year_height_dir = height_maps_dir / str(year)
-        if not year_height_dir.exists():
-            logger.warning(f"Height maps directory not found: {year_height_dir}")
-            continue
+        nfi_gdf = gpd.read_file(nfi_path)
+        logger.info(f"  Loaded {len(nfi_gdf)} plots")
         
-        # Load NFI data
-        try:
-            nfi_gdf = gpd.read_file(nfi_path)
-            logger.info(f"Loaded {len(nfi_gdf)} NFI plots for {year}")
-        except Exception as e:
-            logger.error(f"Failed to load NFI data for {year}: {e}")
-            continue
-        
-        # Sample height values from tiled maps
-        height_values = sample_height_at_points(year_height_dir, nfi_gdf)
-        
-        # Add height to dataframe
-        nfi_gdf['Height'] = height_values
-        
-        # Filter valid data (height > 0, AGB > 0)
-        valid_mask = (
-            ~np.isnan(nfi_gdf['Height']) & 
-            (nfi_gdf['Height'] > 0) &
-            (nfi_gdf['AGB'] > 0)
-        )
-        
-        nfi_gdf_valid = nfi_gdf[valid_mask].copy()
-        logger.info(f"Valid samples for {year}: {len(nfi_gdf_valid)}")
-        
-        if len(nfi_gdf_valid) > 0:
-            nfi_gdf_valid['Year'] = year
-            all_data.append(nfi_gdf_valid)
+        for idx, plot in nfi_gdf.iterrows():
+            if idx % 100 == 0:
+                logger.debug(f"    Plot {idx}/{len(nfi_gdf)}")
+            
+            # Map forest type name → code
+            forest_type_name = plot['ForestType']
+            forest_type_code = get_forest_type_code(forest_type_name)
+            
+            if forest_type_code is None:
+                logger.debug(f"Could not map forest type: {forest_type_name}")
+                continue
+            
+            # Extract heights
+            height_stats = extract_heights_at_plot_robust(
+                height_maps_dir,
+                plot.geometry,
+                year,
+                forest_type_code,
+                plot_radius,
+                min_pixels
+            )
+            
+            if height_stats is None:
+                continue
+            
+            all_data.append({
+                'plot_id': plot.get('ID', idx),
+                'Year': year,
+                'ForestType': forest_type_name,
+                'Height': height_stats[f'H_{height_metric}'],
+                'AGB': plot['AGB'],
+                'BGB': plot.get('BGB', np.nan),
+                'BGB_Ratio': plot['BGB'] / plot['AGB'] if plot.get('BGB') and plot['AGB'] > 0 else np.nan,
+                'n_pixels': height_stats['n_pixels']
+            })
     
     if not all_data:
-        raise ValueError("No valid training data found!")
+        raise ValueError("No valid training data!")
     
-    # Combine all years
-    combined_df = pd.concat(all_data, ignore_index=True)
-    logger.info(f"Total training samples: {len(combined_df)}")
+    df = pd.DataFrame(all_data)
+    logger.info(f"Created dataset: {len(df)} samples, {df['n_pixels'].mean():.1f} pixels/plot avg")
     
-    return combined_df
+    return df
 
+
+def fit_theil_sen_allometry(heights: np.ndarray, agbd: np.ndarray) -> Tuple[float, float, float]:
+    """
+    Fit power-law using Theil-Sen (robust to outliers).
+    
+    Fits: AGBD = a * Height^b  (via log-log linear regression)
+    
+    Returns:
+        (log_intercept, slope, rmse)
+    """
+    
+    log_h = np.log(heights)
+    log_agb = np.log(agbd)
+    
+    result = theilslopes(log_agb, log_h)
+    slope = result.slope
+    log_intercept = result.intercept
+    
+    # RMSE on original scale
+    pred = np.exp(log_intercept) * heights ** slope
+    rmse = np.sqrt(np.mean((agbd - pred) ** 2))
+    
+    return log_intercept, slope, rmse
 
 def create_output_directory(output_path: Path) -> None:
     """
