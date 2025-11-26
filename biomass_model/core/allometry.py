@@ -176,7 +176,8 @@ class AllometryManager:
         current_forest_type = forest_type_name
 
         if forest_type_name == 'No arbolado':
-            tier = -1
+            tier = 0
+            current_forest_type = 'General'
 
         agb_params = None
 
@@ -238,7 +239,8 @@ class AllometryManager:
         current_forest_type = forest_type_name
 
         if forest_type_name == 'No arbolado':
-            tier = -1
+            tier = 0
+            current_forest_type = 'General'
 
         bgb_params = None
 
