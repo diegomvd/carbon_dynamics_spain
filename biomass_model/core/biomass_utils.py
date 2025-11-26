@@ -402,6 +402,15 @@ class BiomassUtils:
                 'year': year,
                 'base_pattern': f"canopy_height_{year}_{coords}"
             }
+        else:
+            match_year2 = re.search(r'AGBD_mean_S2_(\d{4})_(N[\d.]+_[WE][\d.]+)', stem)
+            if match_year2:
+                year = match_year2.group(1)
+                coords = match_year2.group(2)
+                return {
+                    'year': year,
+                    'base_pattern': f"canopy_height_{year}_{coords}"
+                }
 
         logger = get_logger('biomass_estimation')
         logger.error(f"Failed to extract tile info from: {stem}")
@@ -493,3 +502,60 @@ class BiomassUtils:
         
         logger.info(f"Built forest type mapping: {len(mapping)} entries")
         return mapping    
+
+    def read_agbd_and_mask_xarray(self, agbd_mean_file, agbd_unc_file, mask_file):
+        """
+        Read AGBD mean, uncertainty, and mask rasters into xarray with dask chunking.
+        
+        Args:
+            agbd_mean_file (str): Path to AGBD mean raster
+            agbd_unc_file (str): Path to AGBD uncertainty raster
+            mask_file (str): Path to forest type mask
+            
+        Returns:
+            tuple: ((agbd_mean_xr, agbd_unc_xr), mask_xr, out_meta)
+        """
+        import os
+        import rioxarray as rxr
+        import numpy as np
+        
+        # Validate input files exist
+        if not os.path.exists(agbd_mean_file):
+            raise FileNotFoundError(f"AGBD mean file not found: {agbd_mean_file}")
+        if not os.path.exists(agbd_unc_file):
+            raise FileNotFoundError(f"AGBD uncertainty file not found: {agbd_unc_file}")
+        if not os.path.exists(mask_file):
+            raise FileNotFoundError(f"Mask file not found: {mask_file}")
+        
+        chunk_size = self.chunk_size
+        try:
+            # Read rasters with rioxarray
+            agbd_mean_xr = rxr.open_rasterio(agbd_mean_file, chunks={'x': chunk_size, 'y': chunk_size})
+            agbd_unc_xr = rxr.open_rasterio(agbd_unc_file, chunks={'x': chunk_size, 'y': chunk_size})
+            mask_xr = rxr.open_rasterio(mask_file, chunks={'x': chunk_size, 'y': chunk_size})
+        except Exception as e:
+            self.logger.error(f"Error reading raster files: {e}")
+            raise
+        
+        # Verify CRS match
+        if agbd_mean_xr.rio.crs != mask_xr.rio.crs:
+            raise ValueError(f"CRS mismatch between AGBD and mask")
+        
+        # Convert to appropriate data types and squeeze
+        agbd_mean_xr = agbd_mean_xr.astype(np.float32).squeeze()
+        agbd_unc_xr = agbd_unc_xr.astype(np.float32).squeeze()
+        mask_xr = (mask_xr > 0).astype(bool).squeeze()
+
+        # Prepare metadata for output files
+        out_meta = {
+            'driver': 'GTiff',
+            'height': agbd_mean_xr.rio.height,
+            'width': agbd_mean_xr.rio.width,
+            'count': 1,
+            'dtype': 'float32',
+            'crs': agbd_mean_xr.rio.crs,
+            'transform': agbd_mean_xr.rio.transform(),
+            'nodata': agbd_mean_xr.rio.nodata
+        }
+        
+        return (agbd_mean_xr, agbd_unc_xr), mask_xr, out_meta
