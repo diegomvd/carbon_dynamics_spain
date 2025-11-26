@@ -1,0 +1,239 @@
+"""
+Structural Loss Flagging
+
+Distinguishes structural biomass loss from stress-induced apparent loss
+using uncertainty-aware probability framework.
+"""
+
+import numpy as np
+from scipy.stats import norm
+import rasterio
+from pathlib import Path
+from typing import Tuple, Optional
+
+from shared_utils import get_logger
+
+
+def convert_ci_to_std(uncertainty_half_width: np.ndarray, ci_level: float = 0.80) -> np.ndarray:
+    """
+    Convert confidence interval half-width to standard deviation.
+    
+    For 80% CI: U = 1.28 * σ
+    """
+    z_score = norm.ppf((1 + ci_level) / 2)
+    return uncertainty_half_width / z_score
+
+
+def compute_loss_probability(
+    biomass_t_minus1: np.ndarray,
+    biomass_t: np.ndarray,
+    uncertainty_t_minus1: np.ndarray,
+    uncertainty_t: np.ndarray
+) -> np.ndarray:
+    """
+    Compute probability that biomass decreased from t-1 to t.
+    
+    P(loss) = P(B_t < B_{t-1}) given measurement uncertainties
+    """
+    # Convert CI half-widths to standard deviations
+    sigma_t_minus1 = convert_ci_to_std(uncertainty_t_minus1)
+    sigma_t = convert_ci_to_std(uncertainty_t)
+    
+    # Mean change
+    mean_change = biomass_t_minus1 - biomass_t
+    
+    # Combined uncertainty of the change
+    sigma_change = np.sqrt(sigma_t_minus1**2 + sigma_t**2)
+    
+    # Standardize and compute probability
+    z_score = mean_change / sigma_change
+    prob_loss = norm.cdf(z_score)
+    
+    return prob_loss
+
+
+def compute_structural_loss_probability(
+    biomass_t_minus1: np.ndarray,
+    biomass_t: np.ndarray,
+    biomass_t_plus1: np.ndarray,
+    uncertainty_t_minus1: np.ndarray,
+    uncertainty_t: np.ndarray,
+    uncertainty_t_plus1: np.ndarray
+) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """
+    Compute probability of structural loss in year t.
+    
+    Returns:
+        prob_loss: P(biomass decreased at t)
+        prob_no_recovery: P(biomass hasn't recovered by t+1)
+        prob_structural_loss: Combined probability
+    """
+    # Step 1: Probability of loss at t
+    prob_loss = compute_loss_probability(
+        biomass_t_minus1, biomass_t,
+        uncertainty_t_minus1, uncertainty_t
+    )
+    
+    # Step 2: Probability of no recovery by t+1
+    prob_no_recovery = compute_loss_probability(
+        biomass_t_minus1, biomass_t_plus1,
+        uncertainty_t_minus1, uncertainty_t_plus1
+    )
+    
+    # Step 3: Combined probability
+    prob_structural_loss = prob_loss * prob_no_recovery
+    
+    return prob_loss, prob_no_recovery, prob_structural_loss
+
+
+def load_biomass_maps(
+    mean_file: Path,
+    uncertainty_file: Path
+) -> Tuple[np.ndarray, np.ndarray, dict]:
+    """Load biomass mean and uncertainty maps."""
+    with rasterio.open(mean_file) as src:
+        biomass_mean = src.read(1)
+        meta = src.meta.copy()
+    
+    with rasterio.open(uncertainty_file) as src:
+        uncertainty = src.read(1)
+    
+    return biomass_mean, uncertainty, meta
+
+
+def save_probability_map(
+    probability: np.ndarray,
+    output_file: Path,
+    meta: dict
+) -> None:
+    """Save probability map as GeoTIFF."""
+    meta.update(dtype='float32', nodata=-9999.0)
+    
+    output_file.parent.mkdir(parents=True, exist_ok=True)
+    
+    with rasterio.open(output_file, 'w', **meta) as dst:
+        dst.write(probability.astype('float32'), 1)
+
+
+def process_tile_structural_loss(
+    tile_pattern: str,
+    year: int,
+    input_mean_dir: Path,
+    input_uncertainty_dir: Path,
+    output_dir: Path
+) -> bool:
+    """
+    Process structural loss probability for a single tile and year.
+    """
+    logger = get_logger('biomass_estimation.structural_loss_flagging')
+
+    
+    # Find files for t-1, t, t+1
+
+    mean_files = {
+        't_minus1': list((input_mean_dir / str(year-1)).glob(tile_pattern.format(year=year-1))),
+        't': list((input_mean_dir / str(year)).glob(tile_pattern.format(year=year))),
+        't_plus1': list((input_mean_dir / str(year+1)).glob(tile_pattern.format(year=year+1)))
+    }
+
+    uncertainty_files = {
+        't_minus1': list((input_uncertainty_dir / str(year-1)).glob(tile_pattern.format(year=year-1))),
+        't': list((input_uncertainty_dir / str(year)).glob(tile_pattern.format(year=year))),
+        't_plus1': list((input_uncertainty_dir / str(year+1)).glob(tile_pattern.format(year=year+1)))
+    }
+    
+    # Check all files exist
+    for key in ['t_minus1', 't', 't_plus1']:
+        if not mean_files[key] or not uncertainty_files[key]:
+            logger.warning(f"Missing files for {key} at year {year}")
+            return False
+    
+    # Process each tile
+    success_count = 0
+    for mean_t, uncertainty_t in zip(mean_files['t'], uncertainty_files['t']):
+        try:
+            # Load data
+            biomass_t_minus1, unc_t_minus1, meta = load_biomass_maps(
+                mean_files['t_minus1'][0], uncertainty_files['t_minus1'][0]
+            )
+            biomass_t, unc_t, _ = load_biomass_maps(mean_t, uncertainty_t)
+            biomass_t_plus1, unc_t_plus1, _ = load_biomass_maps(
+                mean_files['t_plus1'][0], uncertainty_files['t_plus1'][0]
+            )
+            
+            # Compute probabilities
+            _, _, prob_structural = compute_structural_loss_probability(
+                biomass_t_minus1, biomass_t, biomass_t_plus1,
+                unc_t_minus1, unc_t, unc_t_plus1
+            )
+            
+            # Save single output
+            tile_name = mean_t.stem
+            save_probability_map(
+                prob_structural,
+                output_dir / f"{tile_name}_prob_structural_loss.tif",
+                meta
+            )
+            
+            success_count += 1
+            
+        except Exception as e:
+            logger.error(f"Failed processing tile {mean_t.name}: {e}")
+            continue
+    
+    return success_count > 0
+
+
+def process_edge_case_2024(
+    tile_pattern: str,
+    input_mean_dir: Path,
+    input_uncertainty_dir: Path,
+    output_dir: Path
+) -> bool:
+    """
+    Process 2024 edge case - only P(loss) without recovery assessment.
+    """
+    logger = get_logger('biomass_estimation.structural_loss_flagging')
+    
+    year = 2024
+    mean_files = {
+        't_minus1': list((input_mean_dir / '2023').glob(tile_pattern.format(year=2023))),
+        't': list((input_mean_dir / '2024').glob(tile_pattern.format(year=2024)))
+    }
+    
+    uncertainty_files = {
+        't_minus1': list((input_uncertainty_dir / '2023').glob(tile_pattern.format(year=2023))),
+        't': list((input_uncertainty_dir / '2024').glob(tile_pattern.format(year=2024)))
+    }
+    
+    if not all(mean_files.values()) or not all(uncertainty_files.values()):
+        logger.warning("Missing files for 2024 edge case")
+        return False
+    
+    success_count = 0
+    for mean_t, uncertainty_t in zip(mean_files['t'], uncertainty_files['t']):
+        try:
+            biomass_t_minus1, unc_t_minus1, meta = load_biomass_maps(
+                mean_files['t_minus1'][0], uncertainty_files['t_minus1'][0]
+            )
+            biomass_t, unc_t, _ = load_biomass_maps(mean_t, uncertainty_t)
+            
+            prob_loss = compute_loss_probability(
+                biomass_t_minus1, biomass_t,
+                unc_t_minus1, unc_t
+            )
+            
+            tile_name = mean_t.stem
+            save_probability_map(
+                prob_loss,
+                output_dir / f"{tile_name}_prob_structural_loss.tif",
+                meta
+            )
+            
+            success_count += 1
+            
+        except Exception as e:
+            logger.error(f"Failed processing 2024 tile {mean_t.name}: {e}")
+            continue
+    
+    return success_count > 0

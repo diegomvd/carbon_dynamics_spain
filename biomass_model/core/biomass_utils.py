@@ -121,138 +121,134 @@ class BiomassUtils:
             print(f"{description}: {elapsed:.2f}s")
 
 
-    def write_agbd_results(self, results, height_file, code, forest_type_name, mask_data, output_meta):
-        """
-        Write AGBD-only results (mean, lower, upper) using rioxarray with optimized GeoTIFF settings.
-        
-        Parallel method to write_xarray_results() but for AGBD-only pipeline.
-        Writes 3 separate rasters: mean, lower, upper bounds.
-        
-        Args:
-            results (xarray.Dataset): Results from AGBDDirectEstimator.run()
-            height_file (str): Path to input height file
-            code (str): Forest type code
-            forest_type_name (str): Name of forest type
-            mask_data (xarray.DataArray): Boolean mask array
-            output_meta (dict): Raster metadata for outputs
-            
-        Returns:
-            bool: True if successful, False otherwise
-        """
-        
-        # Get GeoTIFF optimization settings from config
+    def write_agbd_tile(self, median, uncertainty, height_file, output_meta):
+        """Write merged AGBD results for entire tile."""
+
         geotiff_options = {
             'tiled': self.config['output']['geotiff']['tiled'],
-            'blockxsize': self.config['output']['geotiff']['blockxsize'], 
+            'blockxsize': self.config['output']['geotiff']['blockxsize'],
+            'blockysize': self.config['output']['geotiff']['blockysize'],
+            'compress': self.config['output']['geotiff'].get('compress'),
+            'dtype': 'float32'
+        }
+
+        stem = Path(height_file).stem
+        try:
+            specs = re.findall(r'canopy_height_(.*)', stem)[0]
+        except IndexError:
+            self.logger.error(f"Invalid filename: {stem}")
+            return False
+
+        year = specs.split('_')[0]
+        output_base = BIOMASS_MAPS_TILED_DIR
+
+        for data, measure in [(median, 'mean'), (uncertainty, 'uncertainty')]:
+            output_dir = output_base / f"AGBD_{measure}" / year
+            output_dir.mkdir(parents=True, exist_ok=True)
+
+            filename = f"AGBD_{measure}_S2_{specs}.tif"
+            savepath = output_dir / filename
+
+            # Set spatial metadata
+            if hasattr(data, 'rio'):
+                if 'crs' in output_meta:
+                    data.rio.write_crs(output_meta['crs'], inplace=True)
+                data.rio.write_nodata(output_meta['nodata'], inplace=True)
+
+            try:
+                data.rio.to_raster(savepath, driver='GTiff', **geotiff_options)
+                self.logger.info(f"Saved {savepath}")
+            except Exception as e:
+                self.logger.error(f"Write failed: {e}")
+                return False
+
+        return True
+            
+    def write_agbd_results(self, results, height_file, code, forest_type_name, mask_data, output_meta):
+        """
+        Write AGBD results (mean + uncertainty).
+
+        Args:
+            results: xarray.Dataset with agbd_median and agbd_uncertainty
+            height_file: Path to input height file
+            code: Forest type code
+            forest_type_name: Forest type name
+            mask_data: Boolean mask array
+            output_meta: Raster metadata
+
+        Returns:
+            bool: Success status
+        """
+        geotiff_options = {
+            'tiled': self.config['output']['geotiff']['tiled'],
+            'blockxsize': self.config['output']['geotiff']['blockxsize'],
             'blockysize': self.config['output']['geotiff']['blockysize'],
             'compress': self.config['output']['geotiff']['compress'],
             'dtype': output_meta.get('dtype', 'float32')
         }
-        
+
         try:
-            # Process each variable in the results dataset
-            for variable in results.data_vars:
-                # Parse variable name: agbd_mean, agbd_lower, agbd_upper
-                parts = variable.split('_')
-                if len(parts) != 2 or parts[0] != 'agbd':
-                    self.logger.warning(f"Unexpected variable name format: {variable}")
-                    continue
-                
-                measure = parts[1]  # 'mean', 'lower', or 'upper'
-                
-                # Build save path using new AGBD path structure
-                try:
-                    savepath = self.build_agbd_savepath(Path(height_file), measure, code)
-                except ValueError as e:
-                    self.logger.error(f"Error building save path for {variable}: {e}")
-                    continue
-                
-                # Ensure output directory exists
+            for variable in results.data_vars:  # agbd_mean, agbd_uncertainty
+                measure = variable.split('_')[1]  # 'mean' or 'uncertainty'
+
+                savepath = self.build_agbd_savepath(Path(height_file), measure, code)
                 os.makedirs(os.path.dirname(savepath), exist_ok=True)
-                
+
                 self.logger.info(f"Writing AGBD {measure} for {forest_type_name}")
-                with self.timer(f"Writing AGBD {measure}"):
-                    # Get this result variable
-                    result = results[variable]
-                    
-                    # Apply mask and handle nodata values
-                    masked_result = result.where(mask_data, output_meta['nodata'])
-                    masked_result = masked_result.fillna(output_meta['nodata'])
-                    
-                    # Set CRS information for proper georeferencing
-                    if hasattr(mask_data, 'rio') and hasattr(mask_data.rio, 'crs'):
-                        masked_result.rio.write_crs(mask_data.rio.crs, inplace=True)
-                    elif 'crs' in output_meta:
-                        masked_result.rio.write_crs(output_meta['crs'], inplace=True)
-                    
-                    # Set nodata value
-                    masked_result.rio.write_nodata(output_meta['nodata'], inplace=True)
-                    
-                    # Write to optimized GeoTIFF
-                    try:
-                        masked_result.rio.to_raster(
-                            savepath,
-                            driver='GTiff',
-                            **geotiff_options
-                        )
-                        self.logger.info(f"Saved AGBD {measure} to: {savepath}")
-                    except Exception as write_error:
-                        self.logger.error(f"Error writing {savepath}: {write_error}")
-                        return False
-            
+
+                result = results[variable]
+                masked_result = result.where(mask_data, output_meta['nodata'])
+                masked_result = masked_result.fillna(output_meta['nodata'])
+
+                if hasattr(mask_data, 'rio') and hasattr(mask_data.rio, 'crs'):
+                    masked_result.rio.write_crs(mask_data.rio.crs, inplace=True)
+                elif 'crs' in output_meta:
+                    masked_result.rio.write_crs(output_meta['crs'], inplace=True)
+
+                masked_result.rio.write_nodata(output_meta['nodata'], inplace=True)
+
+                try:
+                    masked_result.rio.to_raster(savepath, driver='GTiff', **geotiff_options)
+                    self.logger.info(f"Saved AGBD {measure} to: {savepath}")
+                except Exception as write_error:
+                    self.logger.error(f"Error writing {savepath}: {write_error}")
+                    return False
+
             return True
-            
+
         except Exception as e:
             self.logger.error(f"Error writing AGBD results for {forest_type_name}: {str(e)}")
-            import traceback
-            self.logger.error(traceback.format_exc())
             return False
 
-    def build_agbd_savepath(self, fname, measure, code):
+
+    def build_agbd_savepath(self, fname: Path, measure: str, code: str) -> str:
         """
-        Build output file path for AGBD-only outputs.
-        
-        Parallel method to build_savepath() but for AGBD-only structure:
-        AGBD_mean/2020/AGBD_mean_2020_100m_tile_XXX_code_YY.tif
-        
+        Build output path for AGBD results.
+
         Args:
-            fname (Path): Input height file path
-            measure (str): Measure type ('mean', 'lower', or 'upper')
-            code (str): Forest type code
-            
+            fname: Input file path
+            measure: 'mean' or 'uncertainty'
+            code: Forest type code
+
         Returns:
-            str: Full path to output file
-            
-        Raises:
-            ValueError: If filename format is invalid
+            Full path to output file
         """
         stem = fname.stem
 
-        # Extract specifications from canopy height filename
         try:
             specs = re.findall(r'canopy_height_(.*)', stem)[0]
         except IndexError:
             self.logger.error(f"Could not extract specifications from filename: {stem}")
             raise ValueError(f"Invalid filename format: {stem}")
 
-        # Get base output directory
         output_base_dir = BIOMASS_MAPS_PER_FOREST_TYPE_RAW_DIR
-        
-        # Extract year from specs
         year = specs.split('_')[0]
-        
-        # Build directory structure: AGBD_<measure>/year/
         subdir = f"AGBD_{measure}"
         output_dir = output_base_dir / subdir / year
-        
-        # Create directory if needed
         Path(output_dir).mkdir(parents=True, exist_ok=True)
-        
-        # Build filename: AGBD_<measure>_S2_<specs>_code<code>.tif
+
         filename = f"AGBD_{measure}_S2_{specs}_code{code}.tif"
-        
-        return os.path.join(output_dir, filename)
- 
+        return os.path.join(output_dir, filename) 
 
     def write_xarray_results(self, results, height_file, code, forest_type_name, mask_data, output_meta):
         """
@@ -385,7 +381,6 @@ class BiomassUtils:
     def extract_tile_info(self, filepath):
         """
         Extract year and pattern information from a canopy height filename.
-        TODO: 100m resolution hardcoded in filename pattern, this does not allow flexibility to make bioass estimation at 10m resolution.    
         Args:
             filepath (str): Path to canopy height file
             
@@ -393,18 +388,19 @@ class BiomassUtils:
             dict: Dictionary with year and base pattern, or None if pattern doesn't match
             
         Example:
-            >>> extract_tile_info("canopy_height_2020_100m_tile1.tif")
+            >>> 
             {'year': '2020', 'base_pattern': 'canopy_height_2020_100m'}
         """
         stem = Path(filepath).stem
 
         # Match pattern for canopy height files
-        match_year = re.search(r'canopy_height_(\d{4})_100m', stem)
+        match_year = re.search(r'canopy_height_(\d{4})_(N[\d.]+_[WE][\d.]+)', stem)
         if match_year:
-            year = match_year.groups()[0]
+            year = match_year.group(1)
+            coords = match_year.group(2)
             return {
                 'year': year,
-                'base_pattern': f"canopy_height_{year}_100m"
+                'base_pattern': f"canopy_height_{year}_{coords}"
             }
 
         logger = get_logger('biomass_estimation')
@@ -412,45 +408,30 @@ class BiomassUtils:
         return None
 
     def find_masks_for_tile(self, tile_info, masks_dir):
-        """
-        Find all mask files for a given tile.
-        
-        Args:
-            tile_info (dict): Dictionary with tile information from extract_tile_info
-            masks_dir (str): Directory containing mask files
-            
-        Returns:
-            list: List of (mask_path, forest_type_code) tuples
-            
-        Raises:
-            OSError: If masks directory doesn't exist or isn't accessible
-        """
+        """Find all mask files for a given tile."""
         logger = get_logger('biomass_estimation')
         
         if not os.path.exists(masks_dir):
             raise OSError(f"Masks directory not found: {masks_dir}")
-            
-        # Extract the year for pattern matching
-        year = tile_info['year']
-
-        # Construct pattern for masks
-        mask_pattern = f"canopy_height_{year}_100m_*.tif"
+        
+        # Build pattern: canopy_height_2019_N43.0_W3.0_code*.tif
+        base_pattern = tile_info['base_pattern']
+        mask_pattern = f"{base_pattern}_code*.tif"
         
         try:
             mask_paths = glob.glob(os.path.join(masks_dir, mask_pattern))
         except OSError as e:
-            logger.error(f"Error searching for masks with pattern {mask_pattern}: {e}")
+            logger.error(f"Error searching for masks: {e}")
             return []
 
         results = []
         for mask_path in mask_paths:
-            # Extract forest type code from filename
-            match_code = re.search(r'_code(\d+)\.tif$', mask_path)
-            if match_code:
-                forest_type_code = match_code.group(1)
+            match = re.search(r'_code(\d+)\.tif$', mask_path)
+            if match:
+                forest_type_code = match.group(1)
                 results.append((mask_path, forest_type_code))
             else:
-                logger.warning(f"Could not extract forest type code from: {mask_path}")
+                logger.warning(f"Could not extract code from: {mask_path}")
         
         return results
 

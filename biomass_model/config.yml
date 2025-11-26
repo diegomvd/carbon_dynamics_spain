@@ -40,18 +40,17 @@ output:
   geotiff:
     compress: 'lzw'
     tiled: true
-    blockxsize: 512
-    blockysize: 512
+    blockxsize: 1024
+    blockysize: 1024
     nodata_value: -9999.0
 
 # Compute configuration for distributed processing
 compute:
   use_dask: true  # Whether to use Dask for distributed processing
-  num_workers: 4  # Number of Dask workers
-  memory_limit: '41GB'  # Memory limit per worker
-  chunk_size: 1024  # Raster chunk size for processing
+  num_workers: 12  # Number of Dask workers
+  memory_limit: '14GB'  # Memory limit per worker
+  chunk_size: 4096  # Raster chunk size for processing
   max_memory_usage: 0.8  # Maximum memory usage threshold
-  chunk_size: 1024       # Target chunk size in MB
   threads_per_worker: 1  # Dask threads per worker
 
 # Logging configuration
@@ -90,5 +89,5 @@ fitting:
   outlier_removal: False
   outlier_contamination: 0.12
          
-  min_r2: 0.2
+  min_r2: 0.15
   min_slope: 0.3

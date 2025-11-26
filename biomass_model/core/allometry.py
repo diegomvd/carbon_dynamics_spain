@@ -169,6 +169,124 @@ class AllometryManager:
         except Exception as e:
             self.logger.error(f"Error updating forest type {forest_type}: {str(e)}")
             return None
+
+    def get_agb_parameters(self, forest_type_name: str) -> Optional[Dict]:
+        """Get AGB allometry parameters only."""
+        tier = 4
+        current_forest_type = forest_type_name
+
+        if forest_type_name == 'No arbolado':
+            tier = -1
+
+        agb_params = None
+
+        while tier >= 0:
+            try:
+                if agb_params is None:
+                    try:
+                        agb_subset = self.allometry_data[self.allometry_data['tier'] == tier]
+                        if current_forest_type in agb_subset.index:
+                            agb_row = agb_subset.loc[current_forest_type]
+                            function_type = agb_row.get('function_type', 'power')
+                            agb_params = {
+                                'mean': (np.exp(agb_row['median_intercept']), agb_row['median_slope'], function_type),
+                                'p10': (np.exp(agb_row['low_bound_intercept']), agb_row['low_bound_slope'], function_type),
+                                'p90': (np.exp(agb_row['upper_bound_intercept']), agb_row['upper_bound_slope'], function_type)
+                            }
+                    except (KeyError, IndexError):
+                        pass
+
+                if agb_params is not None:
+                    break
+
+                if tier == 0:
+                    agb_general = self.allometry_data[self.allometry_data['tier'] == 0]
+                    if 'General' in agb_general.index:
+                        agb_row = agb_general.loc['General']
+                        function_type = agb_row.get('function_type', 'power')
+                        agb_params = {
+                            'mean': (np.exp(agb_row['median_intercept']), agb_row['median_slope'], function_type),
+                            'p10': (np.exp(agb_row['low_bound_intercept']), agb_row['low_bound_slope'], function_type),
+                            'p90': (np.exp(agb_row['upper_bound_intercept']), agb_row['upper_bound_slope'], function_type)
+                        }
+                    break
+
+                tier, old_tier_name, new_tier_name = self.update_tiers(tier)
+                current_forest_type = self.update_forest_type(current_forest_type, old_tier_name, new_tier_name)
+
+                if current_forest_type is None:
+                    current_forest_type = 'General'
+                    tier = 0
+
+            except Exception as e:
+                self.logger.error(f"Error getting AGB parameters for {forest_type_name}: {str(e)}")
+                current_forest_type = 'General'
+                tier = 0
+
+        if agb_params is None:
+            agb_params = {
+                'mean': (0.0, 0.0, 'power'),
+                'p10': (0.0, 0.0, 'power'),
+                'p90': (0.0, 0.0, 'power')
+            }
+
+        return agb_params
+
+    def get_bgb_parameters(self, forest_type_name: str) -> Optional[Dict]:
+        """Get BGB ratio parameters only."""
+        tier = 4
+        current_forest_type = forest_type_name
+
+        if forest_type_name == 'No arbolado':
+            tier = -1
+
+        bgb_params = None
+
+        while tier >= 0:
+            try:
+                if bgb_params is None:
+                    try:
+                        bgb_subset = self.bgb_ratios_data[self.bgb_ratios_data['tier'] == tier]
+                        if current_forest_type in bgb_subset.index:
+                            bgb_row = bgb_subset.loc[current_forest_type]
+                            bgb_params = {
+                                'mean': bgb_row['mean'],
+                                'p10': bgb_row['q10'],
+                                'p90': bgb_row['q90']
+                            }
+                    except (KeyError, IndexError):
+                        pass
+
+                if bgb_params is not None:
+                    break
+
+                if tier == 0:
+                    bgb_general = self.bgb_ratios_data[self.bgb_ratios_data['tier'] == 0]
+                    if 'General' in bgb_general.index:
+                        bgb_row = bgb_general.loc['General']
+                        bgb_params = {
+                            'mean': bgb_row['mean'],
+                            'p10': bgb_row['q10'],
+                            'p90': bgb_row['q90']
+                        }
+                    break
+
+                tier, old_tier_name, new_tier_name = self.update_tiers(tier)
+                current_forest_type = self.update_forest_type(current_forest_type, old_tier_name, new_tier_name)
+
+                if current_forest_type is None:
+                    current_forest_type = 'General'
+                    tier = 0
+
+            except Exception as e:
+                self.logger.error(f"Error getting BGB parameters for {forest_type_name}: {str(e)}")
+                current_forest_type = 'General'
+                tier = 0
+
+        if bgb_params is None:
+            bgb_params = {'mean': 0.0, 'p10': 0.0, 'p90': 0.0}
+
+        return bgb_params
     
     def get_allometry_parameters(self, forest_type_name: str) -> Tuple[Optional[Dict], Optional[Dict]]:
         """
@@ -201,6 +319,7 @@ class AllometryManager:
 
         # Traverse hierarchy from specific to general until parameters are found
         while tier >= 0:
+            self.logger.info(f'Tier {tier}')
             try:
                 # Attempt to find AGB allometry parameters at current tier
                 if agb_params is None:
@@ -219,12 +338,12 @@ class AllometryManager:
                                     agb_row['median_slope'],
                                     function_type
                                 ),
-                                'p15': (
+                                'p10': (
                                     np.exp(agb_row['low_bound_intercept']), # Transform log-intercept
                                     agb_row['low_bound_slope'],
                                     function_type
                                 ),
-                                'p85': (
+                                'p90': (
                                     np.exp(agb_row['upper_bound_intercept']), # Transform log-intercept
                                     agb_row['upper_bound_slope'],
                                     function_type
@@ -243,13 +362,14 @@ class AllometryManager:
                             # Build BGB ratio parameter dictionary
                             bgb_params = {
                                 'mean': bgb_row['mean'],
-                                'p5': bgb_row['q05'],
-                                'p95': bgb_row['q95']
+                                'p10': bgb_row['q10'],
+                                'p90': bgb_row['q90']
                             }
                     except (KeyError, IndexError):
                         pass  # Continue to next tier if parameters not found
                 
                 # Exit loop if both parameter sets found
+                self.logger.info(f'agb_params is: {agb_params} and bgb_params is: {bgb_params}')
                 if agb_params is not None and bgb_params is not None:
                     break
 
@@ -283,12 +403,12 @@ class AllometryManager:
                             agb_row['median_slope'],
                             function_type
                         ),
-                        'p15': (
+                        'p10': (
                             np.exp(agb_row['low_bound_intercept']),
                             agb_row['low_bound_slope'],
                             function_type
                         ),
-                        'p85': (
+                        'p90': (
                             np.exp(agb_row['upper_bound_intercept']),
                             agb_row['upper_bound_slope'],
                             function_type
@@ -298,8 +418,8 @@ class AllometryManager:
                 # Absolute last resort - zero parameters
                 agb_params = {
                     'median': (0.0, 0.0, 'power'),
-                    'p15': (0.0, 0.0, 'power'),
-                    'p85': (0.0, 0.0, 'power')
+                    'p10': (0.0, 0.0, 'power'),
+                    'p90': (0.0, 0.0, 'power')
                 }
         
         # Final fallback to General BGB coefficients if still missing
@@ -311,15 +431,15 @@ class AllometryManager:
                     bgb_row = bgb_general.loc['General']
                     bgb_params = {
                         'mean': bgb_row['mean'],
-                        'p5': bgb_row['q05'],
-                        'p95': bgb_row['q95']
+                        'p10': bgb_row['q10'],
+                        'p90': bgb_row['q90']
                     }
             except:
                 # Absolute last resort - zero parameters
                 bgb_params = {
                     'mean': 0.0,
-                    'p5': 0.0,
-                    'p95': 0.0
+                    'p10': 0.0,
+                    'p90': 0.0
                 }
 
         return agb_params, bgb_params

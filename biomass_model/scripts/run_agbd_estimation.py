@@ -31,7 +31,7 @@ from typing import Optional
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 # Component imports
-from biomass_model.core.agbd_estimation_pipeline import AGBDEstimationPipeline
+from biomass_model.core.agbd_estimation import AGBDEstimationPipeline
 from shared_utils import setup_logging, log_pipeline_start, log_pipeline_end
 
 
@@ -84,7 +84,6 @@ def main():
         return False
     
     # Log pipeline start
-    log_pipeline_start("AGBD Estimation Pipeline")
     
     # Run pipeline
     try:
@@ -97,9 +96,6 @@ def main():
         import traceback
         traceback.print_exc()
         return False
-    finally:
-        # Log pipeline end
-        log_pipeline_end("AGBD Estimation Pipeline")
     
     return success
 

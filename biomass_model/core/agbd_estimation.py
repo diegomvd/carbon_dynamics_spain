@@ -18,6 +18,8 @@ import time
 from tqdm import tqdm
 import pandas as pd
 from typing import Optional, Union
+import xarray as xr
+
 
 # Shared utilities
 from shared_utils import setup_logging, get_logger, load_config
@@ -25,7 +27,7 @@ from shared_utils.central_data_paths_constants import *
 
 # Component imports
 from biomass_model.core.allometry import AllometryManager
-from biomass_model.core.agbd_direct_estimator import AGBDEstimator
+from biomass_model.core.agbd_estimator import AGBDDirectEstimator
 from biomass_model.core.biomass_utils import BiomassUtils
 from biomass_model.core.dask_utils import DaskClusterManager
 
@@ -98,7 +100,7 @@ class AGBDEstimationPipeline:
                 
                 # Get allometry parameters (only need AGB params)
                 try:
-                    agb_params, _ = self.allometry_manager.get_allometry_parameters(
+                    agb_params = self.allometry_manager.get_agb_parameters(
                         forest_type_name
                     )
                 except Exception as e:
@@ -125,7 +127,7 @@ class AGBDEstimationPipeline:
                     logger.error(f"AGBD estimation failed: {e}")
                     return False
                 
-                # Write AGBD results (3 outputs: mean, lower, upper)
+                # Write AGBD results (2 outputs: mean, half-width uncertainty)
                 try:
                     success = self.biomass_utils.write_agbd_results(
                         results, height_file, code, forest_type_name, mask_data, metadata
@@ -148,62 +150,80 @@ class AGBDEstimationPipeline:
             return False
 
     def process_tile(self, height_file, forest_types_table, code_to_name):
-        """
-        Process a single tile with all associated forest types.
-        
-        Args:
-            height_file (str): Path to height raster
-            forest_types_table (pd.DataFrame): Forest type hierarchy table
-            code_to_name (dict): Mapping from forest type codes to names
-            
-        Returns:
-            bool: True if processing succeeded, False otherwise
-        """
+
+        """Process all forest types and merge into single tile arrays."""
         logger = get_logger('biomass_estimation')
         tile_name = Path(height_file).stem
         logger.info(f"Processing tile: {tile_name}")
-        
-        # Extract tile information from filename
+
         tile_info = self.biomass_utils.extract_tile_info(height_file)
         if not tile_info:
-            logger.error(f"Failed to extract tile information from {height_file}")
             return False
-            
-        # Find all forest type masks for this tile
-        try:
-            masks_dir = str(FOREST_TYPE_MASKS_DIR)
-            masks = self.biomass_utils.find_masks_for_tile(tile_info, masks_dir)
-        except OSError as e:
-            logger.error(f"Error finding masks for {tile_name}: {e}")
-            return False
-            
-        if not masks:
-            logger.warning(f"No masks found for {tile_name}")
-            return False
-            
-        logger.info(f"Found {len(masks)} masks for {tile_name}")
-        
-        # Process each forest type independently
-        results = []
-        for mask_path, code in tqdm(masks, desc=f"Processing forest types for {tile_name}"):
-            forest_type = code_to_name.get(int(code), f"Unknown_{code}")
-            
-            # Process this specific forest type
-            success = self.process_forest_type(
-                height_file, mask_path, code, forest_type
-            )
-            
-            results.append(success)
-            
-            # Force garbage collection between forest types
-            gc.collect()
-        
-        # Calculate success rate for this tile
-        success_count = sum(1 for r in results if r)
-        logger.info(f"Processed {success_count}/{len(masks)} forest types for {tile_name}")
-        
-        return success_count > 0
 
+        masks_dir = str(FOREST_TYPE_MASKS_DIR)
+        masks = self.biomass_utils.find_masks_for_tile(tile_info, masks_dir)
+
+        if not masks:
+            return False
+
+        logger.info(f"Found {len(masks)} masks for {tile_name}")
+
+        # Initialize merged arrays (will be None until first result)
+        merged_median = None
+        merged_uncertainty = None
+        metadata = None
+        first_successful = True
+        
+        with self.dask_manager.create_cluster() as client:
+            logger.info(f"Dask dashboard: {client.dashboard_link}")
+
+            for mask_path, code in masks:
+                forest_type = code_to_name.get(int(code), f"Unknown_{code}")
+
+                try:
+                    agb_params = self.allometry_manager.get_agb_parameters(forest_type)
+                    height_data, mask_data, meta = self.biomass_utils.read_height_and_mask_xarray(
+                        height_file, mask_path
+                    )
+
+                    if first_successful:
+                        metadata = meta
+                        # Initialize with nodata
+                        merged_median = xr.full_like(height_data, meta['nodata'], dtype='float32')
+                        merged_uncertainty = xr.full_like(height_data, meta['nodata'], dtype='float32')
+                        first_successful = False
+                        
+                    masked_heights = height_data.where(mask_data)
+                    results = self.agbd_estimator.run(masked_heights, agb_params)
+
+                    # Merge: fill in pixels where mask is True
+                    merged_median = merged_median.where(~mask_data, results['agbd_mean'])
+                    merged_uncertainty = merged_uncertainty.where(~mask_data, results['agbd_uncertainty'])
+
+                    logger.info(f"✓ Merged {forest_type}")
+
+                except Exception as e:
+                    logger.error(f"Error processing {forest_type}: {e}")
+                    continue
+                
+            if merged_median is None:
+                logger.error(f"No forest types processed successfully for {tile_name}")
+                return False
+            
+            # Compute final merged arrays
+            logger.info("Computing merged results...")
+            merged_median = merged_median.compute()
+            merged_uncertainty = merged_uncertainty.compute()
+
+        # Write 2 files for entire tile
+        logger.info(f"Writing merged tile results...")
+        success = self.biomass_utils.write_agbd_tile(
+            merged_median, merged_uncertainty, height_file, metadata
+        )
+
+        gc.collect()
+        return success
+    
     def run_full_pipeline(self) -> bool:
         """
         Main orchestration function to process all tiles.
